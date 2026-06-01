@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Download, Search } from 'lucide-react';
 import { toCsv, toJson, toTsv } from '../lib/gridExport';
 import { sortRows, filterRows, type SortDir } from '../lib/gridView';
+import { cellText, tsTimestamp, download } from '../lib/gridFormat';
 
 interface Props {
   columns: string[];
@@ -16,29 +17,6 @@ interface Sel {
   c2: number;
 }
 
-function tsTimestamp(): string {
-  const d = new Date();
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
-}
-
-function download(filename: string, text: string, mime: string) {
-  const blob = new Blob([text], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
-
-function cellText(val: unknown): string {
-  if (val === null || val === undefined) return 'NULL';
-  if (typeof val === 'object') return JSON.stringify(val);
-  return String(val);
-}
 
 export const ResultGrid: React.FC<Props> = ({ columns, rows, rowHeight = 32 }) => {
   const [filter, setFilter] = useState('');
