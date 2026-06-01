@@ -71,6 +71,21 @@ export const ResultGrid: React.FC<Props> = ({ columns, rows, rowHeight = 32 }) =
     setSel(null);
   }, [rows, filter, sort]);
 
+  // Close the export menu on any outside click or Escape.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = () => setMenuOpen(false);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenuOpen(false);
+    };
+    window.addEventListener('click', close);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [menuOpen]);
+
   const totalHeight = display.length * rowHeight;
   const buffer = 6;
   const start = Math.max(0, Math.floor(scrollTop / rowHeight) - buffer);
