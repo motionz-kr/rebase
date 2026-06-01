@@ -1,11 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { X, RefreshCw, Download, AlertTriangle, ChevronLeft, ChevronRight, Search } from 'lucide-react';
+import { X, RefreshCw, Download, AlertTriangle, ChevronLeft, ChevronRight, Search, Plus, Trash2, Save, Undo2 } from 'lucide-react';
 import type { ColumnInfo } from '../global';
 import type { Driver } from '../lib/ddlBuilder';
 import { buildSelectPage, type ColFilter, type OrderBy } from '../lib/tableQuery';
 import { runSelect } from '../lib/runSelect';
+import { runDdl } from '../lib/runDdl';
 import { toCsv, toJson, toTsv } from '../lib/gridExport';
 import { cellText, tsTimestamp, download } from '../lib/gridFormat';
+import { buildUpdate, buildInsert, buildDelete, type CellValue } from '../lib/dmlBuilder';
 
 interface Props {
   profileId: string;
@@ -25,6 +27,13 @@ interface Sel {
 const PAGE_SIZE = 200;
 const ROW_HEIGHT = 32;
 
+// Coerce an arbitrary cell value from the DB into a SQL-literal-able CellValue.
+function asCell(v: unknown): CellValue {
+  if (v === null || v === undefined) return null;
+  if (typeof v === 'number' || typeof v === 'string' || typeof v === 'boolean') return v;
+  return JSON.stringify(v);
+}
+
 export const TableDataView: React.FC<Props> = ({ profileId, driver, database, table, onClose }) => {
   const [columns, setColumns] = useState<string[]>([]);
   const [pkCols, setPkCols] = useState<string[]>([]);
@@ -39,14 +48,20 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
   const [menuOpen, setMenuOpen] = useState(false);
   const [sel, setSel] = useState<Sel | null>(null);
 
+  // editing state
+  const [editing, setEditing] = useState<{ r: number; c: number } | null>(null);
+  const [editText, setEditText] = useState('');
+  const [edits, setEdits] = useState<Record<number, Record<number, CellValue>>>({});
+  const [deletes, setDeletes] = useState<Set<number>>(new Set());
+  const [newRows, setNewRows] = useState<Array<Record<number, string>>>([]);
+  const [saving, setSaving] = useState(false);
+  const [preview, setPreview] = useState<string[] | null>(null);
+
   const bodyRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [containerHeight, setContainerHeight] = useState(300);
-  // Monotonic request id so a superseded fetch (rapid page/sort/filter changes)
-  // never applies its result over a newer one.
   const reqRef = useRef(0);
 
-  // Load column metadata (and PK info, used by Phase 3 editing) once.
   useEffect(() => {
     let ignore = false;
     (async () => {
@@ -65,6 +80,13 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
     };
   }, [profileId, database, table]);
 
+  const clearPending = () => {
+    setEdits({});
+    setDeletes(new Set());
+    setNewRows([]);
+    setEditing(null);
+  };
+
   const fetchPage = useCallback(async () => {
     const myReq = ++reqRef.current;
     setLoading(true);
@@ -72,11 +94,11 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
     const sql = buildSelectPage(driver, table, {
       filters: appliedFilters,
       orderBy,
-      limit: PAGE_SIZE + 1, // one extra row to detect a next page
+      limit: PAGE_SIZE + 1,
       offset: page * PAGE_SIZE,
     });
     const res = await runSelect(profileId, sql);
-    if (myReq !== reqRef.current) return; // a newer fetch superseded this one
+    if (myReq !== reqRef.current) return;
     setLoading(false);
     if (!res.ok) {
       setError(res.error || 'Query failed');
@@ -103,6 +125,14 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
     return () => ro.disconnect();
   }, []);
 
+  const noPk = useMemo(() => pkCols.length === 0, [pkCols]);
+  const editable = !noPk;
+  const pendingCount = useMemo(
+    () => Object.values(edits).reduce((n, r) => n + Object.keys(r).length, 0) + deletes.size + newRows.length,
+    [edits, deletes, newRows]
+  );
+  const hasPending = pendingCount > 0;
+
   const totalHeight = rows.length * ROW_HEIGHT;
   const buffer = 6;
   const start = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - buffer);
@@ -110,6 +140,7 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
   const visible = rows.slice(start, end);
 
   const toggleSort = (colName: string) => {
+    if (hasPending) return;
     setPage(0);
     setOrderBy((prev) => {
       if (!prev || prev.col !== colName) return { col: colName, dir: 'asc' };
@@ -119,6 +150,7 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
   };
 
   const applyFilters = () => {
+    if (hasPending) return;
     setPage(0);
     setAppliedFilters(columns.map((c) => ({ col: c, value: filters[c] ?? '' })).filter((f) => f.value.trim() !== ''));
   };
@@ -149,14 +181,87 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
       const grid: unknown[][] = [];
       for (let r = b.r0; r <= b.r1; r++) {
         const row: unknown[] = [];
-        for (let c = b.c0; c <= b.c1; c++) row.push(rows[r]?.[c]);
+        for (let c = b.c0; c <= b.c1; c++) row.push(displayValue(r, c));
         grid.push(row);
       }
       void navigator.clipboard.writeText(toTsv(grid));
     }
   };
 
-  const noPk = useMemo(() => pkCols.length === 0, [pkCols]);
+  // ---- editing ----
+  const displayValue = (r: number, c: number): unknown => {
+    const e = edits[r];
+    if (e && c in e) return e[c];
+    return rows[r]?.[c];
+  };
+  const isDirty = (r: number, c: number) => !!edits[r] && c in edits[r];
+
+  const startEdit = (r: number, c: number) => {
+    if (!editable || deletes.has(r)) return;
+    const v = displayValue(r, c);
+    setEditText(v === null || v === undefined ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v));
+    setEditing({ r, c });
+  };
+  const commitEdit = () => {
+    if (!editing) return;
+    const { r, c } = editing;
+    const value: CellValue = editText === '' ? null : editText;
+    setEdits((prev) => ({ ...prev, [r]: { ...(prev[r] ?? {}), [c]: value } }));
+    setEditing(null);
+  };
+
+  const markDelete = () => {
+    if (!sel) return;
+    const b = bounds(sel);
+    setDeletes((prev) => {
+      const next = new Set(prev);
+      for (let r = b.r0; r <= b.r1; r++) next.add(r);
+      return next;
+    });
+  };
+  const addRow = () => setNewRows((prev) => [...prev, {}]);
+  const removeNewRow = (i: number) => setNewRows((prev) => prev.filter((_, idx) => idx !== i));
+  const patchNewRow = (i: number, c: number, text: string) =>
+    setNewRows((prev) => prev.map((nr, idx) => (idx === i ? { ...nr, [c]: text } : nr)));
+
+  const pendingStatements = (): string[] => {
+    const stmts: string[] = [];
+    const pkOf = (r: number) => pkCols.map((col) => ({ col, value: asCell(rows[r][columns.indexOf(col)]) }));
+    for (const r of deletes) stmts.push(buildDelete(driver, table, pkOf(r)));
+    for (const rStr of Object.keys(edits)) {
+      const r = Number(rStr);
+      if (deletes.has(r)) continue;
+      const rowEdits = edits[r];
+      const changes = Object.keys(rowEdits).map((cStr) => ({ col: columns[Number(cStr)], value: rowEdits[Number(cStr)] }));
+      if (changes.length === 0) continue;
+      stmts.push(buildUpdate(driver, table, pkOf(r), changes));
+    }
+    for (const nr of newRows) {
+      const cols = Object.keys(nr)
+        .filter((cStr) => nr[Number(cStr)] !== '')
+        .map((cStr) => ({ col: columns[Number(cStr)], value: nr[Number(cStr)] as CellValue }));
+      if (cols.length === 0) continue;
+      stmts.push(buildInsert(driver, table, cols));
+    }
+    return stmts;
+  };
+
+  const save = async () => {
+    const stmts = pendingStatements();
+    if (stmts.length === 0) return;
+    setSaving(true);
+    setError(null);
+    const res = await runDdl(profileId, stmts);
+    setSaving(false);
+    if (res.ok) {
+      setPreview(null);
+      clearPending();
+      void fetchPage();
+    } else {
+      setError(`저장 실패: ${res.error}\n문장: ${res.failedStatement ?? ''}`);
+      setPreview(null);
+    }
+  };
 
   return (
     <div className="tdv">
@@ -164,9 +269,18 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
         <div className="tdv-title">
           데이터 · <span className="mono">{table}</span>
           {noPk && <span className="tdv-badge" title="고유 키가 없어 편집할 수 없습니다">읽기 전용 (PK 없음)</span>}
+          {hasPending && <span className="tdv-badge pending">보류 변경 {pendingCount}</span>}
         </div>
         <div className="tdv-head-actions">
-          <button className="icon-btn" title="새로고침" onClick={() => void fetchPage()}><RefreshCw size={14} className={loading ? 'spin' : ''} /></button>
+          {editable && (
+            <>
+              <button className="btn btn-secondary btn-xs" onClick={addRow}><Plus size={12} /> 행 추가</button>
+              <button className="btn btn-secondary btn-xs" disabled={!sel} onClick={markDelete}><Trash2 size={12} /> 삭제 표시</button>
+              <button className="btn btn-secondary btn-xs" disabled={!hasPending || saving} onClick={clearPending}><Undo2 size={12} /> 되돌리기</button>
+              <button className="btn btn-primary btn-xs" disabled={!hasPending || saving} onClick={() => setPreview(pendingStatements())}><Save size={12} /> 저장</button>
+            </>
+          )}
+          <button className="icon-btn" title="새로고침" disabled={hasPending} onClick={() => void fetchPage()}><RefreshCw size={14} className={loading ? 'spin' : ''} /></button>
           <div className="grid-export">
             <button className="btn btn-secondary btn-xs" disabled={rows.length === 0} onClick={() => setMenuOpen((o) => !o)}>
               <Download size={12} /> 내보내기 ▾
@@ -183,14 +297,14 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
       </div>
 
       {error && (
-        <div className="alert error"><AlertTriangle size={14} /><span>{error}</span></div>
+        <div className="alert error"><AlertTriangle size={14} /><span style={{ whiteSpace: 'pre-wrap' }}>{error}</span></div>
       )}
 
       <div className="grid" tabIndex={0} onKeyDown={onKeyDown}>
         <div className="grid-head">
           <div className="grid-idx">#</div>
           {columns.map((col, idx) => (
-            <div key={idx} className="grid-cell grid-head-cell" title={col} onClick={() => toggleSort(col)}>
+            <div key={idx} className="grid-cell grid-head-cell" title={hasPending ? '저장 또는 되돌리기 후 정렬' : col} onClick={() => toggleSort(col)}>
               {col}
               {orderBy && orderBy.col === col ? (orderBy.dir === 'asc' ? ' ▲' : ' ▼') : ''}
             </div>
@@ -218,24 +332,44 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
             <div className="grid-empty">{loading ? '로딩…' : 'No rows.'}</div>
           ) : (
             <div style={{ height: `${totalHeight}px`, position: 'relative' }}>
-              {visible.map((row, ri) => {
+              {visible.map((_, ri) => {
                 const r = start + ri;
+                const del = deletes.has(r);
                 return (
                   <div
                     key={r}
-                    className={`grid-row ${r % 2 === 0 ? 'even' : 'odd'}`}
+                    className={`grid-row ${r % 2 === 0 ? 'even' : 'odd'} ${del ? 'row-del' : ''}`}
                     style={{ position: 'absolute', top: `${r * ROW_HEIGHT}px`, height: `${ROW_HEIGHT}px`, left: 0, right: 0, display: 'flex' }}
                   >
                     <div className="grid-idx" onMouseDown={(e) => selectRow(r, e.shiftKey)}>{page * PAGE_SIZE + r + 1}</div>
-                    {row.map((val, c) => {
+                    {columns.map((_, c) => {
+                      if (editing && editing.r === r && editing.c === c) {
+                        return (
+                          <div key={c} className="grid-cell editing">
+                            <input
+                              className="input tdv-edit-input"
+                              autoFocus
+                              value={editText}
+                              onChange={(e) => setEditText(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') commitEdit();
+                                else if (e.key === 'Escape') setEditing(null);
+                              }}
+                              onBlur={commitEdit}
+                            />
+                          </div>
+                        );
+                      }
+                      const val = displayValue(r, c);
                       const isNull = val === null || val === undefined;
                       const text = cellText(val);
                       return (
                         <div
                           key={c}
-                          className={`grid-cell ${isNull ? 'null' : ''} ${inSel(r, c) ? 'sel' : ''}`}
+                          className={`grid-cell ${isNull ? 'null' : ''} ${inSel(r, c) ? 'sel' : ''} ${isDirty(r, c) ? 'dirty' : ''}`}
                           title={text}
                           onMouseDown={(e) => selectCell(r, c, e.shiftKey)}
+                          onDoubleClick={() => startEdit(r, c)}
                         >
                           {text}
                         </div>
@@ -248,15 +382,53 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
           )}
         </div>
 
+        {newRows.length > 0 && (
+          <div className="tdv-newrows">
+            {newRows.map((nr, i) => (
+              <div key={i} className="grid-row new-row" style={{ display: 'flex' }}>
+                <div className="grid-idx" title="새 행" onClick={() => removeNewRow(i)}><Plus size={12} /></div>
+                {columns.map((col, c) => (
+                  <div key={c} className="grid-cell">
+                    <input
+                      className="input tdv-edit-input"
+                      value={nr[c] ?? ''}
+                      placeholder={col}
+                      onChange={(e) => patchNewRow(i, c, e.target.value)}
+                    />
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        )}
+
         <div className="grid-foot">
           <div className="tdv-pager">
-            <button className="icon-btn" disabled={page === 0 || loading} onClick={() => setPage((p) => Math.max(0, p - 1))}><ChevronLeft size={14} /></button>
+            <button className="icon-btn" disabled={page === 0 || loading || hasPending} onClick={() => setPage((p) => Math.max(0, p - 1))}><ChevronLeft size={14} /></button>
             <span>페이지 {page + 1}</span>
-            <button className="icon-btn" disabled={!hasNext || loading} onClick={() => setPage((p) => p + 1)}><ChevronRight size={14} /></button>
+            <button className="icon-btn" disabled={!hasNext || loading || hasPending} onClick={() => setPage((p) => p + 1)}><ChevronRight size={14} /></button>
           </div>
           <span>{rows.length.toLocaleString()} rows · {columns.length} columns</span>
         </div>
       </div>
+
+      {preview && (
+        <div className="modal-overlay" onClick={() => setPreview(null)}>
+          <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>변경 사항 저장</h3>
+              <button className="icon-btn" onClick={() => setPreview(null)} title="Close"><X size={15} /></button>
+            </div>
+            <pre className="ddl-block">{preview.join(';\n') + (preview.length ? ';' : '')}</pre>
+            <div className="modal-foot">
+              <button className="btn btn-secondary" onClick={() => setPreview(null)}>취소</button>
+              <button className="btn btn-primary" disabled={saving} onClick={save}>
+                {saving ? <span className="spinner" /> : null} 실행
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
