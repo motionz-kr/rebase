@@ -16,13 +16,15 @@ export interface PageQuery {
 }
 
 // Build a single-quoted LIKE pattern `'%value%'`, escaping the string-literal
-// quote and the LIKE wildcards (% _ and the escape char \) so the value is
-// matched literally as a substring. Pair with `ESCAPE '\'`.
+// quote and the LIKE wildcards (% and _) so the value is matched literally as a
+// substring. Pair with `ESCAPE '!'`. We use `!` (not `\`) as the LIKE escape
+// char because MySQL treats backslash as a string-literal escape, so `ESCAPE '\'`
+// is an unterminated literal; `!` is a plain character in both MySQL and Postgres.
 function likeLiteral(value: string): string {
   const esc = value
-    .replace(/\\/g, '\\\\')
-    .replace(/%/g, '\\%')
-    .replace(/_/g, '\\_')
+    .replace(/!/g, '!!')
+    .replace(/%/g, '!%')
+    .replace(/_/g, '!_')
     .replace(/'/g, "''");
   return `'%${esc}%'`;
 }
@@ -31,7 +33,7 @@ export function buildWhere(driver: Driver, filters: ColFilter[]): string {
   const active = filters.filter((f) => f.value.trim() !== '');
   if (active.length === 0) return '';
   const conds = active.map(
-    (f) => `${quoteIdent(driver, f.col)} LIKE ${likeLiteral(f.value.trim())} ESCAPE '\\'`
+    (f) => `${quoteIdent(driver, f.col)} LIKE ${likeLiteral(f.value.trim())} ESCAPE '!'`
   );
   return 'WHERE ' + conds.join(' AND ');
 }
