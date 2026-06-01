@@ -16,6 +16,7 @@ import { RedisKeyspaceExplorer } from './components/RedisKeyspaceExplorer';
 import { RedisValueInspector } from './components/RedisValueInspector';
 import { SavedQueries } from './components/SavedQueries';
 import { QueryHistory } from './components/QueryHistory';
+import { TableDataView } from './components/TableDataView';
 import { connectionsReducer, initialConnectionsState } from './state/connections';
 import './App.css';
 
@@ -65,6 +66,7 @@ function App() {
   const [historyTrigger, setHistoryTrigger] = useState(0);
   const [savedTrigger, setSavedTrigger] = useState(0);
   const [schemaVersion, setSchemaVersion] = useState(0);
+  const [openTable, setOpenTable] = useState<Record<string, { db: string; table: string } | null>>({});
 
   // Create form state
   const [formDriver, setFormDriver] = useState<'mysql' | 'postgres' | 'redis'>('mysql');
@@ -453,7 +455,7 @@ function App() {
                             onDisconnect={() => disconnect(p.id!)}
                           />
                         ) : (
-                          <SchemaExplorer profileId={p.id!} driver={p.driver} onDisconnect={() => disconnect(p.id!)} onSchemaChanged={() => setSchemaVersion((n) => n + 1)} />
+                          <SchemaExplorer profileId={p.id!} driver={p.driver} onDisconnect={() => disconnect(p.id!)} onSchemaChanged={() => setSchemaVersion((n) => n + 1)} onOpenTableData={(db, table) => setOpenTable((prev) => ({ ...prev, [p.id!]: { db, table } }))} />
                         )}
                       </div>
                     )}
@@ -548,6 +550,14 @@ function App() {
                 <div key={id} className="conn-panel" style={{ display: focused ? 'flex' : 'none' }}>
                   {profile.driver === 'redis' ? (
                     <RedisValueInspector profileId={id} redisKey={redisKeys[id] ?? null} />
+                  ) : openTable[id] ? (
+                    <TableDataView
+                      profileId={id}
+                      driver={profile.driver as 'mysql' | 'postgres'}
+                      database={openTable[id]!.db}
+                      table={openTable[id]!.table}
+                      onClose={() => setOpenTable((prev) => ({ ...prev, [id]: null }))}
+                    />
                   ) : (
                     <QueryEditor
                       profileId={id}
