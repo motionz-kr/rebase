@@ -1,0 +1,400 @@
+import React, { useState, useEffect } from 'react';
+import { ChevronRight, Database, Table2, KeyRound, AlertTriangle, FileCode, Copy, X, Pencil, PlusSquare, Eraser, Trash2, Type, FilePlus } from 'lucide-react';
+import { TableEditDialog } from './TableEditDialog';
+import { TableActionDialog, type TableAction } from './TableActionDialog';
+import { CreateTableDialog } from './CreateTableDialog';
+import type { ColumnInfo } from '../global';
+
+interface SchemaExplorerProps {
+  profileId: string;
+  driver: 'mysql' | 'postgres' | 'redis';
+  onDisconnect: () => void;
+  onSchemaChanged?: () => void;
+}
+
+interface TableNode {
+  name: string;
+  columns?: ColumnInfo[];
+  isOpen: boolean;
+  isLoading: boolean;
+}
+
+interface DatabaseNode {
+  name: string;
+  tables?: TableNode[];
+  isOpen: boolean;
+  isLoading: boolean;
+}
+
+export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, driver, onSchemaChanged }) => {
+  const [databases, setDatabases] = useState<DatabaseNode[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Right-click context menu + DDL viewer
+  const [menu, setMenu] = useState<{ x: number; y: number; db: string; table: string } | null>(null);
+  const [ddl, setDdl] = useState<{ table: string; text: string; loading: boolean; error: string | null } | null>(null);
+  const [edit, setEdit] = useState<{ db: string; table: string; focusNewColumn: boolean } | null>(null);
+  const [tableAction, setTableAction] = useState<{ db: string; table: string; action: TableAction } | null>(null);
+  const [dbMenu, setDbMenu] = useState<{ x: number; y: number; db: string } | null>(null);
+  const [create, setCreate] = useState<{ db: string } | null>(null);
+
+  // Close the context menu on any outside click or Escape.
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenu(null);
+    };
+    window.addEventListener('click', close);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [menu]);
+
+  const openMenu = (e: React.MouseEvent, dbName: string, table: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setMenu({ x: e.clientX, y: e.clientY, db: dbName, table });
+  };
+
+  // Close the database context menu on any outside click or Escape.
+  useEffect(() => {
+    if (!dbMenu) return;
+    const close = () => setDbMenu(null);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setDbMenu(null);
+    };
+    window.addEventListener('click', close);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [dbMenu]);
+
+  const openDbMenu = (e: React.MouseEvent, dbName: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDbMenu({ x: e.clientX, y: e.clientY, db: dbName });
+  };
+
+  const showDDL = async (dbName: string, table: string) => {
+    setMenu(null);
+    setDdl({ table, text: '', loading: true, error: null });
+    try {
+      const res = await window.electronAPI.getTableDDL(profileId, dbName, table);
+      if (res.success && res.data) {
+        setDdl({ table, text: res.data.ddl, loading: false, error: null });
+      } else {
+        setDdl({ table, text: '', loading: false, error: res.error || 'Failed to load DDL' });
+      }
+    } catch (e: any) {
+      setDdl({ table, text: '', loading: false, error: e.message || 'Error loading DDL' });
+    }
+  };
+
+  const copyDDL = () => {
+    if (ddl?.text) navigator.clipboard.writeText(ddl.text);
+  };
+
+  const refreshAfterDdl = async (dbName: string) => {
+    onSchemaChanged?.();
+    let tables: TableNode[] | undefined;
+    try {
+      const res = await window.electronAPI.listTables(profileId, dbName);
+      if (res.success && res.data) {
+        tables = res.data.map((t) => ({ name: t.name, isOpen: false, isLoading: false }));
+      }
+    } catch (err) {
+      console.error(err);
+    }
+    setDatabases((prev) =>
+      prev.map((db) => (db.name === dbName ? { ...db, isOpen: true, isLoading: false, tables: tables ?? db.tables } : db))
+    );
+  };
+
+  useEffect(() => {
+    if (driver === 'redis') return;
+    loadDatabases();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profileId, driver]);
+
+  const loadDatabases = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await window.electronAPI.listDatabases(profileId);
+      if (res.success && res.data) {
+        setDatabases(res.data.map((db) => ({ name: db.name, isOpen: false, isLoading: false })));
+      } else {
+        setError(res.error || 'Failed to list databases');
+      }
+    } catch (e: any) {
+      setError(e.message || 'An error occurred while fetching databases');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toggleDatabase = async (dbName: string) => {
+    const target = databases.find((d) => d.name === dbName);
+    if (!target) return;
+    const nextIsOpen = !target.isOpen;
+
+    if (nextIsOpen && !target.tables) {
+      setDatabases((prev) =>
+        prev.map((db) => (db.name === dbName ? { ...db, isOpen: true, isLoading: true } : db))
+      );
+
+      let tables: TableNode[] | undefined;
+      try {
+        const res = await window.electronAPI.listTables(profileId, dbName);
+        if (res.success && res.data) {
+          tables = res.data.map((t) => ({ name: t.name, isOpen: false, isLoading: false }));
+        }
+      } catch (err) {
+        console.error(err);
+      }
+
+      setDatabases((prev) =>
+        prev.map((db) =>
+          db.name === dbName ? { ...db, isOpen: true, isLoading: false, tables: tables ?? db.tables } : db
+        )
+      );
+      return;
+    }
+
+    setDatabases((prev) => prev.map((db) => (db.name === dbName ? { ...db, isOpen: nextIsOpen } : db)));
+  };
+
+  const toggleTable = async (dbName: string, tableName: string) => {
+    const db = databases.find((d) => d.name === dbName);
+    const target = db?.tables?.find((t) => t.name === tableName);
+    if (!db || !target) return;
+    const nextIsOpen = !target.isOpen;
+
+    const patchTable = (patch: Partial<TableNode>) =>
+      setDatabases((prev) =>
+        prev.map((d) =>
+          d.name === dbName && d.tables
+            ? { ...d, tables: d.tables.map((t) => (t.name === tableName ? { ...t, ...patch } : t)) }
+            : d
+        )
+      );
+
+    if (nextIsOpen && !target.columns) {
+      patchTable({ isOpen: true, isLoading: true });
+
+      let columns: ColumnInfo[] | undefined;
+      try {
+        const res = await window.electronAPI.describeTable(profileId, dbName, tableName);
+        if (res.success && res.data) {
+          columns = res.data.columns;
+        }
+      } catch (err) {
+        console.error(err);
+      }
+
+      patchTable({ isOpen: true, isLoading: false, columns });
+      return;
+    }
+
+    patchTable({ isOpen: nextIsOpen });
+  };
+
+  if (loading) {
+    return (
+      <div className="load-center">
+        <span className="spinner" /> Loading databases…
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="alert error alert-inline">
+        <AlertTriangle size={14} />
+        <span>{error}</span>
+      </div>
+    );
+  }
+
+  if (databases.length === 0) {
+    return <div className="muted">No databases found.</div>;
+  }
+
+  return (
+    <>
+      <div className="tree">
+      {databases.map((db) => (
+        <div key={db.name} className="tree-node">
+          <div className="tree-row" onClick={() => toggleDatabase(db.name)} onContextMenu={(e) => openDbMenu(e, db.name)}>
+            <span className={`tree-chevron ${db.isOpen ? 'open' : ''}`}>
+              <ChevronRight size={14} />
+            </span>
+            <span className="tree-icon">
+              <Database size={14} />
+            </span>
+            <span className="tree-label">{db.name}</span>
+            {db.isLoading && <span className="spinner" />}
+          </div>
+
+          {db.isOpen && db.tables && (
+            <div className="tree-children">
+              {db.tables.length === 0 ? (
+                <div className="muted" style={{ padding: '4px 8px' }}>
+                  No tables
+                </div>
+              ) : (
+                db.tables.map((table) => (
+                  <div key={table.name} className="tree-node">
+                    <div
+                      className="tree-row"
+                      onClick={() => toggleTable(db.name, table.name)}
+                      onContextMenu={(e) => openMenu(e, db.name, table.name)}
+                    >
+                      <span className={`tree-chevron ${table.isOpen ? 'open' : ''}`}>
+                        <ChevronRight size={14} />
+                      </span>
+                      <span className="tree-icon">
+                        <Table2 size={14} />
+                      </span>
+                      <span className="tree-label">{table.name}</span>
+                      {table.isLoading && <span className="spinner" />}
+                    </div>
+
+                    {table.isOpen && table.columns && (
+                      <div className="tree-children">
+                        {table.columns.map((col) => (
+                          <div key={col.name} className="col-row">
+                            {col.primaryKey ? (
+                              <span className="col-pk" title="Primary key">
+                                <KeyRound size={12} />
+                              </span>
+                            ) : (
+                              <span className="col-pk-spacer" />
+                            )}
+                            <span className="col-name">{col.name}</span>
+                            <span className="col-type">
+                              {col.type}
+                              {col.nullable ? '' : ' · not null'}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+      ))}
+      </div>
+
+      {menu && (
+        <div className="ctx-menu" style={{ top: menu.y, left: menu.x }} onClick={(e) => e.stopPropagation()}>
+          <button className="ctx-item" onClick={() => showDDL(menu.db, menu.table)}>
+            <FileCode size={13} /> Show DDL
+          </button>
+          <div className="ctx-sep" />
+          <button className="ctx-item" onClick={() => { setEdit({ db: menu.db, table: menu.table, focusNewColumn: false }); setMenu(null); }}>
+            <Pencil size={13} /> 테이블 수정…
+          </button>
+          <button className="ctx-item" onClick={() => { setEdit({ db: menu.db, table: menu.table, focusNewColumn: true }); setMenu(null); }}>
+            <PlusSquare size={13} /> 컬럼 추가…
+          </button>
+          <button className="ctx-item" onClick={() => { setTableAction({ db: menu.db, table: menu.table, action: 'rename' }); setMenu(null); }}>
+            <Type size={13} /> 테이블 이름 변경…
+          </button>
+          <div className="ctx-sep" />
+          <button className="ctx-item" onClick={() => { setTableAction({ db: menu.db, table: menu.table, action: 'truncate' }); setMenu(null); }}>
+            <Eraser size={13} /> 테이블 비우기…
+          </button>
+          <button className="ctx-item danger" onClick={() => { setTableAction({ db: menu.db, table: menu.table, action: 'drop' }); setMenu(null); }}>
+            <Trash2 size={13} /> 테이블 삭제…
+          </button>
+        </div>
+      )}
+
+      {edit && (
+        <TableEditDialog
+          key={`${edit.db}.${edit.table}.${edit.focusNewColumn}`}
+          profileId={profileId}
+          driver={driver as 'mysql' | 'postgres'}
+          database={edit.db}
+          table={edit.table}
+          focusNewColumn={edit.focusNewColumn}
+          onClose={() => setEdit(null)}
+          onApplied={() => refreshAfterDdl(edit.db)}
+        />
+      )}
+
+      {tableAction && (
+        <TableActionDialog
+          key={`${tableAction.db}.${tableAction.table}.${tableAction.action}`}
+          profileId={profileId}
+          driver={driver as 'mysql' | 'postgres'}
+          table={tableAction.table}
+          action={tableAction.action}
+          onClose={() => setTableAction(null)}
+          onApplied={() => refreshAfterDdl(tableAction.db)}
+        />
+      )}
+
+      {dbMenu && (
+        <div className="ctx-menu" style={{ top: dbMenu.y, left: dbMenu.x }} onClick={(e) => e.stopPropagation()}>
+          <button className="ctx-item" onClick={() => { setCreate({ db: dbMenu.db }); setDbMenu(null); }}>
+            <FilePlus size={13} /> 테이블 추가…
+          </button>
+        </div>
+      )}
+
+      {create && (
+        <CreateTableDialog
+          key={create.db}
+          profileId={profileId}
+          driver={driver as 'mysql' | 'postgres'}
+          database={create.db}
+          onClose={() => setCreate(null)}
+          onApplied={() => refreshAfterDdl(create.db)}
+        />
+      )}
+
+      {ddl && (
+        <div className="modal-overlay" onClick={() => setDdl(null)}>
+          <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>
+                DDL · <span className="mono">{ddl.table}</span>
+              </h3>
+              <div className="modal-head-actions">
+                <button className="btn btn-secondary btn-xs" onClick={copyDDL} disabled={!ddl.text}>
+                  <Copy size={12} /> Copy
+                </button>
+                <button className="icon-btn" onClick={() => setDdl(null)} title="Close">
+                  <X size={15} />
+                </button>
+              </div>
+            </div>
+            {ddl.loading ? (
+              <div className="load-center">
+                <span className="spinner" /> Loading DDL…
+              </div>
+            ) : ddl.error ? (
+              <div className="alert error">
+                <AlertTriangle size={14} />
+                <span>{ddl.error}</span>
+              </div>
+            ) : (
+              <pre className="ddl-block">{ddl.text}</pre>
+            )}
+          </div>
+        </div>
+      )}
+    </>
+  );
+};

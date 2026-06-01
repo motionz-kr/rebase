@@ -1,0 +1,39 @@
+{
+  "appId": "com.antigravity.dbdesktop",
+  "productName": "AntigravityDB",
+  "directories": {
+    "output": "dist/installers",
+    "buildResources": "build"
+  },
+  "files": [
+    "dist/**/*",
+    "bin/**/*",
+    "package.json"
+  ],
+  "extraResources": [
+    {
+      "from": "bin",
+      "to": "bin",
+      "filter": [
+        "**/*"
+      ]
+    }
+  ],
+  "mac": {
+    "category": "public.app-category.developer-tools",
+    "target": ["dmg", "zip"],
+    "hardenedRuntime": true,
+    "gatekeeperAssess": false,
+    "entitlements": "entitlements.mac.plist",
+    "entitlementsInherit": "entitlements.mac.inherit.plist"
+  },
+  "win": {
+    "target": ["nsis", "zip"],
+    "publisherName": "Antigravity Dev"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true
+  }
+}

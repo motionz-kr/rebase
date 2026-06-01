@@ -1,0 +1,60 @@
+# ──────────────────────────────────────────────
+# Dependencies
+# ──────────────────────────────────────────────
+node_modules/
+
+# ──────────────────────────────────────────────
+# Build output
+# ──────────────────────────────────────────────
+dist/
+dist-ssr/
+build/
+out/
+
+# Compiled Go engine binary (produced by `pnpm build:engine`)
+apps/desktop/bin/
+
+# Electron-builder installers (output: apps/desktop/dist/installers)
+# already covered by dist/ above, listed for clarity
+
+# ──────────────────────────────────────────────
+# Logs
+# ──────────────────────────────────────────────
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# ──────────────────────────────────────────────
+# Local config & secrets
+# ──────────────────────────────────────────────
+*.local
+.env
+.env.*
+!.env.example
+
+# ──────────────────────────────────────────────
+# OS files
+# ──────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ──────────────────────────────────────────────
+# Editors / IDEs
+# ──────────────────────────────────────────────
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# ──────────────────────────────────────────────
+# Claude Code local session/state
+# ──────────────────────────────────────────────
+.claude/

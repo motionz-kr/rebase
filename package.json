@@ -1,0 +1,15 @@
+{
+  "name": "database-desktop-tool",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter renderer dev & (sleep 2 && pnpm --filter desktop dev)",
+    "test": "pnpm --filter desktop test",
+    "build:engine": "cd engine && /Users/smlee/sdk/go/bin/go build -o ../apps/desktop/bin/app-engine cmd/app-engine/main.go",
+    "build": "pnpm build:engine && pnpm --filter renderer build && pnpm --filter desktop build",
+    "package": "pnpm build && pnpm --filter desktop exec electron-builder"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
