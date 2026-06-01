@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import MonacoEditor, { loader } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
 import { Play, Square, Save, Plus, X, Lock, Pencil, AlertTriangle, ShieldAlert, AlignLeft } from 'lucide-react';
-import { VirtualizedGrid } from './VirtualizedGrid';
+import { ResultGrid } from './ResultGrid';
 import { SqlAutocomplete } from './SqlAutocomplete';
 import { formatSql } from '../lib/formatSql';
 import type { SchemaInfo } from '../lib/sqlCompletion';
@@ -521,7 +521,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
                 </button>
               </div>
             )}
-            <VirtualizedGrid columns={activeTab.columns} rows={activeTab.rows} />
+            <ResultGrid columns={activeTab.columns} rows={activeTab.rows} />
           </>
         )}
       </div>

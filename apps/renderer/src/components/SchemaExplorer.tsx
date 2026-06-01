@@ -10,6 +10,7 @@ interface SchemaExplorerProps {
   driver: 'mysql' | 'postgres' | 'redis';
   onDisconnect: () => void;
   onSchemaChanged?: () => void;
+  onOpenTableData?: (db: string, table: string) => void;
 }
 
 interface TableNode {
@@ -26,7 +27,7 @@ interface DatabaseNode {
   isLoading: boolean;
 }
 
-export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, driver, onSchemaChanged }) => {
+export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, driver, onSchemaChanged, onOpenTableData }) => {
   const [databases, setDatabases] = useState<DatabaseNode[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -255,6 +256,7 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
                       className="tree-row"
                       onClick={() => toggleTable(db.name, table.name)}
                       onContextMenu={(e) => openMenu(e, db.name, table.name)}
+                      onDoubleClick={() => onOpenTableData?.(db.name, table.name)}
                     >
                       <span className={`tree-chevron ${table.isOpen ? 'open' : ''}`}>
                         <ChevronRight size={14} />
