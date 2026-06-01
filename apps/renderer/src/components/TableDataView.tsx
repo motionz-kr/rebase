@@ -42,6 +42,9 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
   const bodyRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [containerHeight, setContainerHeight] = useState(300);
+  // Monotonic request id so a superseded fetch (rapid page/sort/filter changes)
+  // never applies its result over a newer one.
+  const reqRef = useRef(0);
 
   // Load column metadata (and PK info, used by Phase 3 editing) once.
   useEffect(() => {
@@ -63,6 +66,7 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
   }, [profileId, database, table]);
 
   const fetchPage = useCallback(async () => {
+    const myReq = ++reqRef.current;
     setLoading(true);
     setError(null);
     const sql = buildSelectPage(driver, table, {
@@ -72,6 +76,7 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
       offset: page * PAGE_SIZE,
     });
     const res = await runSelect(profileId, sql);
+    if (myReq !== reqRef.current) return; // a newer fetch superseded this one
     setLoading(false);
     if (!res.ok) {
       setError(res.error || 'Query failed');
