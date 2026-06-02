@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useReducer } from 'react';
 import {
   Database,
   Plus,
+  Pencil,
   RefreshCw,
   Trash2,
   Unplug,
@@ -77,6 +78,7 @@ function App() {
   const [formUsername, setFormUsername] = useState('');
   const [formPassword, setFormPassword] = useState('');
   const [formTlsMode, setFormTlsMode] = useState<'none' | 'prefer' | 'require'>('none');
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   useEffect(() => {
     loadProfiles();
@@ -112,6 +114,22 @@ function App() {
     setFormName('');
     handleDriverChange('mysql');
     setFormPassword('');
+    setEditingId(null);
+  };
+
+  const startEdit = (p: ConnectionProfile, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setFormDriver(p.driver);
+    setFormName(p.name);
+    setFormHost(p.host);
+    setFormPort(p.port);
+    setFormDatabase(p.database);
+    setFormUsername(p.username);
+    setFormPassword(''); // blank keeps the existing password
+    setFormTlsMode(p.tlsMode);
+    setEditingId(p.id!);
+    setConnectionError(null);
+    setShowCreateForm(true);
   };
 
   const handleTestConnection = async () => {
@@ -151,13 +169,16 @@ function App() {
       tlsMode: formTlsMode,
     };
     try {
-      const res = await window.electronAPI.createProfile(profile, formPassword);
+      const res = editingId
+        ? await window.electronAPI.updateProfile({ ...profile, id: editingId }, formPassword)
+        : await window.electronAPI.createProfile(profile, formPassword);
       if (res.success && res.data) {
         setShowCreateForm(false);
+        setEditingId(null);
         resetForm();
         loadProfiles();
       } else {
-        setConnectionError(res.error || 'Failed to create profile');
+        setConnectionError(res.error || (editingId ? 'Failed to update profile' : 'Failed to create profile'));
       }
     } catch (e: any) {
       setConnectionError(e.message || 'Error while saving profile');
@@ -367,7 +388,7 @@ function App() {
               </div>
               <div>
                 <label>Password (OS keychain)</label>
-                <input type="password" placeholder="••••••••" value={formPassword} onChange={(e) => setFormPassword(e.target.value)} />
+                <input type="password" placeholder={editingId ? '(비우면 기존 유지)' : '••••••••'} value={formPassword} onChange={(e) => setFormPassword(e.target.value)} />
               </div>
               <div>
                 <label>TLS mode</label>
@@ -382,7 +403,7 @@ function App() {
                   Test
                 </button>
                 <button type="submit" className="btn btn-primary btn-sm">
-                  Save
+                  {editingId ? 'Update' : 'Save'}
                 </button>
               </div>
               {connectionError && (
@@ -435,6 +456,9 @@ function App() {
                             <Unplug size={13} />
                           </button>
                         )}
+                        <button className="icon-btn" title="Edit profile" onClick={(e) => startEdit(p, e)}>
+                          <Pencil size={13} />
+                        </button>
                         <button className="icon-btn danger" title="Delete profile" onClick={(e) => handleDeleteProfile(p.id!, e)}>
                           <Trash2 size={13} />
                         </button>
