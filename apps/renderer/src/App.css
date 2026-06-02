@@ -16,7 +16,8 @@
   justify-content: space-between;
   height: 44px;
   flex-shrink: 0;
-  padding: 0 14px;
+  /* Left padding clears the macOS traffic-light buttons (hidden title bar). */
+  padding: 0 14px 0 82px;
   background: var(--bg-panel);
   border-bottom: 1px solid var(--border);
   -webkit-app-region: drag;

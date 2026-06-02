@@ -125,6 +125,15 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 900,
     height: 700,
+    minWidth: 640,
+    minHeight: 420,
+    resizable: true,
+    title: 'Antigravity DB',
+    // Hide the OS title bar but keep the native traffic-light buttons (macOS),
+    // so the app's own header fills that space and matches the theme. The header
+    // is the drag region (-webkit-app-region: drag in CSS).
+    titleBarStyle: 'hiddenInset',
+    backgroundColor: '#1e1f22',
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'index.js'),
       nodeIntegration: false,
