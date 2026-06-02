@@ -84,6 +84,13 @@ func writeQueryPolicyError(w http.ResponseWriter, status int, code, message, ver
 	})
 }
 
+type ExecuteBatchRequest struct {
+	ProfileID          string   `json:"profileId"`
+	Statements         []string `json:"statements"`
+	AllowWrite         bool     `json:"allowWrite"`
+	ConfirmDestructive bool     `json:"confirmDestructive"`
+}
+
 type CancelQueryRequest struct {
 	QueryID string `json:"queryId"`
 }
@@ -238,6 +245,67 @@ func (h *QueryHandler) ExecuteQuery() http.Handler {
 		data, _ := json.Marshal(doneMap)
 		fmt.Fprintf(w, "%s\n", data)
 		flusher.Flush()
+	})
+}
+
+func (h *QueryHandler) ExecuteBatch() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !h.checkToken(r) {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		var req ExecuteBatchRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if req.ProfileID == "" || len(req.Statements) == 0 {
+			http.Error(w, "profileId and statements are required", http.StatusBadRequest)
+			return
+		}
+
+		// Per-statement policy gate (each entry is a single statement).
+		for _, stmt := range req.Statements {
+			class := domain.ClassifyQuery(stmt)
+			if !class.ReadOnly && !req.AllowWrite {
+				writeQueryPolicyError(w, http.StatusForbidden, "read_only_blocked",
+					"This statement may modify data and is blocked in read-only mode.", class.Verb)
+				return
+			}
+			if class.Destructive && !req.ConfirmDestructive {
+				writeQueryPolicyError(w, http.StatusConflict, "confirmation_required",
+					"This is a destructive statement. Confirm to run it.", class.Verb)
+				return
+			}
+		}
+
+		profile, password, err := h.service.GetProfile(r.Context(), req.ProfileID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		connector, err := h.getConnector(profile.Driver)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		rowsAffected, failedIndex, execErr := connector.ExecuteBatch(r.Context(), *profile, password, req.Statements)
+		resp := map[string]any{
+			"ok":           execErr == nil,
+			"rowsAffected": rowsAffected,
+			"failedIndex":  failedIndex,
+		}
+		if execErr != nil {
+			resp["error"] = execErr.Error()
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
 	})
 }
 
