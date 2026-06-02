@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"strconv"
@@ -145,6 +146,76 @@ func (c *RedisConnector) RenameKey(ctx context.Context, p domain.ConnectionProfi
 	}
 	defer client.Close()
 	return c.normalizeError(client.Rename(ctx, key, newKey).Err())
+}
+
+// RunCommand executes an arbitrary Redis command (the console). A Redis-level
+// error (e.g. WRONGTYPE) is returned as a result with IsError=true rather than
+// a transport error, so the console can display it inline; only connection-level
+// failures surface as an error.
+func (c *RedisConnector) RunCommand(ctx context.Context, p domain.ConnectionProfile, password string, args []string) (ports.RedisCommandResult, error) {
+	if len(args) == 0 {
+		return ports.RedisCommandResult{Output: "(empty command)", IsError: true}, nil
+	}
+	client, err := c.connect(p, password)
+	if err != nil {
+		return ports.RedisCommandResult{}, err
+	}
+	defer client.Close()
+
+	ifaceArgs := make([]interface{}, len(args))
+	for i, a := range args {
+		ifaceArgs[i] = a
+	}
+
+	val, err := client.Do(ctx, ifaceArgs...).Result()
+	if err != nil {
+		// A nil reply (e.g. GET on a missing key) is not an error for a console.
+		if errors.Is(err, redisDriver.Nil) {
+			return ports.RedisCommandResult{Output: "(nil)"}, nil
+		}
+		// Redis-level command errors implement redisDriver.Error; show inline.
+		var rErr redisDriver.Error
+		if errors.As(err, &rErr) {
+			return ports.RedisCommandResult{Output: err.Error(), IsError: true}, nil
+		}
+		// Anything else is a connection/transport failure.
+		return ports.RedisCommandResult{}, c.normalizeError(err)
+	}
+	return ports.RedisCommandResult{Output: formatRedisReply(val)}, nil
+}
+
+// formatRedisReply renders a go-redis reply value in a redis-cli-like style.
+func formatRedisReply(v interface{}) string {
+	switch t := v.(type) {
+	case nil:
+		return "(nil)"
+	case string:
+		return t
+	case []byte:
+		return string(t)
+	case int64:
+		return strconv.FormatInt(t, 10)
+	case float64:
+		return strconv.FormatFloat(t, 'f', -1, 64)
+	case bool:
+		if t {
+			return "1"
+		}
+		return "0"
+	case []interface{}:
+		if len(t) == 0 {
+			return "(empty array)"
+		}
+		parts := make([]string, len(t))
+		for i, e := range t {
+			// Indent nested element lines so multi-line replies stay readable.
+			inner := strings.ReplaceAll(formatRedisReply(e), "\n", "\n   ")
+			parts[i] = fmt.Sprintf("%d) %s", i+1, inner)
+		}
+		return strings.Join(parts, "\n")
+	default:
+		return fmt.Sprintf("%v", t)
+	}
 }
 
 func (c *RedisConnector) ScanKeys(ctx context.Context, p domain.ConnectionProfile, password string, pattern string, cursor uint64, count int64) (ports.RedisKeyspaceInfo, error) {

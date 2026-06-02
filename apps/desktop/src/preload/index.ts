@@ -38,6 +38,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   redisDelete: (profileId: string, key: string) => ipcRenderer.invoke('redis-delete', profileId, key),
   redisExpire: (profileId: string, key: string, seconds: number) => ipcRenderer.invoke('redis-expire', profileId, key, seconds),
   redisRename: (profileId: string, key: string, newKey: string) => ipcRenderer.invoke('redis-rename', profileId, key, newKey),
+  redisCommand: (profileId: string, args: string[]) => ipcRenderer.invoke('redis-command', profileId, args),
   listSavedQueries: (workspaceId: string) => ipcRenderer.invoke('list-saved-queries', workspaceId),
   saveQuery: (savedQuery: any) => ipcRenderer.invoke('save-query', savedQuery),
   deleteSavedQuery: (id: string) => ipcRenderer.invoke('delete-saved-query', id),

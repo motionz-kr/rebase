@@ -101,6 +101,7 @@ declare global {
       redisDelete: (profileId: string, key: string) => Promise<ResultWrapper<{ existed: boolean }>>;
       redisExpire: (profileId: string, key: string, seconds: number) => Promise<ResultWrapper<{ ok: boolean }>>;
       redisRename: (profileId: string, key: string, newKey: string) => Promise<ResultWrapper<{ ok: boolean }>>;
+      redisCommand: (profileId: string, args: string[]) => Promise<ResultWrapper<{ output: string; isError: boolean }>>;
       listSavedQueries: (workspaceId: string) => Promise<ResultWrapper<any[]>>;
       saveQuery: (savedQuery: any) => Promise<ResultWrapper<any>>;
       deleteSavedQuery: (id: string) => Promise<ResultWrapper<{ success: boolean }>>;

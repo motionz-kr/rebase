@@ -200,6 +200,40 @@ func (h *RedisHandler) SetTTL() http.Handler {
 	})
 }
 
+// RunCommand handles POST /redis/command with body {profileId, args:[]string}.
+func (h *RedisHandler) RunCommand() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !h.checkToken(r) {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		var body struct {
+			ProfileID string   `json:"profileId"`
+			Args      []string `json:"args"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+		if body.ProfileID == "" || len(body.Args) == 0 {
+			http.Error(w, "profileId and a non-empty args array are required", http.StatusBadRequest)
+			return
+		}
+		profile, password, err := h.service.GetProfile(r.Context(), body.ProfileID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		res, err := h.redisConnector.RunCommand(r.Context(), *profile, password, body.Args)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(res)
+	})
+}
+
 // RenameKey handles POST /redis/rename with body {profileId, key, newKey}.
 func (h *RedisHandler) RenameKey() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

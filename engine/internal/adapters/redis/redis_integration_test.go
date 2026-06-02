@@ -85,3 +85,50 @@ func TestRedisConnector_Mutations(t *testing.T) {
 		t.Errorf("key should be gone after delete")
 	}
 }
+
+func TestRedisConnector_RunCommand(t *testing.T) {
+	connector := NewRedisConnector()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	p := domain.ConnectionProfile{ID: "redis-cmd-1", Driver: "redis", Host: "127.0.0.1", Port: 6379, TLSMode: "none"}
+	pw := ""
+	k := "rebase:test:cmd"
+	connector.DeleteKey(ctx, p, pw, k)
+	defer connector.DeleteKey(ctx, p, pw, k)
+
+	// Status reply (SET → OK)
+	r, err := connector.RunCommand(ctx, p, pw, []string{"SET", k, "v1"})
+	if err != nil || r.IsError {
+		t.Fatalf("SET: err=%v result=%+v", err, r)
+	}
+	if r.Output != "OK" {
+		t.Errorf("SET output = %q, want OK", r.Output)
+	}
+
+	// Bulk string reply (GET → v1)
+	r, _ = connector.RunCommand(ctx, p, pw, []string{"GET", k})
+	if r.Output != "v1" {
+		t.Errorf("GET output = %q, want v1", r.Output)
+	}
+
+	// Integer reply (STRLEN → 2)
+	r, _ = connector.RunCommand(ctx, p, pw, []string{"STRLEN", k})
+	if r.Output != "2" {
+		t.Errorf("STRLEN output = %q, want 2", r.Output)
+	}
+
+	// nil reply (GET missing → (nil), not an error)
+	r, _ = connector.RunCommand(ctx, p, pw, []string{"GET", "rebase:test:cmd:absent"})
+	if r.IsError || r.Output != "(nil)" {
+		t.Errorf("GET absent = %+v, want output (nil)", r)
+	}
+
+	// Redis-level error (INCR on a non-integer string) → IsError, no transport error
+	r, err = connector.RunCommand(ctx, p, pw, []string{"INCR", k})
+	if err != nil {
+		t.Fatalf("INCR transport err: %v", err)
+	}
+	if !r.IsError {
+		t.Errorf("INCR on string should report a redis error, got %+v", r)
+	}
+}
