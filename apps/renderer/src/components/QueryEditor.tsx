@@ -5,6 +5,7 @@ import { Play, Square, Save, Plus, X, Lock, Pencil, AlertTriangle, ShieldAlert, 
 import { ResultGrid } from './ResultGrid';
 import { SqlAutocomplete } from './SqlAutocomplete';
 import { formatSql } from '../lib/formatSql';
+import { splitStatements } from '../lib/splitStatements';
 import type { SchemaInfo } from '../lib/sqlCompletion';
 
 loader.config({ monaco });
@@ -13,6 +14,19 @@ interface PolicyPrompt {
   code: string;
   message: string;
   verb: string;
+}
+
+// One statement's outcome when running a multi-statement script. The single-
+// statement path uses the flat columns/rows fields above; this is only populated
+// when the editor text contains more than one statement.
+interface ResultSet {
+  statement: string;
+  columns: string[];
+  rows: any[][];
+  rowsAffected: number | null;
+  error: string | null;
+  truncated: boolean;
+  rowLimit: number;
 }
 
 interface QueryTab {
@@ -30,6 +44,9 @@ interface QueryTab {
   policyPrompt: PolicyPrompt | null;
   truncated: boolean;
   rowLimit: number;
+  // Multi-statement results (empty for single-statement runs).
+  resultSets: ResultSet[];
+  activeResultIndex: number;
 }
 
 interface QueryEditorProps {
@@ -59,6 +76,8 @@ const newTab = (id: string, name: string, query: string): QueryTab => ({
   policyPrompt: null,
   truncated: false,
   rowLimit: 0,
+  resultSets: [],
+  activeResultIndex: 0,
 });
 
 export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, database, connectionName, onQueryExecuted, loadTriggerQuery, schemaVersion }) => {
@@ -185,6 +204,142 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     setTabs((prev) => prev.map((t) => (t.id === activeTabId ? { ...t, query: value } : t)));
   };
 
+  // Multi-statement run state: the queryId of the statement currently streaming
+  // (so Cancel can target it) and an abort flag the sequential loop checks.
+  const multiCancelRef = useRef<string | null>(null);
+  const multiAbortRef = useRef<boolean>(false);
+
+  // Run one statement to completion and collect its full result set. Uses a
+  // dedicated chunk subscription keyed on its own queryId; the global handler
+  // ignores it because the tab's queryId is never set to these ids.
+  const runSingleStatementCollected = (
+    stmt: string,
+    opts: { allowWrite: boolean; confirmDestructive: boolean; fetchAll: boolean }
+  ): Promise<{ result?: ResultSet; policy?: PolicyPrompt }> =>
+    new Promise((resolve) => {
+      const queryId = `query-${crypto.randomUUID()}`;
+      multiCancelRef.current = queryId;
+      let columns: string[] = [];
+      const rows: any[][] = [];
+      let settled = false;
+      const finish = (payload: { result?: ResultSet; policy?: PolicyPrompt }) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(payload);
+      };
+      const cleanup = window.electronAPI.onQueryStreamChunk((qid, chunk) => {
+        if (qid !== queryId) return;
+        if (chunk.type === 'meta') {
+          columns = chunk.columns;
+        } else if (chunk.type === 'row') {
+          rows.push(chunk.data);
+        } else if (chunk.type === 'policy') {
+          finish({ policy: { code: chunk.code, message: chunk.message, verb: chunk.verb } });
+        } else if (chunk.type === 'done') {
+          finish({
+            result: {
+              statement: stmt,
+              columns,
+              rows,
+              rowsAffected: chunk.rowsAffected,
+              error: null,
+              truncated: chunk.truncated === true,
+              rowLimit: chunk.rowLimit ?? 0,
+            },
+          });
+        } else if (chunk.type === 'error') {
+          finish({
+            result: { statement: stmt, columns, rows, rowsAffected: null, error: chunk.message, truncated: false, rowLimit: 0 },
+          });
+        }
+      });
+      window.electronAPI
+        .executeQueryStream(queryId, profileId, stmt, opts)
+        .then((res) => {
+          if (!res.success) {
+            finish({
+              result: { statement: stmt, columns: [], rows: [], rowsAffected: null, error: res.error || 'Failed to start query', truncated: false, rowLimit: 0 },
+            });
+          }
+        })
+        .catch((e: any) => {
+          finish({
+            result: { statement: stmt, columns: [], rows: [], rowsAffected: null, error: e.message || 'Execution request failed', truncated: false, rowLimit: 0 },
+          });
+        });
+    });
+
+  // Run a script's statements sequentially, accumulating one result set each and
+  // stopping on the first error or policy block.
+  const runMultiStatements = async (
+    statements: string[],
+    opts: { allowWrite: boolean; confirmDestructive: boolean; fetchAll: boolean }
+  ) => {
+    const startTime = Date.now();
+    multiAbortRef.current = false;
+    setTabs((prev) =>
+      prev.map((t) =>
+        t.id === activeTabId
+          ? {
+              ...t,
+              loading: true,
+              columns: [],
+              rows: [],
+              error: null,
+              rowsAffected: null,
+              queryId: null,
+              startTime,
+              elapsedTimeMs: null,
+              policyPrompt: null,
+              truncated: false,
+              resultSets: [],
+              activeResultIndex: 0,
+            }
+          : t
+      )
+    );
+
+    const collected: ResultSet[] = [];
+    let policy: PolicyPrompt | null = null;
+    for (const stmt of statements) {
+      const r = await runSingleStatementCollected(stmt, opts);
+      if (r.policy) {
+        policy = r.policy;
+        break;
+      }
+      if (r.result) {
+        collected.push(r.result);
+        window.electronAPI
+          .addQueryHistory({
+            workspaceId: 'default',
+            profileId,
+            queryText: stmt,
+            durationMs: 0,
+            success: !r.result.error,
+            errorMessage: r.result.error,
+            rowCount: r.result.rows.length || r.result.rowsAffected || 0,
+          })
+          .then(() => onQueryExecuted?.())
+          .catch(() => {});
+        const snapshot = [...collected];
+        setTabs((prev) => prev.map((t) => (t.id === activeTabId ? { ...t, resultSets: snapshot } : t)));
+        if (r.result.error) break; // stop the script on the first failure
+      }
+      if (multiAbortRef.current) break;
+    }
+
+    multiCancelRef.current = null;
+    const elapsed = Date.now() - startTime;
+    setTabs((prev) =>
+      prev.map((t) =>
+        t.id === activeTabId
+          ? { ...t, loading: false, elapsedTimeMs: elapsed, activeResultIndex: 0, policyPrompt: policy ?? t.policyPrompt }
+          : t
+      )
+    );
+  };
+
   const executeQuery = async (override?: {
     allowWrite?: boolean;
     confirmDestructive?: boolean;
@@ -197,6 +352,15 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     const confirmDestructive = override?.confirmDestructive ?? false;
     const fetchAll = override?.fetchAll ?? false;
     const sql = override?.sqlOverride ?? activeTab.query;
+
+    // A script of several statements runs sequentially with one result set each
+    // (DataGrip-style). A single statement keeps the existing streaming path.
+    const statements = splitStatements(sql);
+    if (statements.length > 1) {
+      await runMultiStatements(statements, { allowWrite, confirmDestructive, fetchAll });
+      return;
+    }
+
     const queryId = `query-${crypto.randomUUID()}`;
     const startTime = Date.now();
 
@@ -215,6 +379,8 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
               elapsedTimeMs: null,
               policyPrompt: null,
               truncated: false,
+              resultSets: [],
+              activeResultIndex: 0,
             }
           : t
       )
@@ -259,9 +425,11 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
   formatRef.current = formatQuery;
 
   const cancelQuery = async () => {
-    if (!activeTab.loading || !activeTab.queryId) return;
+    const qid = activeTab.queryId || multiCancelRef.current;
+    if (!activeTab.loading || !qid) return;
+    multiAbortRef.current = true; // stop the multi-statement loop after this one
     try {
-      await window.electronAPI.cancelQuery(activeTab.queryId);
+      await window.electronAPI.cancelQuery(qid);
       setTabs((prev) =>
         prev.map((t) =>
           t.id === activeTabId ? { ...t, loading: false, error: 'Query cancelled.', queryId: null } : t
@@ -490,48 +658,104 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
 
       {/* Results */}
       <div className="results">
-        {activeTab.loading && activeTab.rows.length === 0 && (
+        {activeTab.loading && activeTab.rows.length === 0 && activeTab.resultSets.length === 0 && (
           <div className="load-center">
             <span className="spinner lg" />
             Executing…
           </div>
         )}
 
-        {activeTab.error && (
-          <div className="alert error">
-            <AlertTriangle size={14} />
-            <span>
-              <strong>Execution failed.</strong> {activeTab.error}
-            </span>
-          </div>
-        )}
-
-        {!activeTab.loading &&
-          !activeTab.error &&
-          activeTab.rowsAffected !== null &&
-          activeTab.columns.length === 0 && (
-            <div className="alert" style={{ background: 'var(--green-soft)', color: 'var(--green)' }}>
-              Statement executed. Rows affected: {activeTab.rowsAffected}
-            </div>
-          )}
-
-        {(activeTab.columns.length > 0 || activeTab.rows.length > 0) && (
+        {activeTab.resultSets.length > 0 ? (
+          /* Multi-statement: one result set per statement, switchable via the strip. */
+          (() => {
+            const sets = activeTab.resultSets;
+            const idx = Math.min(activeTab.activeResultIndex, sets.length - 1);
+            const rs = sets[idx];
+            return (
+              <>
+                <div className="result-strip">
+                  {sets.map((s, i) => (
+                    <button
+                      key={i}
+                      className={`result-chip ${i === idx ? 'active' : ''} ${s.error ? 'err' : ''}`}
+                      onClick={() => setTabs((prev) => prev.map((t) => (t.id === activeTabId ? { ...t, activeResultIndex: i } : t)))}
+                      title={s.statement}
+                    >
+                      Result {i + 1}
+                      {s.error
+                        ? ' · failed'
+                        : s.columns.length > 0
+                        ? ` · ${s.rows.length.toLocaleString()} rows`
+                        : ` · ${s.rowsAffected ?? 0} affected`}
+                    </button>
+                  ))}
+                  {activeTab.loading && <span className="spinner" style={{ marginLeft: 8 }} />}
+                </div>
+                {rs.error ? (
+                  <div className="alert error">
+                    <AlertTriangle size={14} />
+                    <span>
+                      <strong>Execution failed.</strong> {rs.error}
+                    </span>
+                  </div>
+                ) : rs.columns.length === 0 ? (
+                  <div className="alert" style={{ background: 'var(--green-soft)', color: 'var(--green)' }}>
+                    Statement executed. Rows affected: {rs.rowsAffected ?? 0}
+                  </div>
+                ) : (
+                  <>
+                    {rs.truncated && (
+                      <div className="trunc-bar">
+                        <span>
+                          Showing first {rs.rows.length.toLocaleString()} rows (capped at {rs.rowLimit.toLocaleString()}).
+                        </span>
+                      </div>
+                    )}
+                    <ResultGrid columns={rs.columns} rows={rs.rows} />
+                  </>
+                )}
+              </>
+            );
+          })()
+        ) : (
           <>
-            {activeTab.truncated && !activeTab.loading && (
-              <div className="trunc-bar">
+            {activeTab.error && (
+              <div className="alert error">
+                <AlertTriangle size={14} />
                 <span>
-                  Showing first {activeTab.rows.length.toLocaleString()} rows (capped at{' '}
-                  {activeTab.rowLimit.toLocaleString()}).
+                  <strong>Execution failed.</strong> {activeTab.error}
                 </span>
-                <button
-                  className="btn btn-secondary btn-xs"
-                  onClick={() => executeQuery({ allowWrite: writeMode, fetchAll: true })}
-                >
-                  Fetch all rows
-                </button>
               </div>
             )}
-            <ResultGrid columns={activeTab.columns} rows={activeTab.rows} />
+
+            {!activeTab.loading &&
+              !activeTab.error &&
+              activeTab.rowsAffected !== null &&
+              activeTab.columns.length === 0 && (
+                <div className="alert" style={{ background: 'var(--green-soft)', color: 'var(--green)' }}>
+                  Statement executed. Rows affected: {activeTab.rowsAffected}
+                </div>
+              )}
+
+            {(activeTab.columns.length > 0 || activeTab.rows.length > 0) && (
+              <>
+                {activeTab.truncated && !activeTab.loading && (
+                  <div className="trunc-bar">
+                    <span>
+                      Showing first {activeTab.rows.length.toLocaleString()} rows (capped at{' '}
+                      {activeTab.rowLimit.toLocaleString()}).
+                    </span>
+                    <button
+                      className="btn btn-secondary btn-xs"
+                      onClick={() => executeQuery({ allowWrite: writeMode, fetchAll: true })}
+                    >
+                      Fetch all rows
+                    </button>
+                  </div>
+                )}
+                <ResultGrid columns={activeTab.columns} rows={activeTab.rows} />
+              </>
+            )}
           </>
         )}
       </div>

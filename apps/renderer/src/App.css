@@ -904,6 +904,44 @@
   color: var(--amber);
 }
 
+/* Multi-statement result-set strip */
+.result-strip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 6px 0 10px;
+  flex-shrink: 0;
+}
+.result-chip {
+  padding: 4px 10px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.result-chip:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.result-chip.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.result-chip.err {
+  border-color: color-mix(in srgb, var(--red) 50%, transparent);
+  color: var(--red);
+}
+.result-chip.err.active {
+  background: var(--red);
+  border-color: var(--red);
+  color: #fff;
+}
+
 /* ============================================================
    Redis explorer & inspector
    ============================================================ */
