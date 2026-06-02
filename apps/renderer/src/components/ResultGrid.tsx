@@ -3,6 +3,7 @@ import { Download, Search } from 'lucide-react';
 import { toCsv, toJson, toTsv } from '../lib/gridExport';
 import { sortRows, filterRows, type SortDir } from '../lib/gridView';
 import { cellText, tsTimestamp, download } from '../lib/gridFormat';
+import { nextCell } from '../lib/gridNav';
 
 interface Props {
   columns: string[];
@@ -110,11 +111,39 @@ export const ResultGrid: React.FC<Props> = ({ columns, rows, rowHeight = 32 }) =
     void navigator.clipboard.writeText(toTsv(grid));
   };
 
+  // Scroll the body so the given (virtualized) row is fully visible.
+  const ensureVisible = (r: number) => {
+    const el = bodyRef.current;
+    if (!el) return;
+    const top = r * rowHeight;
+    const bottom = top + rowHeight;
+    if (top < el.scrollTop) el.scrollTop = top;
+    else if (bottom > el.scrollTop + el.clientHeight) el.scrollTop = bottom - el.clientHeight;
+  };
+
   const onKeyDown = (e: React.KeyboardEvent) => {
     if ((e.metaKey || e.ctrlKey) && (e.key === 'c' || e.key === 'C')) {
       e.preventDefault();
       copySelection();
+      return;
     }
+    if (display.length === 0 || columns.length === 0) return;
+    // First navigation key just anchors the selection at the top-left.
+    if (!sel) {
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown', 'Tab'].includes(e.key)) {
+        e.preventDefault();
+        setSel({ r1: 0, c1: 0, r2: 0, c2: 0 });
+        ensureVisible(0);
+      }
+      return;
+    }
+    const pageRows = Math.max(1, Math.floor(containerHeight / rowHeight) - 1);
+    const nc = nextCell({ r: sel.r2, c: sel.c2 }, e.key, e.shiftKey, display.length - 1, columns.length - 1, pageRows);
+    if (!nc) return;
+    e.preventDefault();
+    const extend = e.shiftKey && e.key !== 'Tab'; // Tab always collapses; arrows extend with shift
+    setSel((prev) => (extend && prev ? { ...prev, r2: nc.r, c2: nc.c } : { r1: nc.r, c1: nc.c, r2: nc.r, c2: nc.c }));
+    ensureVisible(nc.r);
   };
 
   return (
