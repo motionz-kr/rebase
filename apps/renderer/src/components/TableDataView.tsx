@@ -59,7 +59,7 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
   const [sel, setSel] = useState<Sel | null>(null);
 
   // editing state
-  const [editing, setEditing] = useState<{ r: number; c: number } | null>(null);
+  const [editing, setEditing] = useState<{ r: number; c: number; w?: number } | null>(null);
   const [editText, setEditText] = useState('');
   const [edits, setEdits] = useState<Record<number, Record<number, CellValue>>>({});
   const [deletes, setDeletes] = useState<Set<number>>(new Set());
@@ -300,7 +300,8 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
     // Enter starts editing the active cell.
     if (e.key === 'Enter' && sel) {
       e.preventDefault();
-      startEdit(sel.r2, sel.c2);
+      const selEl = gridRef.current?.querySelector('.grid-cell.sel') as HTMLElement | null;
+      startEdit(sel.r2, sel.c2, selEl?.getBoundingClientRect().width);
       return;
     }
     if (!sel) {
@@ -328,11 +329,13 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
   };
   const isDirty = (r: number, c: number) => !!edits[r] && c in edits[r];
 
-  const startEdit = (r: number, c: number) => {
+  // `w` locks the editing cell to the column's displayed width so it doesn't
+  // shrink to its content when the cell flips to an input.
+  const startEdit = (r: number, c: number, w?: number) => {
     if (!editable || deletes.has(r)) return;
     const v = displayValue(r, c);
     setEditText(v === null || v === undefined ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v));
-    setEditing({ r, c });
+    setEditing({ r, c, w });
   };
   const commitEdit = () => {
     if (!editing) return;
@@ -526,7 +529,11 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
                     {lay.order.map((c) => {
                       if (editing && editing.r === r && editing.c === c) {
                         return (
-                          <div key={c} className={`grid-cell editing ${pinned.has(c) ? 'pinned' : ''}`} style={cellGeom(c, 'var(--bg)')}>
+                          <div
+                            key={c}
+                            className={`grid-cell editing ${pinned.has(c) ? 'pinned' : ''}`}
+                            style={{ ...cellGeom(c, 'var(--bg)'), ...(editing.w ? { flex: '0 0 auto', width: editing.w, minWidth: editing.w, maxWidth: editing.w } : {}) }}
+                          >
                             <input
                               className="input tdv-edit-input"
                               autoFocus
@@ -563,7 +570,7 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
                           style={cellGeom(c, 'var(--bg)', selected)}
                           title={text}
                           onMouseDown={(e) => selectCell(r, c, e.shiftKey)}
-                          onDoubleClick={() => startEdit(r, c)}
+                          onDoubleClick={(e) => startEdit(r, c, (e.currentTarget as HTMLElement).getBoundingClientRect().width)}
                         >
                           {text}
                           {fks[columns[c]] && !isNull && onOpenRelated && (
