@@ -67,6 +67,7 @@ export const CreateTableDialog: React.FC<Props> = ({ profileId, driver, database
 
   // Keep the editable SQL in sync with the form until the user edits it directly.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!dirty) setSql(generated);
   }, [generated, dirty]);
 

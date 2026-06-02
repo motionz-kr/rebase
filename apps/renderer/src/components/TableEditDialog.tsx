@@ -50,6 +50,7 @@ export const TableEditDialog: React.FC<Props> = ({
     let ignore = false;
     // Reset the table-name field whenever the target table changes, so a reused
     // instance can never carry a stale name (which would emit a spurious RENAME).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setTableName(table);
     (async () => {
       setLoading(true);
@@ -73,8 +74,8 @@ export const TableEditDialog: React.FC<Props> = ({
         for (const c of cols) base.set(c.name, { name: c.name, type: c.type, nullable: c.nullable });
         setBaseline(base);
         setRows(focusNewColumn ? [...loaded, newRow()] : loaded);
-      } catch (e: any) {
-        if (!ignore) setError(e?.message || 'Failed to load columns');
+      } catch (e) {
+        if (!ignore) setError(e instanceof Error ? e.message : 'Failed to load columns');
       } finally {
         if (!ignore) setLoading(false);
       }

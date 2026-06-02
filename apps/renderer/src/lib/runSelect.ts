@@ -24,12 +24,12 @@ export function runSelect(profileId: string, sql: string): Promise<SelectResult>
       resolve(r);
     };
 
-    cleanup = window.electronAPI.onQueryStreamChunk((id, chunk: any) => {
+    cleanup = window.electronAPI.onQueryStreamChunk((id, chunk) => {
       if (id !== queryId || settled) return;
       if (chunk.type === 'meta') {
         columns = chunk.columns ?? [];
       } else if (chunk.type === 'row') {
-        rows.push(chunk.data);
+        rows.push(chunk.data ?? []);
       } else if (chunk.type === 'done') {
         finish({ ok: true, columns, rows });
       } else if (chunk.type === 'error') {
@@ -44,6 +44,6 @@ export function runSelect(profileId: string, sql: string): Promise<SelectResult>
       .then((res) => {
         if (!res.success) finish({ ok: false, columns, rows, error: res.error || 'Failed to start query' });
       })
-      .catch((e: any) => finish({ ok: false, columns, rows, error: e?.message || 'Request failed' }));
+      .catch((e) => finish({ ok: false, columns, rows, error: e instanceof Error ? e.message : 'Request failed' }));
   });
 }

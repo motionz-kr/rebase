@@ -38,6 +38,7 @@ export const SavedQueries: React.FC<SavedQueriesProps> = ({ profileId, onSelectQ
   };
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadQueries();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profileId, refreshTrigger]);
@@ -53,8 +54,8 @@ export const SavedQueries: React.FC<SavedQueriesProps> = ({ profileId, onSelectQ
       } else {
         alert(res.error || 'Failed to delete query');
       }
-    } catch (err: any) {
-      alert('Error deleting query: ' + err.message);
+    } catch (err) {
+      alert('Error deleting query: ' + (err instanceof Error ? err.message : 'Unknown error'));
     }
   };
 
@@ -66,7 +67,7 @@ export const SavedQueries: React.FC<SavedQueriesProps> = ({ profileId, onSelectQ
         loadQueries();
         onRefresh();
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error('Failed to toggle favorite:', err);
     }
   };

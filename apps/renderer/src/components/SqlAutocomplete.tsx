@@ -44,9 +44,12 @@ export const SqlAutocomplete: React.FC<Props> = ({ editor, monaco, schema }) => 
   const activeRef = useRef(0);
   const wordRef = useRef('');
   const listRef = useRef<HTMLDivElement>(null);
-  visibleRef.current = visible;
-  itemsRef.current = items;
-  activeRef.current = active;
+  // Mirror the latest values into refs (read by the once-registered key handler).
+  useEffect(() => {
+    visibleRef.current = visible;
+    itemsRef.current = items;
+    activeRef.current = active;
+  });
 
   const accept = (item: SqlSuggestion | undefined) => {
     if (!editor || !monaco || !item) return;

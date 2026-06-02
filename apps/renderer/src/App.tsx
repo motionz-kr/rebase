@@ -86,6 +86,8 @@ function App() {
   const [editingId, setEditingId] = useState<string | null>(null);
 
   useEffect(() => {
+    // Intentional load-on-mount; loadProfiles manages its own state.
+    // eslint-disable-next-line react-hooks/immutability
     loadProfiles();
   }, []);
 
@@ -152,8 +154,8 @@ function App() {
       const res = await window.electronAPI.testConnection(profile, formPassword);
       if (res.success) alert('Connection test succeeded.');
       else setConnectionError(res.error || 'Connection failed');
-    } catch (e: any) {
-      setConnectionError(e.message || 'Error during connection test');
+    } catch (e) {
+      setConnectionError(e instanceof Error ? e.message : 'Error during connection test');
     }
   };
 
@@ -185,8 +187,8 @@ function App() {
       } else {
         setConnectionError(res.error || (editingId ? 'Failed to update profile' : 'Failed to create profile'));
       }
-    } catch (e: any) {
-      setConnectionError(e.message || 'Error while saving profile');
+    } catch (e) {
+      setConnectionError(e instanceof Error ? e.message : 'Error while saving profile');
     }
   };
 
@@ -201,8 +203,8 @@ function App() {
       } else {
         alert(res.error || 'Failed to delete profile');
       }
-    } catch (err: any) {
-      alert(err.message || 'Error occurred');
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Error occurred');
     }
   };
 
@@ -215,8 +217,8 @@ function App() {
       const res = await window.electronAPI.testConnection(p);
       if (res.success) dispatch({ type: 'ready', profileId: p.id });
       else dispatch({ type: 'failed', profileId: p.id, error: res.error || 'Connection failed' });
-    } catch (e: any) {
-      dispatch({ type: 'failed', profileId: p.id, error: e.message || 'Connection error' });
+    } catch (e) {
+      dispatch({ type: 'failed', profileId: p.id, error: e instanceof Error ? e.message : 'Connection error' });
     }
   };
 
@@ -271,16 +273,18 @@ function App() {
         setStatus('disconnected');
         setEngineError('electronAPI not found. Run inside Electron.');
       }
-    } catch (e: any) {
+    } catch (e) {
       setStatus('disconnected');
       setEngineInfo(null);
-      setEngineError(e.message || 'Failed to call checkEngineHealth');
+      setEngineError(e instanceof Error ? e.message : 'Failed to call checkEngineHealth');
     } finally {
       if (manual) setTimeout(() => setIsRefreshing(false), 500);
     }
   }, []);
 
   useEffect(() => {
+    // Intentional health poll on mount; checkHealth manages its own state.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     checkHealth();
     const interval = setInterval(() => checkHealth(), 3000);
     return () => clearInterval(interval);
@@ -367,7 +371,7 @@ function App() {
             <form className="conn-form" onSubmit={handleCreateProfile}>
               <div>
                 <label>Database type</label>
-                <select value={formDriver} onChange={(e) => handleDriverChange(e.target.value as any)}>
+                <select value={formDriver} onChange={(e) => handleDriverChange(e.target.value as 'mysql' | 'postgres' | 'redis')}>
                   <option value="mysql">MySQL</option>
                   <option value="postgres">PostgreSQL</option>
                   <option value="redis">Redis</option>
@@ -415,7 +419,7 @@ function App() {
               </div>
               <div>
                 <label>TLS mode</label>
-                <select value={formTlsMode} onChange={(e) => setFormTlsMode(e.target.value as any)}>
+                <select value={formTlsMode} onChange={(e) => setFormTlsMode(e.target.value as 'none' | 'prefer' | 'require')}>
                   <option value="none">None (plaintext)</option>
                   <option value="prefer">Prefer (opportunistic)</option>
                   <option value="require">Require (encrypted)</option>
