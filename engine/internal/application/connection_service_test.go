@@ -8,6 +8,43 @@ import (
 	"github.com/smlee/database-local-engine/engine/internal/ports"
 )
 
+func TestAgentKeyRoundTripInSecretStore(t *testing.T) {
+	ctx := context.Background()
+	service := NewConnectionService(ports.NewFakeProfileRepository(), ports.NewFakeSecretStore())
+
+	if service.HasAgentKey(ctx, "anthropic") {
+		t.Fatal("no key should be stored initially")
+	}
+	if err := service.SetAgentKey(ctx, "anthropic", "sk-ant-secret"); err != nil {
+		t.Fatalf("SetAgentKey: %v", err)
+	}
+	if !service.HasAgentKey(ctx, "anthropic") {
+		t.Error("HasAgentKey should be true after Set")
+	}
+	got, err := service.GetAgentKey(ctx, "anthropic")
+	if err != nil || got != "sk-ant-secret" {
+		t.Errorf("GetAgentKey = %q, %v; want sk-ant-secret", got, err)
+	}
+	// Providers are namespaced independently.
+	if service.HasAgentKey(ctx, "openai") {
+		t.Error("openai key should be independent of anthropic")
+	}
+	if err := service.ClearAgentKey(ctx, "anthropic"); err != nil {
+		t.Fatalf("ClearAgentKey: %v", err)
+	}
+	if service.HasAgentKey(ctx, "anthropic") {
+		t.Error("HasAgentKey should be false after Clear")
+	}
+}
+
+func TestSetAgentKeyRejectsEmptyProvider(t *testing.T) {
+	ctx := context.Background()
+	service := NewConnectionService(ports.NewFakeProfileRepository(), ports.NewFakeSecretStore())
+	if err := service.SetAgentKey(ctx, "", "k"); err == nil {
+		t.Error("expected an error for an empty provider")
+	}
+}
+
 func TestConnectionService(t *testing.T) {
 	ctx := context.Background()
 	repo := ports.NewFakeProfileRepository()

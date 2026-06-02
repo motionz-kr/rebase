@@ -108,4 +108,34 @@ func (s *ConnectionService) DeleteProfile(ctx context.Context, id string) error 
 
 	return nil
 }
+
+// agentKeyRef namespaces an agent provider's API key inside the SecretStore so
+// it lives in the OS keychain alongside connection passwords (issue #10:
+// "key in keychain"), never in renderer localStorage.
+func agentKeyRef(provider string) string { return "agent-api-key:" + provider }
+
+// SetAgentKey stores a provider's API key in the keychain.
+func (s *ConnectionService) SetAgentKey(ctx context.Context, provider, key string) error {
+	if provider == "" {
+		return fmt.Errorf("provider is required")
+	}
+	return s.store.Set(ctx, agentKeyRef(provider), key)
+}
+
+// GetAgentKey returns a provider's stored API key (empty string + error if none).
+func (s *ConnectionService) GetAgentKey(ctx context.Context, provider string) (string, error) {
+	return s.store.Get(ctx, agentKeyRef(provider))
+}
+
+// ClearAgentKey removes a provider's stored API key.
+func (s *ConnectionService) ClearAgentKey(ctx context.Context, provider string) error {
+	return s.store.Delete(ctx, agentKeyRef(provider))
+}
+
+// HasAgentKey reports whether a non-empty key is stored for the provider.
+func (s *ConnectionService) HasAgentKey(ctx context.Context, provider string) bool {
+	v, err := s.GetAgentKey(ctx, provider)
+	return err == nil && v != ""
+}
+
 type ConnectionProfileService = ConnectionService

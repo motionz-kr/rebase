@@ -11,7 +11,6 @@ interface Proposal {
 
 interface AgentSettings {
   provider: 'stub' | 'anthropic' | 'openai' | 'cli' | 'codex';
-  apiKey: string;
   model: string;
   autonomy: 'approval' | 'autonomous';
   dataExposure: 'metadata' | 'on_request' | 'unrestricted';
@@ -19,7 +18,6 @@ interface AgentSettings {
 const SETTINGS_KEY = 'rebase.agent.settings';
 const defaultSettings: AgentSettings = {
   provider: 'stub',
-  apiKey: '',
   model: 'claude-sonnet-4-6',
   autonomy: 'approval',
   dataExposure: 'metadata',
@@ -28,7 +26,12 @@ const defaultSettings: AgentSettings = {
 function loadSettings(): AgentSettings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
-    if (raw) return { ...defaultSettings, ...JSON.parse(raw) };
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      // Drop any legacy plaintext apiKey: keys now live in the OS keychain.
+      delete parsed.apiKey;
+      return { ...defaultSettings, ...parsed };
+    }
   } catch {
     /* ignore */
   }
@@ -61,6 +64,10 @@ export const AgentChat: React.FC<AgentChatProps> = ({
   const [cliStatus, setCliStatus] = useState<
     { loading: boolean; installed?: boolean; loggedIn?: boolean; email?: string; subscription?: string; detail?: string } | null
   >(null);
+  // API key lives in the OS keychain, never in component/localStorage state.
+  // We hold only the in-progress input and whether a key is already stored.
+  const [apiKeyInput, setApiKeyInput] = useState('');
+  const [keyPresent, setKeyPresent] = useState<boolean | null>(null);
 
   const isCliProvider = (p: AgentSettings['provider']) => p === 'cli' || p === 'codex';
   const cliTool = settings.provider === 'codex' ? 'codex' : 'claude';
@@ -76,6 +83,26 @@ export const AgentChat: React.FC<AgentChatProps> = ({
   profileRef.current = profileId;
 
   const needsApiKey = (p: AgentSettings['provider']) => p === 'anthropic' || p === 'openai';
+
+  const refreshKeyStatus = async () => {
+    if (!needsApiKey(settings.provider)) {
+      setKeyPresent(null);
+      return;
+    }
+    const res = await window.electronAPI.agentKeyStatus(settings.provider);
+    setKeyPresent(res.success && res.data ? res.data.present : false);
+  };
+  const saveKey = async () => {
+    const k = apiKeyInput.trim();
+    if (!k) return;
+    await window.electronAPI.agentKeySet(settings.provider, k);
+    setApiKeyInput('');
+    await refreshKeyStatus();
+  };
+  const clearKey = async () => {
+    await window.electronAPI.agentKeyClear(settings.provider);
+    await refreshKeyStatus();
+  };
 
   const updateSettings = (patch: Partial<AgentSettings>) => {
     setSettings((prev) => {
@@ -147,6 +174,35 @@ export const AgentChat: React.FC<AgentChatProps> = ({
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [messages]);
 
+  // One-time migration: move a legacy plaintext key out of localStorage and
+  // into the OS keychain, so users who configured a key before this change
+  // don't have to re-enter it.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(SETTINGS_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (!('apiKey' in parsed)) return;
+      const legacy = parsed.apiKey;
+      delete parsed.apiKey;
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(parsed));
+      if (legacy && (parsed.provider === 'anthropic' || parsed.provider === 'openai')) {
+        void window.electronAPI.agentKeySet(parsed.provider, legacy).then(() => void refreshKeyStatus());
+      }
+    } catch {
+      /* ignore */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Reflect whether an API key is already stored in the keychain for the
+  // selected Direct-API provider.
+  useEffect(() => {
+    setApiKeyInput('');
+    void refreshKeyStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings.provider]);
+
   // Check CLI login status when a CLI provider is active, and again when the
   // window regains focus (e.g. after completing login in the terminal).
   useEffect(() => {
@@ -179,7 +235,7 @@ export const AgentChat: React.FC<AgentChatProps> = ({
 
     const res = await window.electronAPI.agentRun(runId, profileId, history, {
       provider: settings.provider,
-      apiKey: settings.apiKey,
+      // API key is resolved engine-side from the OS keychain (never sent here).
       // CLI providers (claude/codex) use their own logged-in default model.
       model: needsApiKey(settings.provider) ? settings.model : '',
       dataExposure: settings.dataExposure,
@@ -274,19 +330,52 @@ export const AgentChat: React.FC<AgentChatProps> = ({
             <>
               <label>
                 API key
-                <input
-                  type="password"
-                  value={settings.apiKey}
-                  placeholder={settings.provider === 'openai' ? 'sk-…' : 'sk-ant-…'}
-                  onChange={(e) => updateSettings({ apiKey: e.target.value })}
-                />
+                <div className="agent-key-row">
+                  <input
+                    type="password"
+                    value={apiKeyInput}
+                    placeholder={
+                      keyPresent
+                        ? 'Stored — enter a new key to replace'
+                        : settings.provider === 'openai'
+                        ? 'sk-…'
+                        : 'sk-ant-…'
+                    }
+                    onChange={(e) => setApiKeyInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        void saveKey();
+                      }
+                    }}
+                  />
+                  <button className="btn btn-primary btn-sm" onClick={() => void saveKey()} disabled={!apiKeyInput.trim()}>
+                    Save
+                  </button>
+                </div>
               </label>
+              {keyPresent !== null && (
+                <div className="agent-key-status">
+                  {keyPresent ? (
+                    <span className="cli-line ok">
+                      <Check size={13} /> Key stored in keychain
+                      <button className="btn btn-secondary btn-xs" onClick={() => void clearKey()}>
+                        Remove
+                      </button>
+                    </span>
+                  ) : (
+                    <span className="cli-line warn">
+                      <AlertTriangle size={13} /> No key stored for this provider
+                    </span>
+                  )}
+                </div>
+              )}
               <label>
                 Model
                 <input type="text" value={settings.model} onChange={(e) => updateSettings({ model: e.target.value })} />
               </label>
               <p className="agent-settings-note">
-                The key is sent to the local engine only and used directly against the{' '}
+                The key is stored in your OS keychain via the local engine, then sent only to the{' '}
                 {settings.provider === 'openai' ? 'OpenAI' : 'Anthropic'} API.
               </p>
             </>

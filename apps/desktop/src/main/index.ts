@@ -578,6 +578,53 @@ app.whenReady().then(() => {
     }
   });
 
+  // Agent API keys live in the OS keychain (via the engine), never in renderer
+  // localStorage. These call the engine's /agent/key endpoint.
+  function engineKeyRequest(
+    method: 'GET' | 'POST' | 'DELETE',
+    provider: string,
+    body?: Record<string, unknown>
+  ): Promise<any> {
+    return new Promise((resolve) => {
+      if (!engineManager || engineManager.getPort() === null) {
+        resolve({ success: false, error: 'Engine not started' });
+        return;
+      }
+      const port = engineManager.getPort()!;
+      const payload = body ? JSON.stringify(body) : null;
+      const path = method === 'POST' ? '/agent/key' : `/agent/key?provider=${encodeURIComponent(provider)}`;
+      const headers: Record<string, string> = { 'X-App-Engine-Token': launchToken };
+      if (payload) {
+        headers['Content-Type'] = 'application/json';
+        headers['Content-Length'] = Buffer.byteLength(payload).toString();
+      }
+      const req = http.request({ host: '127.0.0.1', port, path, method, headers }, (res) => {
+        let data = '';
+        res.on('data', (c) => (data += c));
+        res.on('end', () => {
+          if (res.statusCode && res.statusCode >= 400) {
+            resolve({ success: false, error: data || `status ${res.statusCode}` });
+            return;
+          }
+          try {
+            resolve({ success: true, data: JSON.parse(data || '{}') });
+          } catch {
+            resolve({ success: true, data: {} });
+          }
+        });
+      });
+      req.on('error', (err) => resolve({ success: false, error: err.message }));
+      if (payload) req.write(payload);
+      req.end();
+    });
+  }
+
+  ipcMain.handle('agent-key-status', (_event, provider: string) => engineKeyRequest('GET', provider));
+  ipcMain.handle('agent-key-set', (_event, provider: string, key: string) =>
+    engineKeyRequest('POST', provider, { provider, key })
+  );
+  ipcMain.handle('agent-key-clear', (_event, provider: string) => engineKeyRequest('DELETE', provider));
+
   // Strip the agent-harness / proxy overrides so a spawned claude uses the
   // user's own login (mirrors the engine's sanitizeEnv).
   function sanitizedEnv(): NodeJS.ProcessEnv {

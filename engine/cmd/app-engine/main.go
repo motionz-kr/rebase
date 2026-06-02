@@ -227,6 +227,7 @@ func main() {
 
 	agentHandler := internalHttp.NewAgentHandler(*token, connectionService)
 	mux.Handle("/agent/run", agentHandler.Run())
+	mux.Handle("/agent/key", agentHandler.Key())
 
 	workspaceHandler := internalHttp.NewWorkspaceHandler(*token, workspaceService)
 	mux.Handle("/workspaces", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

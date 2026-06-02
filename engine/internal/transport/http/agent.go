@@ -59,6 +59,52 @@ func (h *AgentHandler) getConnector(driver string) (ports.SQLConnector, error) {
 	}
 }
 
+// Key manages stored agent API keys in the OS keychain (issue #10) so the
+// renderer never persists a raw key.
+//   - GET    /agent/key?provider=anthropic  -> {"present": bool}
+//   - POST   /agent/key  {provider, key}     -> store (empty key clears)
+//   - DELETE /agent/key?provider=anthropic   -> clear
+func (h *AgentHandler) Key() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !h.checkToken(r) {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch r.Method {
+		case http.MethodGet:
+			provider := r.URL.Query().Get("provider")
+			_ = json.NewEncoder(w).Encode(map[string]bool{"present": h.service.HasAgentKey(r.Context(), provider)})
+		case http.MethodPost:
+			var b struct {
+				Provider string `json:"provider"`
+				Key      string `json:"key"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+				http.Error(w, "invalid request body", http.StatusBadRequest)
+				return
+			}
+			// An empty key means "forget it" rather than storing a blank secret.
+			var err error
+			if b.Key == "" {
+				err = h.service.ClearAgentKey(r.Context(), b.Provider)
+			} else {
+				err = h.service.SetAgentKey(r.Context(), b.Provider, b.Key)
+			}
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+		case http.MethodDelete:
+			_ = h.service.ClearAgentKey(r.Context(), r.URL.Query().Get("provider"))
+			_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+}
+
 // Run streams an agent turn as NDJSON (one ports.LLMEvent per line).
 // Body: {profileId, messages:[{role,text}], provider:"stub"|"anthropic", apiKey, model}.
 func (h *AgentHandler) Run() http.Handler {
@@ -95,12 +141,21 @@ func (h *AgentHandler) Run() http.Handler {
 			return
 		}
 
+		// Resolve the API key: prefer an explicit per-request key, else fall back
+		// to the one stored in the OS keychain (issue #10: "key in keychain").
+		apiKey := body.APIKey
+		if apiKey == "" && (body.Provider == "anthropic" || body.Provider == "openai") {
+			if k, kerr := h.service.GetAgentKey(r.Context(), body.Provider); kerr == nil {
+				apiKey = k
+			}
+		}
+
 		var provider ports.LLMProvider
 		switch body.Provider {
 		case "anthropic":
-			provider = llm.NewAnthropicProvider(body.APIKey, body.Model, "")
+			provider = llm.NewAnthropicProvider(apiKey, body.Model, "")
 		case "openai":
-			provider = llm.NewOpenAIProvider(body.APIKey, body.Model, "")
+			provider = llm.NewOpenAIProvider(apiKey, body.Model, "")
 		case "cli":
 			exe, err := os.Executable()
 			if err != nil {
@@ -130,6 +185,8 @@ func (h *AgentHandler) Run() http.Handler {
 		registry := agent.NewSQLRegistry(conn, *profile, password, profile.Database)
 		svc := agent.NewAgentService(provider, registry, 16)
 		svc.SetPolicy(agent.Policy{DataExposure: body.DataExposure})
+		// Never let the connection password / secret ref reach the provider.
+		svc.SetSecrets([]string{password, profile.SecretRef})
 
 		w.Header().Set("Content-Type", "application/x-ndjson")
 		w.Header().Set("Cache-Control", "no-cache")

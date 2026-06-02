@@ -32,6 +32,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   agentCancel: (runId: string) => ipcRenderer.invoke('agent-cancel', runId),
   agentCliStatus: (tool: string) => ipcRenderer.invoke('agent-cli-status', tool),
   agentCliLogin: (tool: string) => ipcRenderer.invoke('agent-cli-login', tool),
+  agentKeyStatus: (provider: string) => ipcRenderer.invoke('agent-key-status', provider),
+  agentKeySet: (provider: string, key: string) => ipcRenderer.invoke('agent-key-set', provider, key),
+  agentKeyClear: (provider: string) => ipcRenderer.invoke('agent-key-clear', provider),
   onAgentStreamChunk: (callback: (runId: string, chunk: any) => void) => {
     const listener = (_event: any, rId: string, chunk: any) => callback(rId, chunk);
     ipcRenderer.on('agent-stream-chunk', listener);

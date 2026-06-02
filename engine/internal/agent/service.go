@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/smlee/database-local-engine/engine/internal/ports"
 )
@@ -22,6 +23,7 @@ type AgentService struct {
 	maxSteps int
 	system   string
 	policy   Policy
+	secrets  []string
 }
 
 func NewAgentService(p ports.LLMProvider, reg *Registry, maxSteps int) *AgentService {
@@ -35,6 +37,38 @@ func NewAgentService(p ports.LLMProvider, reg *Registry, maxSteps int) *AgentSer
 
 // SetPolicy configures the data-exposure gate (default: unrestricted).
 func (s *AgentService) SetPolicy(p Policy) { s.policy = p }
+
+// SetSecrets registers literal strings (connection password, secret refs) that
+// must never reach the provider. They are scrubbed from the system prompt and
+// every message just before each provider call (spec §Policy model: "the
+// redaction step strips connection passwords / secret refs from any context
+// assembled for the provider").
+func (s *AgentService) SetSecrets(secrets []string) { s.secrets = secrets }
+
+// redact replaces every registered secret with a placeholder. Empty secrets are
+// ignored so they can't blank out unrelated text.
+func redact(text string, secrets []string) string {
+	for _, sec := range secrets {
+		if sec == "" {
+			continue
+		}
+		text = strings.ReplaceAll(text, sec, "[redacted]")
+	}
+	return text
+}
+
+// request assembles the (redacted) provider request for the current messages.
+func (s *AgentService) request(messages []ports.LLMMessage, specs []ports.ToolSpec) ports.LLMRequest {
+	if len(s.secrets) == 0 {
+		return ports.LLMRequest{System: s.system, Messages: messages, Tools: specs}
+	}
+	scrubbed := make([]ports.LLMMessage, len(messages))
+	for i, m := range messages {
+		m.Text = redact(m.Text, s.secrets)
+		scrubbed[i] = m
+	}
+	return ports.LLMRequest{System: redact(s.system, s.secrets), Messages: scrubbed, Tools: specs}
+}
 
 // dataTools produce row values that the data-exposure policy may withhold.
 var dataTools = map[string]bool{"run_select": true, "explain_query": true, "profile_table": true}
@@ -66,8 +100,7 @@ func (s *AgentService) Run(ctx context.Context, conversation []ports.LLMMessage,
 	// their events through. Re-dispatching their tool calls here would run the
 	// provider again per tool use — an accidental multi-call loop.
 	if sd, ok := s.provider.(interface{ SelfDriving() bool }); ok && sd.SelfDriving() {
-		req := ports.LLMRequest{System: s.system, Messages: messages, Tools: specs}
-		return s.provider.Complete(ctx, req, emit)
+		return s.provider.Complete(ctx, s.request(messages, specs), emit)
 	}
 
 	for step := 0; step < s.maxSteps; step++ {
@@ -76,8 +109,7 @@ func (s *AgentService) Run(ctx context.Context, conversation []ports.LLMMessage,
 		}
 
 		var pending *ports.ToolCall
-		req := ports.LLMRequest{System: s.system, Messages: messages, Tools: specs}
-		err := s.provider.Complete(ctx, req, func(e ports.LLMEvent) {
+		err := s.provider.Complete(ctx, s.request(messages, specs), func(e ports.LLMEvent) {
 			if e.Kind == ports.EventToolCall && e.ToolCall != nil {
 				pending = e.ToolCall // dispatch after the turn completes
 			}

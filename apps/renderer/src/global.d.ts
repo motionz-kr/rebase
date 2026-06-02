@@ -154,6 +154,9 @@ declare global {
         ResultWrapper<{ installed: boolean; loggedIn: boolean; email?: string; subscription?: string; authMethod?: string; detail?: string }>
       >;
       agentCliLogin: (tool: string) => Promise<ResultWrapper<{ success: boolean }>>;
+      agentKeyStatus: (provider: string) => Promise<ResultWrapper<{ present: boolean }>>;
+      agentKeySet: (provider: string, key: string) => Promise<ResultWrapper<{ ok: boolean }>>;
+      agentKeyClear: (provider: string) => Promise<ResultWrapper<{ ok: boolean }>>;
       onAgentStreamChunk: (callback: (runId: string, chunk: AgentStreamChunk) => void) => () => void;
       redisScan: (profileId: string, pattern: string, cursor: number, count: number) => Promise<ResultWrapper<RedisKeyspaceInfo>>;
       redisValue: (profileId: string, key: string) => Promise<ResultWrapper<RedisValueInfo>>;

@@ -2746,6 +2746,34 @@
   gap: 8px;
 }
 
+/* Direct-API key entry (stored in keychain) */
+.agent-key-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.agent-key-row input {
+  flex: 1;
+  min-width: 0;
+}
+.agent-key-status .cli-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: none;
+}
+.agent-key-status .cli-line.ok {
+  color: var(--green);
+}
+.agent-key-status .cli-line.warn {
+  color: var(--amber);
+}
+.agent-key-status .cli-line .btn {
+  margin-left: 8px;
+}
+
 /* Auth-fix banner */
 .agent-authfix {
   display: flex;

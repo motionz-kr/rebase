@@ -173,6 +173,49 @@ func TestServiceSelfDrivingProviderRunsOnce(t *testing.T) {
 	}
 }
 
+// captureReq records the request the provider receives, to assert redaction.
+type captureReq struct{ got ports.LLMRequest }
+
+func (c *captureReq) Status(context.Context) (ports.ProviderStatus, error) {
+	return ports.ProviderStatus{Ready: true}, nil
+}
+func (c *captureReq) Complete(_ context.Context, req ports.LLMRequest, emit func(ports.LLMEvent)) error {
+	c.got = req
+	emit(ports.LLMEvent{Kind: ports.EventDone})
+	return nil
+}
+
+func TestServiceRedactsSecretsBeforeProvider(t *testing.T) {
+	reg := NewSQLRegistry(&fakeSQL{}, domainProfile(), "", "devdb")
+	prov := &captureReq{}
+	svc := NewAgentService(prov, reg, 8)
+	svc.SetSecrets([]string{"hunter2", "ref-xyz"})
+
+	msg := ports.LLMMessage{Role: ports.RoleUser, Text: "my password is hunter2 and ref ref-xyz"}
+	if err := svc.Run(context.Background(), []ports.LLMMessage{msg}, func(ports.LLMEvent) {}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	got := prov.got.Messages[len(prov.got.Messages)-1].Text
+	if containsSubT(got, "hunter2") || containsSubT(got, "ref-xyz") {
+		t.Errorf("secrets must be redacted before reaching the provider, got: %s", got)
+	}
+	if !containsSubT(got, "[redacted]") {
+		t.Errorf("expected a redaction placeholder, got: %s", got)
+	}
+}
+
+func TestServiceRedactIgnoresEmptySecret(t *testing.T) {
+	reg := NewSQLRegistry(&fakeSQL{}, domainProfile(), "", "devdb")
+	prov := &captureReq{}
+	svc := NewAgentService(prov, reg, 8)
+	svc.SetSecrets([]string{""}) // an empty secret must not blank the whole message
+	msg := ports.LLMMessage{Role: ports.RoleUser, Text: "hello world"}
+	_ = svc.Run(context.Background(), []ports.LLMMessage{msg}, func(ports.LLMEvent) {})
+	if got := prov.got.Messages[0].Text; got != "hello world" {
+		t.Errorf("empty secret must be a no-op, got: %q", got)
+	}
+}
+
 type loopingProvider struct{}
 
 func (loopingProvider) Status(context.Context) (ports.ProviderStatus, error) {
