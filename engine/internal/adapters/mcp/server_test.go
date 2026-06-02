@@ -29,6 +29,9 @@ func (fakeSQL) ListIndexes(context.Context, domain.ConnectionProfile, string, st
 func (fakeSQL) ListForeignKeys(context.Context, domain.ConnectionProfile, string, string, string) ([]ports.ForeignKey, error) {
 	return nil, nil
 }
+func (fakeSQL) ListColumns(context.Context, domain.ConnectionProfile, string, string) ([]ports.ColumnRef, error) {
+	return nil, nil
+}
 func (fakeSQL) ExecuteQueryStream(_ context.Context, _ domain.ConnectionProfile, _ string, _ string, _ bool, onStart func(int64), onHeader func([]string) error, onRow func([]any) error) (int64, error) {
 	return 0, nil
 }

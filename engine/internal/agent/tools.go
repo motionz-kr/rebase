@@ -3,10 +3,33 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/smlee/database-local-engine/engine/internal/domain"
 	"github.com/smlee/database-local-engine/engine/internal/ports"
 )
+
+// toInt coerces a DB-driver numeric value (int64 / float64 / []byte / string)
+// to int64.
+func toInt(v any) int64 {
+	switch t := v.(type) {
+	case int64:
+		return t
+	case int:
+		return int64(t)
+	case float64:
+		return int64(t)
+	case []byte:
+		n, _ := strconv.ParseInt(string(t), 10, 64)
+		return n
+	case string:
+		n, _ := strconv.ParseInt(t, 10, 64)
+		return n
+	default:
+		return 0
+	}
+}
 
 // sqlReader is the subset of ports.SQLConnector the read tools need (kept small
 // so tests can fake it without implementing the full connector).
@@ -16,7 +39,16 @@ type sqlReader interface {
 	GetTableDDL(ctx context.Context, p domain.ConnectionProfile, password, database, table string) (string, error)
 	ListIndexes(ctx context.Context, p domain.ConnectionProfile, password, database, table string) ([]ports.Index, error)
 	ListForeignKeys(ctx context.Context, p domain.ConnectionProfile, password, database, table string) ([]ports.ForeignKey, error)
+	ListColumns(ctx context.Context, p domain.ConnectionProfile, password, database string) ([]ports.ColumnRef, error)
 	ExecuteQueryStream(ctx context.Context, p domain.ConnectionProfile, password string, query string, readOnly bool, onSessionStart func(sessionID int64), onHeader func(columns []string) error, onRow func(row []any) error) (int64, error)
+}
+
+// quoteIdent quotes a SQL identifier for the given driver.
+func quoteIdent(driver, ident string) string {
+	if driver == "postgres" {
+		return `"` + strings.ReplaceAll(ident, `"`, `""`) + `"`
+	}
+	return "`" + strings.ReplaceAll(ident, "`", "``") + "`"
 }
 
 // readQueryLimit caps how many rows a read tool collects into the model context.
@@ -183,6 +215,105 @@ func NewSQLRegistry(conn sqlReader, p domain.ConnectionProfile, password, databa
 		},
 		Run: func(ctx context.Context, args map[string]any) (any, error) {
 			return runReadQuery(ctx, conn, p, password, "EXPLAIN "+strArg(args, "sql"))
+		},
+	})
+
+	r.add(Tool{
+		Spec: ports.ToolSpec{
+			Name:        "find_column",
+			Description: "Find every table that has a column whose name contains the given text (reverse lookup).",
+			Schema: map[string]any{
+				"type":       "object",
+				"properties": map[string]any{"name": map[string]any{"type": "string"}},
+				"required":   []string{"name"},
+			},
+		},
+		Run: func(ctx context.Context, args map[string]any) (any, error) {
+			cols, err := conn.ListColumns(ctx, p, password, database)
+			if err != nil {
+				return nil, err
+			}
+			needle := strings.ToLower(strArg(args, "name"))
+			out := make([]ports.ColumnRef, 0)
+			for _, c := range cols {
+				if strings.Contains(strings.ToLower(c.Column), needle) {
+					out = append(out, c)
+				}
+			}
+			return out, nil
+		},
+	})
+
+	r.add(Tool{
+		Spec: ports.ToolSpec{
+			Name:        "profile_table",
+			Description: "Profile a table: total row count and the null fraction of each column.",
+			Schema:      tableArgSchema,
+		},
+		Run: func(ctx context.Context, args map[string]any) (any, error) {
+			table := strArg(args, "table")
+			desc, err := conn.DescribeTable(ctx, p, password, database, table)
+			if err != nil {
+				return nil, err
+			}
+			cols := desc.Columns
+			if len(cols) > 40 {
+				cols = cols[:40]
+			}
+			sel := []string{"COUNT(*) AS n"}
+			for i, c := range cols {
+				sel = append(sel, fmt.Sprintf("COUNT(%s) AS c%d", quoteIdent(p.Driver, c.Name), i))
+			}
+			sql := "SELECT " + strings.Join(sel, ", ") + " FROM " + quoteIdent(p.Driver, table)
+			res, err := runReadQuery(ctx, conn, p, password, sql)
+			if err != nil {
+				return nil, err
+			}
+			if len(res.Rows) == 0 || len(res.Rows[0]) == 0 {
+				return map[string]any{"rowCount": 0, "columns": []any{}}, nil
+			}
+			row := res.Rows[0]
+			total := toInt(row[0])
+			profile := make([]map[string]any, 0, len(cols))
+			for i, c := range cols {
+				nonNull := toInt(row[i+1])
+				nullPct := 0.0
+				if total > 0 {
+					nullPct = float64(total-nonNull) / float64(total)
+				}
+				profile = append(profile, map[string]any{"column": c.Name, "type": c.Type, "nulls": total - nonNull, "nullFraction": nullPct})
+			}
+			return map[string]any{"rowCount": total, "columns": profile}, nil
+		},
+	})
+
+	r.add(Tool{
+		Spec: ports.ToolSpec{
+			Name:        "table_stats",
+			Description: "Estimated row count and on-disk size (bytes) of a table.",
+			Schema:      tableArgSchema,
+		},
+		Run: func(ctx context.Context, args map[string]any) (any, error) {
+			table := strArg(args, "table")
+			lit := "'" + strings.ReplaceAll(table, "'", "''") + "'"
+			var sql string
+			if p.Driver == "postgres" {
+				sql = "SELECT c.reltuples::bigint AS rows, pg_total_relation_size(c.oid) AS bytes " +
+					"FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace " +
+					"WHERE c.relname = " + lit + " AND n.nspname = current_schema()"
+			} else {
+				sql = "SELECT table_rows AS rows, data_length + index_length AS bytes " +
+					"FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = " + lit
+			}
+			res, err := runReadQuery(ctx, conn, p, password, sql)
+			if err != nil {
+				return nil, err
+			}
+			if len(res.Rows) == 0 || len(res.Rows[0]) < 2 {
+				return map[string]any{"exists": false}, nil
+			}
+			row := res.Rows[0]
+			return map[string]any{"tableRows": toInt(row[0]), "totalBytes": toInt(row[1])}, nil
 		},
 	})
 

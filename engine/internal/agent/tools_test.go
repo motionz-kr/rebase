@@ -13,8 +13,14 @@ import (
 type fakeSQL struct {
 	tables       []ports.TableInfo
 	columns      []ports.ColumnInfo
+	colRefs      []ports.ColumnRef
+	oneRow       []any
 	lastQuery    string
 	lastReadOnly bool
+}
+
+func (f *fakeSQL) ListColumns(_ context.Context, _ domain.ConnectionProfile, _ string, _ string) ([]ports.ColumnRef, error) {
+	return f.colRefs, nil
 }
 
 func (f *fakeSQL) ListTables(_ context.Context, _ domain.ConnectionProfile, _ string, _ string) ([]ports.TableInfo, error) {
@@ -36,6 +42,11 @@ func (f *fakeSQL) ExecuteQueryStream(_ context.Context, _ domain.ConnectionProfi
 	f.lastQuery = query
 	f.lastReadOnly = readOnly
 	onStart(1)
+	if f.oneRow != nil {
+		_ = onHeader([]string{"n"})
+		_ = onRow(f.oneRow)
+		return 0, nil
+	}
 	_ = onHeader([]string{"id", "name"})
 	_ = onRow([]any{int64(1), "alice"})
 	_ = onRow([]any{int64(2), "bob"})
@@ -134,6 +145,57 @@ func TestProposeWriteDoesNotExecute(t *testing.T) {
 	b, _ := json.Marshal(out)
 	if !containsSub(string(b), `"risk":"dangerous"`) {
 		t.Errorf("WHERE-less DELETE should be flagged dangerous: %s", b)
+	}
+}
+
+func TestRegistryFindColumn(t *testing.T) {
+	conn := &fakeSQL{colRefs: []ports.ColumnRef{
+		{Table: "users", Column: "owner_id", Type: "int"},
+		{Table: "orders", Column: "id", Type: "int"},
+		{Table: "audit", Column: "owner_email", Type: "text"},
+	}}
+	reg := NewSQLRegistry(conn, domainProfile(), "", "devdb")
+	out, err := reg.Dispatch(context.Background(), "find_column", map[string]any{"name": "owner"})
+	if err != nil {
+		t.Fatalf("find_column: %v", err)
+	}
+	b, _ := json.Marshal(out)
+	s := string(b)
+	if !containsSub(s, "owner_id") || !containsSub(s, "owner_email") || containsSub(s, `"orders"`) {
+		t.Errorf("find_column should match owner_* only: %s", s)
+	}
+}
+
+func TestRegistryProfileTable(t *testing.T) {
+	conn := &fakeSQL{
+		columns: []ports.ColumnInfo{{Name: "id"}, {Name: "email"}},
+		oneRow:  []any{int64(10), int64(10), int64(7)}, // total=10, id=10 non-null, email=7
+	}
+	reg := NewSQLRegistry(conn, domainProfile(), "", "devdb")
+	out, err := reg.Dispatch(context.Background(), "profile_table", map[string]any{"table": "users"})
+	if err != nil {
+		t.Fatalf("profile_table: %v", err)
+	}
+	if !conn.lastReadOnly {
+		t.Error("profile_table must run read-only")
+	}
+	b, _ := json.Marshal(out)
+	s := string(b)
+	if !containsSub(s, `"rowCount":10`) || !containsSub(s, `"nulls":3`) {
+		t.Errorf("profile should report total 10 and email nulls 3: %s", s)
+	}
+}
+
+func TestRegistryTableStats(t *testing.T) {
+	conn := &fakeSQL{oneRow: []any{int64(1234), int64(56789)}}
+	reg := NewSQLRegistry(conn, domainProfile(), "", "devdb")
+	out, err := reg.Dispatch(context.Background(), "table_stats", map[string]any{"table": "users"})
+	if err != nil {
+		t.Fatalf("table_stats: %v", err)
+	}
+	b, _ := json.Marshal(out)
+	if !containsSub(string(b), `"tableRows":1234`) || !containsSub(string(b), `"totalBytes":56789`) {
+		t.Errorf("table_stats wrong: %s", b)
 	}
 }
 
