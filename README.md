@@ -38,6 +38,11 @@ query engine that streams results to a keyboard-friendly Electron UI.
 - **⌘/Ctrl+Enter to submit** pending edits (DataGrip-style)
 - Execution status bar — last statement, time, and rows affected (click to expand)
 
+**Redis**
+- Keyspace explorer with pattern scan, live key count, and DB-index selection
+- Value inspector for all types; **edit** string values, set/clear TTL, rename, and delete (with a confirm gate)
+- **Command console** — run any Redis command with history, inline errors, and a guard on destructive commands
+
 **More** — CSV import, foreign-key navigation, EXPLAIN plans, themed IntelliJ-style dark UI.
 
 ## ⌨️ Keyboard shortcuts
