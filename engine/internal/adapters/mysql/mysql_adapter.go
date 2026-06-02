@@ -405,6 +405,31 @@ func (c *MySQLConnector) ExecuteBatch(ctx context.Context, p domain.ConnectionPr
 	return total, -1, nil
 }
 
+func (c *MySQLConnector) ListForeignKeys(ctx context.Context, p domain.ConnectionProfile, password string, database string, table string) ([]ports.ForeignKey, error) {
+	db, err := c.connect(p, password, database)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	rows, err := db.QueryContext(ctx, `
+		SELECT column_name, referenced_table_name, referenced_column_name
+		FROM information_schema.key_column_usage
+		WHERE table_schema = ? AND table_name = ? AND referenced_table_name IS NOT NULL`, database, table)
+	if err != nil {
+		return nil, c.normalizeError(err)
+	}
+	defer rows.Close()
+	var list []ports.ForeignKey
+	for rows.Next() {
+		var fk ports.ForeignKey
+		if err := rows.Scan(&fk.Column, &fk.RefTable, &fk.RefColumn); err != nil {
+			return nil, c.normalizeError(err)
+		}
+		list = append(list, fk)
+	}
+	return list, nil
+}
+
 func (c *MySQLConnector) normalizeError(err error) error {
 	if err == nil {
 		return nil

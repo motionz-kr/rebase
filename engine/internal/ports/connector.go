@@ -36,6 +36,13 @@ type ColumnRef struct {
 	Type   string `json:"type"`
 }
 
+// ForeignKey describes a single foreign-key constraint column binding.
+type ForeignKey struct {
+	Column    string `json:"column"`
+	RefTable  string `json:"refTable"`
+	RefColumn string `json:"refColumn"`
+}
+
 type SQLConnector interface {
 	DBConnector
 	ListDatabases(ctx context.Context, p domain.ConnectionProfile, password string) ([]DatabaseInfo, error)
