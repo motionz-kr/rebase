@@ -327,6 +327,15 @@ app.whenReady().then(() => {
     }
   });
 
+  ipcMain.handle('list-foreign-keys', async (event, profileId, database, table) => {
+    try {
+      const data = await requestEngine({ method: 'GET', path: `/foreign-keys?profileId=${encodeURIComponent(profileId)}&database=${encodeURIComponent(database)}&table=${encodeURIComponent(table)}` });
+      return { success: true, data };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
   ipcMain.handle('list-views', async (event, profileId, database) => {
     try {
       const data = await requestEngine({ method: 'GET', path: `/views?profileId=${encodeURIComponent(profileId)}&database=${encodeURIComponent(database)}` });
