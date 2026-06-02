@@ -12,6 +12,12 @@ export interface AgentMessage {
   tools: ToolTrace[];
 }
 
+// prettyToolName strips the MCP server prefix (mcp__<server>__) so tool chips
+// read as e.g. "list_tables" rather than "mcp__rebase__list_tables".
+export function prettyToolName(name: string): string {
+  return name.replace(/^mcp__[^_]+(?:__)/, '');
+}
+
 export interface AgentChunk {
   kind: 'text' | 'tool_call' | 'done' | 'error';
   text?: string;

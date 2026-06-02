@@ -1,5 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import { applyAgentChunk, type AgentMessage } from './agentStream';
+import { applyAgentChunk, prettyToolName, type AgentMessage } from './agentStream';
+
+describe('prettyToolName', () => {
+  it('strips the mcp server prefix', () => {
+    expect(prettyToolName('mcp__rebase__list_tables')).toBe('list_tables');
+    expect(prettyToolName('mcp__rebase__propose_write')).toBe('propose_write');
+  });
+  it('leaves plain tool names unchanged', () => {
+    expect(prettyToolName('list_tables')).toBe('list_tables');
+    expect(prettyToolName('ToolSearch')).toBe('ToolSearch');
+  });
+});
 
 const base = (): AgentMessage[] => [
   { role: 'user', text: 'how many tables?', tools: [] },

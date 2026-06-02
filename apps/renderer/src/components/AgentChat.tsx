@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Bot, CornerDownLeft, X, Wrench, Settings, AlertTriangle, Play, Check, Maximize2, Minimize2 } from 'lucide-react';
-import { applyAgentChunk, type AgentMessage } from '../lib/agentStream';
+import { applyAgentChunk, prettyToolName, type AgentMessage } from '../lib/agentStream';
 import { classifyStatement } from '../lib/sqlDanger';
 
 interface Proposal {
@@ -313,8 +313,8 @@ export const AgentChat: React.FC<AgentChatProps> = ({ profileId, connectionName,
             {m.tools.length > 0 && (
               <div className="agent-tools">
                 {m.tools.map((t, j) => (
-                  <span className="agent-tool" key={j} title={JSON.stringify(t.args)}>
-                    <Wrench size={11} /> {t.name}
+                  <span className="agent-tool" key={j} title={`${t.name} ${JSON.stringify(t.args)}`}>
+                    <Wrench size={11} /> {prettyToolName(t.name)}
                   </span>
                 ))}
               </div>
