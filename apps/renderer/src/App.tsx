@@ -314,8 +314,17 @@ function App() {
           <span className="brand-mark">
             <Database size={14} />
           </span>
-          <span className="brand-name">
-            Re<span>base</span>
+          <span className="brand-name" aria-label="Rebase">
+            {'Rebase'.split('').map((ch, i) => (
+              <span
+                key={i}
+                className="logo-ch"
+                aria-hidden="true"
+                style={{ animationDelay: `${i * 0.1}s`, ['--rest' as string]: i < 2 ? 'var(--text-2)' : 'var(--text-3)' } as React.CSSProperties}
+              >
+                {ch}
+              </span>
+            ))}
           </span>
         </div>
         <div className="topbar-status">

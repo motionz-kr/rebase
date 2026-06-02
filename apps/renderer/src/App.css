@@ -47,10 +47,28 @@
   font-size: 13px;
   font-weight: 600;
   letter-spacing: -0.01em;
+  white-space: pre;
 }
-.brand-name span {
-  color: var(--text-3);
-  font-weight: 450;
+/* Each letter rests at its own color and pulses to white in turn (staggered via
+   inline animation-delay), so a bright highlight sweeps across "Rebase". */
+.logo-ch {
+  color: var(--rest, var(--text-2));
+  animation: logo-shimmer 2.8s ease-in-out infinite;
+}
+@keyframes logo-shimmer {
+  0%, 24%, 100% {
+    color: var(--rest, var(--text-2));
+    text-shadow: none;
+  }
+  8% {
+    color: #fff;
+    text-shadow: 0 0 6px rgba(255, 255, 255, 0.35);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .logo-ch {
+    animation: none;
+  }
 }
 
 .topbar-status {
