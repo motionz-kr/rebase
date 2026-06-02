@@ -2,36 +2,37 @@
    empty face in a sandboxed/offline Electron, rendering no glyphs. */
 
 /*
- * Design tokens — professional developer-tool aesthetic (calm, dense, neutral).
- * Dark-first. One restrained blue accent; monospace for data.
+ * Design tokens — IntelliJ IDEA "New UI" dark palette, Pretendard UI font.
+ * Content/editor surfaces are the darkest; tool windows (sidebar) sit one step
+ * lighter, matching IntelliJ. Monospace is reserved for code + data cells.
  */
 :root {
-  --bg: #0d0e11;
-  --bg-panel: #15171c;
-  --bg-panel-2: #191c22;
-  --bg-input: #1a1d23;
-  --bg-hover: rgba(255, 255, 255, 0.045);
-  --bg-active: rgba(255, 255, 255, 0.075);
+  --bg: #1e1f22;          /* editor / main content (darkest) */
+  --bg-panel: #2b2d30;    /* tool windows, sidebar, toolbars */
+  --bg-panel-2: #2b2d30;  /* popups, modals, cards */
+  --bg-input: #1e1f22;    /* text fields */
+  --bg-hover: rgba(255, 255, 255, 0.06);
+  --bg-active: rgba(255, 255, 255, 0.09);
 
-  --border: #23262d;
-  --border-strong: #2f333b;
+  --border: #393b40;
+  --border-strong: #4a4d52;
 
-  --text: #e7e9ee;
-  --text-2: #a3a8b3;
-  --text-3: #6e7480;
+  --text: #dfe1e5;
+  --text-2: #bcbec4;
+  --text-3: #6f737a;
 
-  --accent: #5b8cff;
-  --accent-hover: #719bff;
-  --accent-press: #4a78e6;
-  --accent-soft: rgba(91, 140, 255, 0.14);
-  --accent-border: rgba(91, 140, 255, 0.45);
+  --accent: #3574f0;
+  --accent-hover: #4a82f2;
+  --accent-press: #2c66d9;
+  --accent-soft: rgba(53, 116, 240, 0.16);
+  --accent-border: rgba(53, 116, 240, 0.5);
 
-  --green: #3fb950;
-  --green-soft: rgba(63, 185, 80, 0.13);
-  --red: #f25555;
-  --red-soft: rgba(242, 85, 85, 0.13);
-  --amber: #e0a93a;
-  --amber-soft: rgba(224, 169, 58, 0.13);
+  --green: #5fad65;
+  --green-soft: rgba(95, 173, 101, 0.15);
+  --red: #db5c5c;
+  --red-soft: rgba(219, 92, 92, 0.15);
+  --amber: #d6a332;
+  --amber-soft: rgba(214, 163, 50, 0.15);
 
   --driver-mysql: #e8a33d;
   --driver-postgres: #5b9bd5;
@@ -41,8 +42,8 @@
   --radius: 6px;
   --radius-lg: 10px;
 
-  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
-  --sans: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --sans: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
 
   --shadow-pop: 0 10px 34px rgba(0, 0, 0, 0.5);
 

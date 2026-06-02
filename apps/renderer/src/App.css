@@ -39,7 +39,7 @@
   width: 22px;
   height: 22px;
   border-radius: 6px;
-  background: linear-gradient(135deg, var(--accent), #8a6bff);
+  background: linear-gradient(135deg, var(--accent), #548af7);
   color: #fff;
 }
 .brand-name {
@@ -635,7 +635,7 @@
   position: relative;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
-  background: #1e1e1e;
+  background: var(--bg);
 }
 
 /* Custom SQL autocomplete dropdown (plain DOM — renders reliably everywhere,
@@ -648,7 +648,7 @@
   max-height: 240px;
   overflow-y: auto;
   padding: 4px;
-  background: #191c22;
+  background: var(--bg-panel-2);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius);
   box-shadow: var(--shadow-pop);
@@ -661,7 +661,7 @@
   padding: 0 8px;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  color: #e7e9ee;
+  color: var(--text);
   font-size: 12.5px;
   white-space: nowrap;
 }
@@ -678,7 +678,7 @@
   color: #ffcb6b;
 }
 .sql-ac-icon.column {
-  color: #5b8cff;
+  color: var(--accent);
 }
 .sql-ac-icon.function {
   color: #82aaff;
@@ -688,7 +688,7 @@
 }
 .sql-ac-label {
   font-family: var(--mono);
-  color: #e7e9ee;
+  color: var(--text);
 }
 .sql-ac-item.active .sql-ac-label {
   color: #fff;
@@ -1626,7 +1626,7 @@
   margin-bottom: 4px;
 }
 
-.btn-danger { background: #c0392b; color: #fff; }
+.btn-danger { background: var(--red); color: #fff; }
 .btn-danger:disabled { opacity: 0.5; }
 
 /* Create-table dialog: 8-column grid (name, type, NULL, default, PK, AI, UQ, remove) */
