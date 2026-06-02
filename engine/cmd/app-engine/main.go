@@ -192,6 +192,8 @@ func main() {
 	mux.Handle("/tables", introHandler.ListTables())
 	mux.Handle("/describe-table", introHandler.DescribeTable())
 	mux.Handle("/table-ddl", introHandler.TableDDL())
+	mux.Handle("/views", introHandler.ListViews())
+	mux.Handle("/view-ddl", introHandler.ViewDDL())
 	mux.Handle("/schema-completion", introHandler.SchemaCompletion())
 
 	queryHandler := internalHttp.NewQueryHandler(*token, connectionService)
