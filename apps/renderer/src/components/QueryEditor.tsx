@@ -8,6 +8,7 @@ import { formatSql } from '../lib/formatSql';
 import { splitStatements } from '../lib/splitStatements';
 import { analyzeEditableQuery, type EditableQuery } from '../lib/editableQuery';
 import { TableDataView } from './TableDataView';
+import { ExecStatusBar, type ExecInfo } from './ExecStatusBar';
 import type { SchemaInfo } from '../lib/sqlCompletion';
 
 loader.config({ monaco });
@@ -49,6 +50,8 @@ interface QueryTab {
   // Multi-statement results (empty for single-statement runs).
   resultSets: ResultSet[];
   activeResultIndex: number;
+  // Compact summary of the last execution (for the status bar).
+  lastExec: ExecInfo | null;
 }
 
 interface QueryEditorProps {
@@ -83,6 +86,7 @@ const newTab = (id: string, name: string, query: string): QueryTab => ({
   rowLimit: 0,
   resultSets: [],
   activeResultIndex: 0,
+  lastExec: null,
 });
 
 export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, database, connectionName, onQueryExecuted, loadTriggerQuery, runQueryRequest, schemaVersion }) => {
@@ -164,6 +168,13 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
             updated.rowLimit = chunk.rowLimit ?? 0;
             updated.elapsedTimeMs = tab.startTime ? Date.now() - tab.startTime : 0;
             updated.queryId = null;
+            updated.lastExec = {
+              sql: tab.query,
+              durationMs: updated.elapsedTimeMs,
+              rowCount: updated.columns.length > 0 ? updated.rows.length : null,
+              rowsAffected: updated.columns.length > 0 ? null : chunk.rowsAffected,
+              error: null,
+            };
 
             window.electronAPI
               .addQueryHistory({
@@ -182,6 +193,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
             updated.error = chunk.message;
             updated.elapsedTimeMs = tab.startTime ? Date.now() - tab.startTime : 0;
             updated.queryId = null;
+            updated.lastExec = { sql: tab.query, durationMs: updated.elapsedTimeMs, error: chunk.message };
 
             window.electronAPI
               .addQueryHistory({
@@ -339,10 +351,19 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
 
     multiCancelRef.current = null;
     const elapsed = Date.now() - startTime;
+    const lastErr = collected.find((rs) => rs.error)?.error ?? null;
+    const totalRows = collected.reduce((n, rs) => n + (rs.columns.length > 0 ? rs.rows.length : 0), 0);
+    const lastExec: ExecInfo = {
+      sql: statements.join(';\n'),
+      durationMs: elapsed,
+      rowCount: lastErr ? null : totalRows,
+      rowsAffected: null,
+      error: lastErr,
+    };
     setTabs((prev) =>
       prev.map((t) =>
         t.id === activeTabId
-          ? { ...t, loading: false, elapsedTimeMs: elapsed, activeResultIndex: 0, policyPrompt: policy ?? t.policyPrompt }
+          ? { ...t, loading: false, elapsedTimeMs: elapsed, activeResultIndex: 0, policyPrompt: policy ?? t.policyPrompt, lastExec }
           : t
       )
     );
@@ -801,6 +822,9 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
         )}
       </div>
       )}
+
+      {/* Execution status: last query, time, rows (click to expand). */}
+      {!editView && <ExecStatusBar info={activeTab.lastExec} />}
 
       {/* Save modal */}
       {showSaveModal && (

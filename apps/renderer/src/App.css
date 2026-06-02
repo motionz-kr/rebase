@@ -1003,6 +1003,77 @@
   color: var(--text);
 }
 
+/* Execution status bar (last query summary) */
+.exec-status {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+.exec-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 12px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.exec-line:hover {
+  background: var(--bg-hover);
+}
+.exec-chevron,
+.exec-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+.exec-chevron {
+  color: var(--text-3);
+}
+.exec-status.ok .exec-icon {
+  color: var(--green);
+}
+.exec-status.err .exec-icon {
+  color: var(--red);
+}
+.exec-sql {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+.exec-meta {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.exec-detail {
+  padding: 2px 12px 10px 30px;
+}
+.exec-sql-full {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  color: var(--text);
+  margin: 0;
+  max-height: 160px;
+  overflow: auto;
+}
+.exec-err-msg {
+  color: var(--red);
+  font-size: 12px;
+  margin-top: 6px;
+  white-space: pre-wrap;
+}
+
 /* Multi-statement result-set strip */
 .result-strip {
   display: flex;

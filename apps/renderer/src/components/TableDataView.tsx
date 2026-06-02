@@ -11,6 +11,7 @@ import { buildUpdate, buildInsert, buildDelete, type CellValue } from '../lib/dm
 import { classifyColumnType, coerceCellValue } from '../lib/cellTypes';
 import { nextCell } from '../lib/gridNav';
 import { pinLayout, PIN_W, COL_W } from '../lib/pinLayout';
+import { ExecStatusBar, type ExecInfo } from './ExecStatusBar';
 
 interface Props {
   profileId: string;
@@ -66,6 +67,7 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
   const [newRows, setNewRows] = useState<Array<Record<number, string>>>([]);
   const [saving, setSaving] = useState(false);
   const [preview, setPreview] = useState<string[] | null>(null);
+  const [lastExec, setLastExec] = useState<ExecInfo | null>(null);
 
   const bodyRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -417,8 +419,15 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
     if (stmts.length === 0) return;
     setSaving(true);
     setError(null);
+    const started = Date.now();
     const res = await runBatch(profileId, stmts);
     setSaving(false);
+    setLastExec({
+      sql: stmts.join(';\n') + ';',
+      durationMs: Date.now() - started,
+      rowsAffected: res.ok ? res.rowsAffected : null,
+      error: res.ok ? null : res.error ?? '저장 실패',
+    });
     if (res.ok) {
       setPreview(null);
       clearPending();
@@ -640,6 +649,9 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
           <span>{rows.length.toLocaleString()} rows · {columns.length} columns</span>
         </div>
       </div>
+
+      {/* What the last save ran (e.g. after ⌘/Ctrl+Enter): SQL + time + applied. */}
+      <ExecStatusBar info={lastExec} />
 
       {headerMenu && (
         <div className="ctx-menu" style={{ top: headerMenu.y, left: headerMenu.x }} onClick={(e) => e.stopPropagation()}>
