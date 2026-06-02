@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { X, RefreshCw, Download, AlertTriangle, ChevronLeft, ChevronRight, Search, Plus, Trash2, Save, Undo2 } from 'lucide-react';
+import { X, RefreshCw, Download, AlertTriangle, ChevronLeft, ChevronRight, Search, Plus, Trash2, Save, Undo2, Pin, PinOff } from 'lucide-react';
 import type { ColumnInfo } from '../global';
 import type { Driver } from '../lib/ddlBuilder';
 import { buildSelectPage, type ColFilter, type OrderBy } from '../lib/tableQuery';
@@ -10,6 +10,7 @@ import { cellText, tsTimestamp, download } from '../lib/gridFormat';
 import { buildUpdate, buildInsert, buildDelete, type CellValue } from '../lib/dmlBuilder';
 import { classifyColumnType, coerceCellValue } from '../lib/cellTypes';
 import { nextCell } from '../lib/gridNav';
+import { pinLayout, PIN_W } from '../lib/pinLayout';
 
 interface Props {
   profileId: string;
@@ -80,6 +81,39 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
     if (headRef.current) headRef.current.scrollLeft = el.scrollLeft;
     if (filterRef.current) filterRef.current.scrollLeft = el.scrollLeft;
   };
+
+  // Column pinning: pinned columns move to the front and stick to the left.
+  const [pinned, setPinned] = useState<Set<number>>(new Set());
+  const [headerMenu, setHeaderMenu] = useState<{ x: number; y: number; col: number } | null>(null);
+  const lay = useMemo(() => pinLayout(columns.length, pinned), [columns.length, pinned]);
+  const pinStyle = (origC: number, bg: string, selected = false): React.CSSProperties =>
+    lay.stickyLeft[origC] !== undefined
+      ? { position: 'sticky', left: lay.stickyLeft[origC], zIndex: 2, flex: '0 0 auto', width: PIN_W, minWidth: PIN_W, maxWidth: PIN_W, background: selected ? undefined : bg }
+      : {};
+  const idxStyle = (bg: string): React.CSSProperties =>
+    lay.active ? { position: 'sticky', left: 0, zIndex: 3, background: bg } : {};
+  const togglePin = (col: number) =>
+    setPinned((prev) => {
+      const next = new Set(prev);
+      next.has(col) ? next.delete(col) : next.add(col);
+      return next;
+    });
+  // Reset pins only when the actual column set changes (not on page/refresh).
+  const colKey = columns.join('');
+  useEffect(() => {
+    setPinned(new Set());
+  }, [colKey]);
+  useEffect(() => {
+    if (!headerMenu) return;
+    const close = () => setHeaderMenu(null);
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setHeaderMenu(null); };
+    window.addEventListener('click', close);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [headerMenu]);
   const [containerHeight, setContainerHeight] = useState(300);
   const reqRef = useRef(0);
 
@@ -406,29 +440,43 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
 
       <div className="grid" tabIndex={0} ref={gridRef} onKeyDown={onKeyDown}>
         <div className="grid-head" ref={headRef}>
-          <div className="grid-idx">#</div>
-          {columns.map((col, idx) => (
-            <div key={idx} className="grid-cell grid-head-cell" title={hasPending ? '저장 또는 되돌리기 후 정렬' : col} onClick={() => toggleSort(col)}>
-              {col}
-              {orderBy && orderBy.col === col ? (orderBy.dir === 'asc' ? ' ▲' : ' ▼') : ''}
-            </div>
-          ))}
+          <div className="grid-idx" style={idxStyle('var(--bg-panel-2)')}>#</div>
+          {lay.order.map((idx) => {
+            const col = columns[idx];
+            return (
+              <div
+                key={idx}
+                className={`grid-cell grid-head-cell ${pinned.has(idx) ? 'pinned' : ''}`}
+                style={pinStyle(idx, 'var(--bg-panel-2)')}
+                title={hasPending ? '저장 또는 되돌리기 후 정렬' : col}
+                onClick={() => toggleSort(col)}
+                onContextMenu={(e) => { e.preventDefault(); setHeaderMenu({ x: e.clientX, y: e.clientY, col: idx }); }}
+              >
+                {pinned.has(idx) && <Pin size={11} className="pin-mark" />}
+                {col}
+                {orderBy && orderBy.col === col ? (orderBy.dir === 'asc' ? ' ▲' : ' ▼') : ''}
+              </div>
+            );
+          })}
         </div>
 
         <div className="grid-filter-row" ref={filterRef}>
-          <div className="grid-idx"><Search size={12} /></div>
-          {columns.map((col, idx) => (
-            <div key={idx} className="grid-cell">
-              <input
-                className="input tdv-filter-input"
-                value={filters[col] ?? ''}
-                placeholder="필터…"
-                onChange={(e) => setFilters((f) => ({ ...f, [col]: e.target.value }))}
-                onKeyDown={(e) => { if (e.key === 'Enter') applyFilters(); }}
-                onBlur={applyFilters}
-              />
-            </div>
-          ))}
+          <div className="grid-idx" style={idxStyle('var(--bg-panel)')}><Search size={12} /></div>
+          {lay.order.map((idx) => {
+            const col = columns[idx];
+            return (
+              <div key={idx} className={`grid-cell ${pinned.has(idx) ? 'pinned' : ''}`} style={pinStyle(idx, 'var(--bg-panel)')}>
+                <input
+                  className="input tdv-filter-input"
+                  value={filters[col] ?? ''}
+                  placeholder="필터…"
+                  onChange={(e) => setFilters((f) => ({ ...f, [col]: e.target.value }))}
+                  onKeyDown={(e) => { if (e.key === 'Enter') applyFilters(); }}
+                  onBlur={applyFilters}
+                />
+              </div>
+            );
+          })}
         </div>
 
         <div className="grid-body" ref={bodyRef} onScroll={onBodyScroll}>
@@ -445,11 +493,11 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
                     className={`grid-row ${r % 2 === 0 ? 'even' : 'odd'} ${del ? 'row-del' : ''}`}
                     style={{ position: 'absolute', top: `${r * ROW_HEIGHT}px`, height: `${ROW_HEIGHT}px`, left: 0, right: 0, display: 'flex' }}
                   >
-                    <div className="grid-idx" onMouseDown={(e) => selectRow(r, e.shiftKey)}>{page * PAGE_SIZE + r + 1}</div>
-                    {columns.map((_, c) => {
+                    <div className="grid-idx" style={idxStyle('var(--bg)')} onMouseDown={(e) => selectRow(r, e.shiftKey)}>{page * PAGE_SIZE + r + 1}</div>
+                    {lay.order.map((c) => {
                       if (editing && editing.r === r && editing.c === c) {
                         return (
-                          <div key={c} className="grid-cell editing">
+                          <div key={c} className={`grid-cell editing ${pinned.has(c) ? 'pinned' : ''}`} style={pinStyle(c, 'var(--bg)')}>
                             <input
                               className="input tdv-edit-input"
                               autoFocus
@@ -478,10 +526,12 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
                       const val = displayValue(r, c);
                       const isNull = val === null || val === undefined;
                       const text = cellText(val);
+                      const selected = inSel(r, c);
                       return (
                         <div
                           key={c}
-                          className={`grid-cell ${isNull ? 'null' : ''} ${inSel(r, c) ? 'sel' : ''} ${isDirty(r, c) ? 'dirty' : ''}`}
+                          className={`grid-cell ${isNull ? 'null' : ''} ${selected ? 'sel' : ''} ${isDirty(r, c) ? 'dirty' : ''} ${pinned.has(c) ? 'pinned' : ''}`}
+                          style={pinStyle(c, 'var(--bg)', selected)}
                           title={text}
                           onMouseDown={(e) => selectCell(r, c, e.shiftKey)}
                           onDoubleClick={() => startEdit(r, c)}
@@ -510,13 +560,13 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
             <div className="tdv-newrows">
               {newRows.map((nr, i) => (
                 <div key={i} className="grid-row new-row" style={{ display: 'flex', height: `${ROW_HEIGHT}px` }}>
-                  <div className="grid-idx" title="새 행 제거" onClick={() => removeNewRow(i)}><Plus size={12} /></div>
-                  {columns.map((col, c) => (
-                    <div key={c} className="grid-cell">
+                  <div className="grid-idx" style={idxStyle('var(--bg)')} title="새 행 제거" onClick={() => removeNewRow(i)}><Plus size={12} /></div>
+                  {lay.order.map((c) => (
+                    <div key={c} className={`grid-cell ${pinned.has(c) ? 'pinned' : ''}`} style={pinStyle(c, 'var(--bg)')}>
                       <input
                         className="tdv-new-input"
                         value={nr[c] ?? ''}
-                        placeholder={col}
+                        placeholder={columns[c]}
                         onChange={(e) => patchNewRow(i, c, e.target.value)}
                       />
                     </div>
@@ -536,6 +586,14 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
           <span>{rows.length.toLocaleString()} rows · {columns.length} columns</span>
         </div>
       </div>
+
+      {headerMenu && (
+        <div className="ctx-menu" style={{ top: headerMenu.y, left: headerMenu.x }} onClick={(e) => e.stopPropagation()}>
+          <button className="ctx-item" onClick={() => { togglePin(headerMenu.col); setHeaderMenu(null); }}>
+            {pinned.has(headerMenu.col) ? <><PinOff size={13} /> 열 고정 해제</> : <><Pin size={13} /> 열 고정</>}
+          </button>
+        </div>
+      )}
 
       {preview && (
         <div className="modal-overlay" onClick={() => setPreview(null)}>

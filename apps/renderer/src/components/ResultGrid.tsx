@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Download, Search } from 'lucide-react';
+import { Download, Search, Pin, PinOff } from 'lucide-react';
 import { toCsv, toJson, toTsv } from '../lib/gridExport';
 import { sortRows, filterRows, type SortDir } from '../lib/gridView';
 import { cellText, tsTimestamp, download } from '../lib/gridFormat';
 import { nextCell } from '../lib/gridNav';
+import { pinLayout, PIN_W } from '../lib/pinLayout';
 
 interface Props {
   columns: string[];
@@ -24,6 +25,33 @@ export const ResultGrid: React.FC<Props> = ({ columns, rows, rowHeight = 32 }) =
   const [sort, setSort] = useState<{ col: number; dir: SortDir } | null>(null);
   const [sel, setSel] = useState<Sel | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [pinned, setPinned] = useState<Set<number>>(new Set());
+  const [headerMenu, setHeaderMenu] = useState<{ x: number; y: number; col: number } | null>(null);
+
+  const lay = useMemo(() => pinLayout(columns.length, pinned), [columns.length, pinned]);
+  // Geometry for a pinned cell (sticky to the left); `bg` keeps it opaque over
+  // scrolling content unless the cell is selected (then the .sel style shows).
+  const pinStyle = (origC: number, bg: string, selected = false): React.CSSProperties =>
+    lay.stickyLeft[origC] !== undefined
+      ? {
+          position: 'sticky',
+          left: lay.stickyLeft[origC],
+          zIndex: 2,
+          flex: '0 0 auto',
+          width: PIN_W,
+          minWidth: PIN_W,
+          maxWidth: PIN_W,
+          background: selected ? undefined : bg,
+        }
+      : {};
+  const idxStyle = (bg: string): React.CSSProperties =>
+    lay.active ? { position: 'sticky', left: 0, zIndex: 3, background: bg } : {};
+  const togglePin = (col: number) =>
+    setPinned((prev) => {
+      const next = new Set(prev);
+      next.has(col) ? next.delete(col) : next.add(col);
+      return next;
+    });
 
   const bodyRef = useRef<HTMLDivElement>(null);
   const headRef = useRef<HTMLDivElement>(null);
@@ -57,6 +85,24 @@ export const ResultGrid: React.FC<Props> = ({ columns, rows, rowHeight = 32 }) =
   useEffect(() => {
     setSel(null);
   }, [rows, filter, sort]);
+
+  // Reset pinned columns when the column set changes (e.g. a new query).
+  useEffect(() => {
+    setPinned(new Set());
+  }, [columns]);
+
+  // Close the header context menu on any outside click or Escape.
+  useEffect(() => {
+    if (!headerMenu) return;
+    const close = () => setHeaderMenu(null);
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setHeaderMenu(null); };
+    window.addEventListener('click', close);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [headerMenu]);
 
   // Close the export menu on any outside click or Escape.
   useEffect(() => {
@@ -179,10 +225,18 @@ export const ResultGrid: React.FC<Props> = ({ columns, rows, rowHeight = 32 }) =
       </div>
 
       <div className="grid-head" ref={headRef}>
-        <div className="grid-idx">#</div>
-        {columns.map((col, idx) => (
-          <div key={idx} className="grid-cell grid-head-cell" title={col} onClick={() => toggleSort(idx)}>
-            {col}
+        <div className="grid-idx" style={idxStyle('var(--bg-panel-2)')}>#</div>
+        {lay.order.map((idx) => (
+          <div
+            key={idx}
+            className={`grid-cell grid-head-cell ${pinned.has(idx) ? 'pinned' : ''}`}
+            style={pinStyle(idx, 'var(--bg-panel-2)')}
+            title={columns[idx]}
+            onClick={() => toggleSort(idx)}
+            onContextMenu={(e) => { e.preventDefault(); setHeaderMenu({ x: e.clientX, y: e.clientY, col: idx }); }}
+          >
+            {pinned.has(idx) && <Pin size={11} className="pin-mark" />}
+            {columns[idx]}
             {sort && sort.col === idx ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : ''}
           </div>
         ))}
@@ -201,14 +255,17 @@ export const ResultGrid: React.FC<Props> = ({ columns, rows, rowHeight = 32 }) =
                   className={`grid-row ${r % 2 === 0 ? 'even' : 'odd'}`}
                   style={{ position: 'absolute', top: `${r * rowHeight}px`, height: `${rowHeight}px`, left: 0, right: 0, display: 'flex' }}
                 >
-                  <div className="grid-idx" onMouseDown={(e) => selectRow(r, e.shiftKey)}>{r + 1}</div>
-                  {row.map((val, c) => {
+                  <div className="grid-idx" style={idxStyle('var(--bg)')} onMouseDown={(e) => selectRow(r, e.shiftKey)}>{r + 1}</div>
+                  {lay.order.map((c) => {
+                    const val = row[c];
                     const isNull = val === null || val === undefined;
                     const text = cellText(val);
+                    const selected = inSel(r, c);
                     return (
                       <div
                         key={c}
-                        className={`grid-cell ${isNull ? 'null' : ''} ${inSel(r, c) ? 'sel' : ''}`}
+                        className={`grid-cell ${isNull ? 'null' : ''} ${selected ? 'sel' : ''} ${pinned.has(c) ? 'pinned' : ''}`}
+                        style={pinStyle(c, 'var(--bg)', selected)}
                         title={text}
                         onMouseDown={(e) => selectCell(r, c, e.shiftKey)}
                       >
@@ -229,6 +286,14 @@ export const ResultGrid: React.FC<Props> = ({ columns, rows, rowHeight = 32 }) =
         </span>
         {columns.length > 0 && <span>{columns.length} columns</span>}
       </div>
+
+      {headerMenu && (
+        <div className="ctx-menu" style={{ top: headerMenu.y, left: headerMenu.x }} onClick={(e) => e.stopPropagation()}>
+          <button className="ctx-item" onClick={() => { togglePin(headerMenu.col); setHeaderMenu(null); }}>
+            {pinned.has(headerMenu.col) ? <><PinOff size={13} /> 열 고정 해제</> : <><Pin size={13} /> 열 고정</>}
+          </button>
+        </div>
+      )}
     </div>
   );
 };
