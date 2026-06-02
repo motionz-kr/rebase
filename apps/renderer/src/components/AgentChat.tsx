@@ -126,9 +126,14 @@ export const AgentChat: React.FC<AgentChatProps> = ({ profileId, connectionName,
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [messages]);
 
-  // Check claude login status whenever the CLI provider is active.
+  // Check claude login status when the CLI provider is active, and again when
+  // the window regains focus (e.g. after completing login in the terminal).
   useEffect(() => {
-    if (settings.provider === 'cli') void refreshCliStatus();
+    if (settings.provider !== 'cli') return;
+    void refreshCliStatus();
+    const onFocus = () => void refreshCliStatus();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings.provider]);
 
