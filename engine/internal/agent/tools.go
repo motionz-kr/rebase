@@ -61,6 +61,16 @@ type queryResult struct {
 	Truncated bool     `json:"truncated"`
 }
 
+// diagnostic runs a read-only diagnostic query, degrading to an availability
+// note when the source (perf schema / extension) is missing rather than erroring.
+func diagnostic(ctx context.Context, conn sqlReader, p domain.ConnectionProfile, password, sql string) any {
+	res, err := runReadQuery(ctx, conn, p, password, sql)
+	if err != nil {
+		return map[string]any{"available": false, "reason": err.Error()}
+	}
+	return res
+}
+
 // runReadQuery executes a read-only query and collects up to readQueryLimit rows.
 func runReadQuery(ctx context.Context, conn sqlReader, p domain.ConnectionProfile, password, sql string) (queryResult, error) {
 	res := queryResult{Rows: [][]any{}}
@@ -314,6 +324,76 @@ func NewSQLRegistry(conn sqlReader, p domain.ConnectionProfile, password, databa
 			}
 			row := res.Rows[0]
 			return map[string]any{"tableRows": toInt(row[0]), "totalBytes": toInt(row[1])}, nil
+		},
+	})
+
+	r.add(Tool{
+		Spec: ports.ToolSpec{
+			Name:        "find_duplicate_indexes",
+			Description: "Find redundant indexes on a table — distinct indexes covering the same column list.",
+			Schema:      tableArgSchema,
+		},
+		Run: func(ctx context.Context, args map[string]any) (any, error) {
+			idxs, err := conn.ListIndexes(ctx, p, password, database, strArg(args, "table"))
+			if err != nil {
+				return nil, err
+			}
+			groups := map[string][]string{}
+			var order []string
+			for _, ix := range idxs {
+				key := strings.Join(ix.Columns, ",")
+				if _, ok := groups[key]; !ok {
+					order = append(order, key)
+				}
+				groups[key] = append(groups[key], ix.Name)
+			}
+			dups := make([]map[string]any, 0)
+			for _, key := range order {
+				if len(groups[key]) > 1 {
+					dups = append(dups, map[string]any{"columns": strings.Split(key, ","), "indexes": groups[key]})
+				}
+			}
+			return map[string]any{"duplicates": dups}, nil
+		},
+	})
+
+	limitSchema := map[string]any{"type": "object", "properties": map[string]any{"limit": map[string]any{"type": "integer"}}}
+
+	r.add(Tool{
+		Spec: ports.ToolSpec{
+			Name:        "slow_queries",
+			Description: "Top statements by average latency. Needs performance_schema (MySQL) / pg_stat_statements (Postgres); reports if unavailable.",
+			Schema:      limitSchema,
+		},
+		Run: func(ctx context.Context, args map[string]any) (any, error) {
+			limit := 20
+			if l, ok := args["limit"].(float64); ok && l > 0 {
+				limit = int(l)
+			}
+			var sql string
+			if p.Driver == "postgres" {
+				sql = fmt.Sprintf("SELECT query, calls, round(mean_exec_time::numeric, 2) AS mean_ms FROM pg_stat_statements ORDER BY mean_exec_time DESC LIMIT %d", limit)
+			} else {
+				sql = fmt.Sprintf("SELECT digest_text, count_star AS calls, round(avg_timer_wait/1000000000, 2) AS avg_ms FROM performance_schema.events_statements_summary_by_digest WHERE schema_name = DATABASE() ORDER BY avg_timer_wait DESC LIMIT %d", limit)
+			}
+			return diagnostic(ctx, conn, p, password, sql), nil
+		},
+	})
+
+	r.add(Tool{
+		Spec: ports.ToolSpec{
+			Name:        "find_unused_indexes",
+			Description: "Indexes with no recorded reads. Needs performance_schema (MySQL) / pg_stat_user_indexes (Postgres); reports if unavailable.",
+			Schema:      map[string]any{"type": "object", "properties": map[string]any{}},
+		},
+		Run: func(ctx context.Context, args map[string]any) (any, error) {
+			var sql string
+			if p.Driver == "postgres" {
+				sql = "SELECT relname AS table_name, indexrelname AS index_name FROM pg_stat_user_indexes WHERE idx_scan = 0 ORDER BY relname"
+			} else {
+				sql = "SELECT object_name AS table_name, index_name FROM performance_schema.table_io_waits_summary_by_index_usage WHERE object_schema = DATABASE() AND index_name IS NOT NULL AND index_name <> 'PRIMARY' AND count_star = 0 ORDER BY object_name"
+			}
+			return diagnostic(ctx, conn, p, password, sql), nil
 		},
 	})
 

@@ -14,6 +14,7 @@ type fakeSQL struct {
 	tables       []ports.TableInfo
 	columns      []ports.ColumnInfo
 	colRefs      []ports.ColumnRef
+	idxList      []ports.Index
 	oneRow       []any
 	lastQuery    string
 	lastReadOnly bool
@@ -33,6 +34,9 @@ func (f *fakeSQL) GetTableDDL(_ context.Context, _ domain.ConnectionProfile, _ s
 	return "CREATE TABLE " + table + " (id INT)", nil
 }
 func (f *fakeSQL) ListIndexes(_ context.Context, _ domain.ConnectionProfile, _ string, _ string, _ string) ([]ports.Index, error) {
+	if f.idxList != nil {
+		return f.idxList, nil
+	}
 	return []ports.Index{{Name: "PRIMARY", Columns: []string{"id"}, Primary: true, Unique: true}}, nil
 }
 func (f *fakeSQL) ListForeignKeys(_ context.Context, _ domain.ConnectionProfile, _ string, _ string, _ string) ([]ports.ForeignKey, error) {
@@ -196,6 +200,35 @@ func TestRegistryTableStats(t *testing.T) {
 	b, _ := json.Marshal(out)
 	if !containsSub(string(b), `"tableRows":1234`) || !containsSub(string(b), `"totalBytes":56789`) {
 		t.Errorf("table_stats wrong: %s", b)
+	}
+}
+
+func TestRegistryFindDuplicateIndexes(t *testing.T) {
+	conn := &fakeSQL{idxList: []ports.Index{
+		{Name: "idx_a", Columns: []string{"email"}},
+		{Name: "idx_b", Columns: []string{"email"}}, // duplicate of idx_a
+		{Name: "PRIMARY", Columns: []string{"id"}},
+	}}
+	reg := NewSQLRegistry(conn, domainProfile(), "", "devdb")
+	out, err := reg.Dispatch(context.Background(), "find_duplicate_indexes", map[string]any{"table": "users"})
+	if err != nil {
+		t.Fatalf("find_duplicate_indexes: %v", err)
+	}
+	b, _ := json.Marshal(out)
+	s := string(b)
+	if !containsSub(s, "idx_a") || !containsSub(s, "idx_b") || containsSub(s, "PRIMARY") {
+		t.Errorf("should flag idx_a+idx_b (same columns) only: %s", s)
+	}
+}
+
+func TestRegistrySlowQueriesMySQLSource(t *testing.T) {
+	conn := &fakeSQL{}
+	reg := NewSQLRegistry(conn, domainProfile(), "", "devdb") // empty driver → mysql branch
+	if _, err := reg.Dispatch(context.Background(), "slow_queries", map[string]any{}); err != nil {
+		t.Fatalf("slow_queries: %v", err)
+	}
+	if !conn.lastReadOnly || !containsSub(conn.lastQuery, "events_statements_summary_by_digest") {
+		t.Errorf("mysql slow_queries should read perf_schema read-only: %q", conn.lastQuery)
 	}
 }
 
