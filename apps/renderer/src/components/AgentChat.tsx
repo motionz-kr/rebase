@@ -1,6 +1,24 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Bot, CornerDownLeft, X, Wrench } from 'lucide-react';
+import { Bot, CornerDownLeft, X, Wrench, Settings } from 'lucide-react';
 import { applyAgentChunk, type AgentMessage } from '../lib/agentStream';
+
+interface AgentSettings {
+  provider: 'stub' | 'anthropic';
+  apiKey: string;
+  model: string;
+}
+const SETTINGS_KEY = 'rebase.agent.settings';
+const defaultSettings: AgentSettings = { provider: 'stub', apiKey: '', model: 'claude-sonnet-4-6' };
+
+function loadSettings(): AgentSettings {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    if (raw) return { ...defaultSettings, ...JSON.parse(raw) };
+  } catch {
+    /* ignore */
+  }
+  return defaultSettings;
+}
 
 interface AgentChatProps {
   profileId: string | null;
@@ -12,8 +30,22 @@ export const AgentChat: React.FC<AgentChatProps> = ({ profileId, connectionName,
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
+  const [settings, setSettings] = useState<AgentSettings>(loadSettings);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const runRef = useRef<string | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
+
+  const updateSettings = (patch: Partial<AgentSettings>) => {
+    setSettings((prev) => {
+      const next = { ...prev, ...patch };
+      try {
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
 
   useEffect(() => {
     const off = window.electronAPI.onAgentStreamChunk((rId, chunk) => {
@@ -47,7 +79,11 @@ export const AgentChat: React.FC<AgentChatProps> = ({ profileId, connectionName,
       .filter((m, i) => !(i === convo.length - 1 && m.role === 'assistant' && m.text === ''))
       .map((m) => ({ role: m.role, text: m.text }));
 
-    const res = await window.electronAPI.agentRun(runId, profileId, history, { provider: 'stub' });
+    const res = await window.electronAPI.agentRun(runId, profileId, history, {
+      provider: settings.provider,
+      apiKey: settings.apiKey,
+      model: settings.model,
+    });
     if (!res.success) {
       setMessages((prev) => applyAgentChunk(prev, { kind: 'error', err: res.error || 'agent request failed' }));
       setBusy(false);
@@ -69,10 +105,56 @@ export const AgentChat: React.FC<AgentChatProps> = ({ profileId, connectionName,
         </span>
         <h2>Agent</h2>
         {connectionName && <span className="agent-conn">{connectionName}</span>}
+        <button
+          className={`icon-btn${settingsOpen ? ' active' : ''}`}
+          title="Agent settings"
+          onClick={() => setSettingsOpen((v) => !v)}
+        >
+          <Settings size={15} />
+        </button>
         <button className="icon-btn" title="Close" onClick={onClose}>
           <X size={15} />
         </button>
       </div>
+
+      {settingsOpen && (
+        <div className="agent-settings">
+          <label>
+            Provider
+            <select
+              value={settings.provider}
+              onChange={(e) => updateSettings({ provider: e.target.value as AgentSettings['provider'] })}
+            >
+              <option value="stub">Stub (offline)</option>
+              <option value="anthropic">Anthropic API</option>
+            </select>
+          </label>
+          {settings.provider === 'anthropic' && (
+            <>
+              <label>
+                API key
+                <input
+                  type="password"
+                  value={settings.apiKey}
+                  placeholder="sk-ant-…"
+                  onChange={(e) => updateSettings({ apiKey: e.target.value })}
+                />
+              </label>
+              <label>
+                Model
+                <input
+                  type="text"
+                  value={settings.model}
+                  onChange={(e) => updateSettings({ model: e.target.value })}
+                />
+              </label>
+              <p className="agent-settings-note">
+                The key is sent to the local engine only and used directly against the Anthropic API.
+              </p>
+            </>
+          )}
+        </div>
+      )}
 
       <div className="agent-log" ref={logRef}>
         {messages.length === 0 && (
