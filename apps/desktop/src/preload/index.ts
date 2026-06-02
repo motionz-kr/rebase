@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   checkEngineHealth: () => ipcRenderer.invoke('check-engine-health'),
   listProfiles: () => ipcRenderer.invoke('list-profiles'),
   createProfile: (profile: any, password?: string) => ipcRenderer.invoke('create-profile', profile, password),
+  updateProfile: (profile: any, password?: string) => ipcRenderer.invoke('update-profile', profile, password),
   deleteProfile: (id: string) => ipcRenderer.invoke('delete-profile', id),
   testConnection: (profile: any, password?: string) => ipcRenderer.invoke('test-connection', profile, password),
   listDatabases: (profileId: string) => ipcRenderer.invoke('list-databases', profileId),

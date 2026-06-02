@@ -63,6 +63,33 @@ func (h *ProfileHandler) CreateProfile() http.Handler {
 	})
 }
 
+func (h *ProfileHandler) UpdateProfile() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !h.checkToken(r) {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		var req ProfileRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if req.Profile.ID == "" {
+			http.Error(w, "profile id is required", http.StatusBadRequest)
+			return
+		}
+
+		if err := h.service.UpdateProfile(r.Context(), &req.Profile, req.Password); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(req.Profile)
+	})
+}
+
 func (h *ProfileHandler) ListProfiles() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !h.checkToken(r) {
