@@ -21,6 +21,15 @@ func (f *fakeSQL) ListTables(_ context.Context, _ domain.ConnectionProfile, _ st
 func (f *fakeSQL) DescribeTable(_ context.Context, _ domain.ConnectionProfile, _ string, _ string, _ string) (ports.TableDescription, error) {
 	return ports.TableDescription{Columns: f.columns}, nil
 }
+func (f *fakeSQL) GetTableDDL(_ context.Context, _ domain.ConnectionProfile, _ string, _ string, table string) (string, error) {
+	return "CREATE TABLE " + table + " (id INT)", nil
+}
+func (f *fakeSQL) ListIndexes(_ context.Context, _ domain.ConnectionProfile, _ string, _ string, _ string) ([]ports.Index, error) {
+	return []ports.Index{{Name: "PRIMARY", Columns: []string{"id"}, Primary: true, Unique: true}}, nil
+}
+func (f *fakeSQL) ListForeignKeys(_ context.Context, _ domain.ConnectionProfile, _ string, _ string, _ string) ([]ports.ForeignKey, error) {
+	return []ports.ForeignKey{{Column: "owner_id", RefTable: "users", RefColumn: "id"}}, nil
+}
 
 // domainProfile is a shared test helper (used by service_test.go too).
 func domainProfile() domain.ConnectionProfile { return domain.ConnectionProfile{} }
@@ -41,6 +50,39 @@ func TestRegistryDispatchListTables(t *testing.T) {
 	if got := string(b); got != `["users","orders"]` {
 		t.Fatalf("list_tables = %s, want [\"users\",\"orders\"]", got)
 	}
+}
+
+func TestRegistryIntrospectionTools(t *testing.T) {
+	reg := NewSQLRegistry(&fakeSQL{}, domainProfile(), "", "devdb")
+	ctx := context.Background()
+
+	ddl, err := reg.Dispatch(ctx, "get_table_ddl", map[string]any{"table": "orders"})
+	if err != nil || ddl != "CREATE TABLE orders (id INT)" {
+		t.Fatalf("get_table_ddl = %v err=%v", ddl, err)
+	}
+	idx, err := reg.Dispatch(ctx, "list_indexes", map[string]any{"table": "orders"})
+	if err != nil {
+		t.Fatalf("list_indexes: %v", err)
+	}
+	if b, _ := json.Marshal(idx); !containsSub(string(b), "PRIMARY") {
+		t.Errorf("list_indexes result missing PRIMARY: %s", b)
+	}
+	fks, err := reg.Dispatch(ctx, "list_foreign_keys", map[string]any{"table": "orders"})
+	if err != nil {
+		t.Fatalf("list_foreign_keys: %v", err)
+	}
+	if b, _ := json.Marshal(fks); !containsSub(string(b), "users") {
+		t.Errorf("list_foreign_keys result missing ref table: %s", b)
+	}
+}
+
+func containsSub(s, sub string) bool {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
 }
 
 func TestRegistryUnknownTool(t *testing.T) {

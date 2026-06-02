@@ -13,6 +13,9 @@ import (
 type sqlReader interface {
 	ListTables(ctx context.Context, p domain.ConnectionProfile, password, database string) ([]ports.TableInfo, error)
 	DescribeTable(ctx context.Context, p domain.ConnectionProfile, password, database, table string) (ports.TableDescription, error)
+	GetTableDDL(ctx context.Context, p domain.ConnectionProfile, password, database, table string) (string, error)
+	ListIndexes(ctx context.Context, p domain.ConnectionProfile, password, database, table string) ([]ports.Index, error)
+	ListForeignKeys(ctx context.Context, p domain.ConnectionProfile, password, database, table string) ([]ports.ForeignKey, error)
 }
 
 type Tool struct {
@@ -92,6 +95,33 @@ func NewSQLRegistry(conn sqlReader, p domain.ConnectionProfile, password, databa
 				return nil, err
 			}
 			return desc.Columns, nil
+		},
+	})
+
+	tableArgSchema := map[string]any{
+		"type":       "object",
+		"properties": map[string]any{"table": map[string]any{"type": "string"}},
+		"required":   []string{"table"},
+	}
+
+	r.add(Tool{
+		Spec: ports.ToolSpec{Name: "get_table_ddl", Description: "Return the CREATE TABLE statement (DDL) for a table.", Schema: tableArgSchema},
+		Run: func(ctx context.Context, args map[string]any) (any, error) {
+			return conn.GetTableDDL(ctx, p, password, database, strArg(args, "table"))
+		},
+	})
+
+	r.add(Tool{
+		Spec: ports.ToolSpec{Name: "list_indexes", Description: "List the indexes (name, columns, unique, primary) of a table.", Schema: tableArgSchema},
+		Run: func(ctx context.Context, args map[string]any) (any, error) {
+			return conn.ListIndexes(ctx, p, password, database, strArg(args, "table"))
+		},
+	})
+
+	r.add(Tool{
+		Spec: ports.ToolSpec{Name: "list_foreign_keys", Description: "List the foreign keys (column, referenced table/column) of a table.", Schema: tableArgSchema},
+		Run: func(ctx context.Context, args map[string]any) (any, error) {
+			return conn.ListForeignKeys(ctx, p, password, database, strArg(args, "table"))
 		},
 	})
 
