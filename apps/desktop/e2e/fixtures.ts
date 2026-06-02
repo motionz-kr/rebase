@@ -28,7 +28,13 @@ export const test = base.extend<Fixtures>({
       },
     });
     await use(app);
-    await app.close();
+    // Graceful close can hang (engine child shutdown); cap it and force-kill.
+    await Promise.race([app.close().catch(() => {}), new Promise((r) => setTimeout(r, 5000))]);
+    try {
+      app.process()?.kill('SIGKILL');
+    } catch {
+      /* already gone */
+    }
     fs.rmSync(userDataDir, { recursive: true, force: true });
   },
   firstWindow: async ({ app }, use) => {
