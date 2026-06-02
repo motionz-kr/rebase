@@ -160,7 +160,7 @@ app.whenReady().then(() => {
   });
 
   async function requestEngine(options: {
-    method: 'GET' | 'POST' | 'DELETE';
+    method: 'GET' | 'POST' | 'DELETE' | 'PUT';
     path: string;
     body?: any;
   }): Promise<any> {
@@ -239,6 +239,15 @@ app.whenReady().then(() => {
         path: '/profiles',
         body: { profile, password },
       });
+      return { success: true, data };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('update-profile', async (event, profile, password) => {
+    try {
+      const data = await requestEngine({ method: 'PUT', path: '/profiles', body: { profile, password } });
       return { success: true, data };
     } catch (err: any) {
       return { success: false, error: err.message };

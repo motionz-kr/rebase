@@ -179,6 +179,8 @@ func main() {
 			profileHandler.ListProfiles().ServeHTTP(w, r)
 		case http.MethodDelete:
 			profileHandler.DeleteProfile().ServeHTTP(w, r)
+		case http.MethodPut:
+			profileHandler.UpdateProfile().ServeHTTP(w, r)
 		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
