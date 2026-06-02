@@ -116,6 +116,13 @@ func (h *AgentHandler) Run() http.Handler {
 			_ = tmp.Close()
 			defer os.Remove(tmp.Name())
 			provider = llm.NewCliProvider(tmp.Name(), "default", os.Environ())
+		case "codex":
+			exe, err := os.Executable()
+			if err != nil {
+				http.Error(w, "cannot locate engine binary for MCP: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			provider = llm.NewCodexProvider(exe, body.ProfileID, body.Model, os.Environ())
 		default:
 			provider = llm.NewStubProvider()
 		}

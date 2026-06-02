@@ -115,7 +115,9 @@ func sanitizeEnv(env []string) []string {
 		if i := strings.IndexByte(kv, '='); i >= 0 {
 			key = kv[:i]
 		}
-		if key == "ANTHROPIC_BASE_URL" || key == "ANTHROPIC_API_KEY" || strings.HasPrefix(key, "CLAUDE_CODE_") {
+		if key == "ANTHROPIC_BASE_URL" || key == "ANTHROPIC_API_KEY" ||
+			key == "OPENAI_BASE_URL" || key == "OPENAI_API_KEY" ||
+			strings.HasPrefix(key, "CLAUDE_CODE_") {
 			continue
 		}
 		out = append(out, kv)

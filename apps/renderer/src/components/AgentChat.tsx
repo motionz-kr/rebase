@@ -10,7 +10,7 @@ interface Proposal {
 }
 
 interface AgentSettings {
-  provider: 'stub' | 'anthropic' | 'openai' | 'cli';
+  provider: 'stub' | 'anthropic' | 'openai' | 'cli' | 'codex';
   apiKey: string;
   model: string;
   autonomy: 'approval' | 'autonomous';
@@ -62,9 +62,12 @@ export const AgentChat: React.FC<AgentChatProps> = ({
     { loading: boolean; installed?: boolean; loggedIn?: boolean; email?: string; subscription?: string; detail?: string } | null
   >(null);
 
+  const isCliProvider = (p: AgentSettings['provider']) => p === 'cli' || p === 'codex';
+  const cliTool = settings.provider === 'codex' ? 'codex' : 'claude';
+
   const refreshCliStatus = async () => {
     setCliStatus({ loading: true });
-    const res = await window.electronAPI.agentCliStatus();
+    const res = await window.electronAPI.agentCliStatus(cliTool);
     setCliStatus(res.success && res.data ? { loading: false, ...res.data } : { loading: false, detail: res.error || 'status check failed' });
   };
   const runRef = useRef<string | null>(null);
@@ -144,10 +147,10 @@ export const AgentChat: React.FC<AgentChatProps> = ({
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [messages]);
 
-  // Check claude login status when the CLI provider is active, and again when
-  // the window regains focus (e.g. after completing login in the terminal).
+  // Check CLI login status when a CLI provider is active, and again when the
+  // window regains focus (e.g. after completing login in the terminal).
   useEffect(() => {
-    if (settings.provider !== 'cli') return;
+    if (!isCliProvider(settings.provider)) return;
     void refreshCliStatus();
     const onFocus = () => void refreshCliStatus();
     window.addEventListener('focus', onFocus);
@@ -177,7 +180,8 @@ export const AgentChat: React.FC<AgentChatProps> = ({
     const res = await window.electronAPI.agentRun(runId, profileId, history, {
       provider: settings.provider,
       apiKey: settings.apiKey,
-      model: settings.model,
+      // CLI providers (claude/codex) use their own logged-in default model.
+      model: needsApiKey(settings.provider) ? settings.model : '',
       dataExposure: settings.dataExposure,
     });
     if (!res.success) {
@@ -227,12 +231,13 @@ export const AgentChat: React.FC<AgentChatProps> = ({
               <option value="anthropic">Anthropic API key</option>
               <option value="openai">OpenAI API key</option>
               <option value="cli">Local CLI — claude (uses your login)</option>
+              <option value="codex">Local CLI — codex (uses your login)</option>
             </select>
           </label>
-          {settings.provider === 'cli' && (
+          {isCliProvider(settings.provider) && (
             <div className="agent-cli-status">
               <p className="agent-settings-note">
-                Uses your logged-in <code>claude</code> CLI — no API key needed.
+                Uses your logged-in <code>{cliTool}</code> CLI — no API key needed.
               </p>
               {cliStatus?.loading && <div className="cli-line">Checking claude login…</div>}
               {cliStatus && !cliStatus.loading && cliStatus.loggedIn && (
@@ -244,7 +249,9 @@ export const AgentChat: React.FC<AgentChatProps> = ({
               {cliStatus && !cliStatus.loading && !cliStatus.loggedIn && (
                 <div className="cli-line warn">
                   <AlertTriangle size={13} />
-                  <span>{cliStatus.installed === false ? 'claude CLI not found on PATH.' : 'Not logged in to claude.'}</span>
+                  <span>
+                    {cliStatus.installed === false ? `${cliTool} CLI not found on PATH.` : `Not logged in to ${cliTool}.`}
+                  </span>
                 </div>
               )}
               <p className="agent-settings-note">
@@ -252,7 +259,7 @@ export const AgentChat: React.FC<AgentChatProps> = ({
               </p>
               <div className="cli-actions">
                 {cliStatus?.installed !== false && (
-                  <button className="btn btn-primary btn-sm" onClick={() => window.electronAPI.agentCliLogin()}>
+                  <button className="btn btn-primary btn-sm" onClick={() => window.electronAPI.agentCliLogin(cliTool)}>
                     {cliStatus?.loggedIn ? 'Re-authenticate' : 'Log in to claude'}
                   </button>
                 )}
@@ -427,13 +434,13 @@ export const AgentChat: React.FC<AgentChatProps> = ({
         ))}
       </div>
 
-      {settings.provider === 'cli' &&
+      {isCliProvider(settings.provider) &&
         messages.length > 0 &&
-        /401|authentication_error|Failed to authenticate/i.test(messages[messages.length - 1].text) && (
+        /401|authentication_error|Failed to authenticate|not logged in|unauthor/i.test(messages[messages.length - 1].text) && (
           <div className="agent-authfix">
             <AlertTriangle size={14} />
-            <span>claude session expired (401). Re-authenticate, then send again.</span>
-            <button className="btn btn-primary btn-sm" onClick={() => window.electronAPI.agentCliLogin()}>
+            <span>{cliTool} session problem. Re-authenticate, then send again.</span>
+            <button className="btn btn-primary btn-sm" onClick={() => window.electronAPI.agentCliLogin(cliTool)}>
               Re-authenticate
             </button>
           </div>
@@ -459,6 +466,7 @@ export const AgentChat: React.FC<AgentChatProps> = ({
             <option value="anthropic">Anthropic API</option>
             <option value="openai">OpenAI API</option>
             <option value="cli">claude CLI</option>
+            <option value="codex">codex CLI</option>
           </select>
           {needsApiKey(settings.provider) && (
             <select

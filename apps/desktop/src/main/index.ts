@@ -589,40 +589,45 @@ app.whenReady().then(() => {
     return env;
   }
 
-  ipcMain.handle('agent-cli-status', async () => {
+  ipcMain.handle('agent-cli-status', async (_event, tool: string) => {
+    const cli = tool === 'codex' ? 'codex' : 'claude';
+    const args = cli === 'codex' ? ['login', 'status'] : ['auth', 'status'];
     return new Promise((resolve) => {
-      execFile('claude', ['auth', 'status'], { env: sanitizedEnv(), timeout: 10000 }, (err, stdout, stderr) => {
-        if (err && !stdout) {
+      execFile(cli, args, { env: sanitizedEnv(), timeout: 10000 }, (err, stdout, stderr) => {
+        const out = (stdout || '').trim();
+        if (err && !out) {
           const notFound = /ENOENT/.test(String(err));
           resolve({
             success: true,
-            data: { installed: !notFound, loggedIn: false, detail: notFound ? 'claude CLI not found on PATH' : (stderr || String(err)).trim() },
+            data: { installed: !notFound, loggedIn: false, detail: notFound ? `${cli} CLI not found on PATH` : (stderr || String(err)).trim() },
           });
           return;
         }
+        // claude emits JSON; codex emits a plain "Logged in using …" line.
         try {
-          const j = JSON.parse(stdout);
+          const j = JSON.parse(out);
           resolve({
             success: true,
             data: { installed: true, loggedIn: !!j.loggedIn, email: j.email, subscription: j.subscriptionType, authMethod: j.authMethod },
           });
         } catch {
-          resolve({ success: true, data: { installed: true, loggedIn: /logged ?in/i.test(stdout), detail: stdout.trim() } });
+          resolve({ success: true, data: { installed: true, loggedIn: /logged ?in/i.test(out), detail: out } });
         }
       });
     });
   });
 
-  ipcMain.handle('agent-cli-login', async () => {
+  ipcMain.handle('agent-cli-login', async (_event, tool: string) => {
+    const cli = tool === 'codex' ? 'codex' : 'claude';
+    const cmd = cli === 'codex' ? 'codex login' : 'claude auth login';
     try {
       if (process.platform === 'darwin') {
-        // OAuth needs an interactive terminal/browser — open Terminal running the login.
-        spawn('osascript', ['-e', 'tell application "Terminal" to do script "claude auth login"', '-e', 'tell application "Terminal" to activate'], {
+        spawn('osascript', ['-e', `tell application "Terminal" to do script "${cmd}"`, '-e', 'tell application "Terminal" to activate'], {
           detached: true,
           stdio: 'ignore',
         }).unref();
       } else {
-        spawn('claude', ['auth', 'login'], { detached: true, stdio: 'ignore', env: sanitizedEnv() }).unref();
+        spawn(cli, cli === 'codex' ? ['login'] : ['auth', 'login'], { detached: true, stdio: 'ignore', env: sanitizedEnv() }).unref();
       }
       return { success: true };
     } catch (err: any) {
