@@ -385,10 +385,22 @@ function App() {
                   <input type="number" value={formPort} onChange={(e) => setFormPort(parseInt(e.target.value))} required />
                 </div>
               </div>
-              {formDriver !== 'redis' && (
+              {formDriver !== 'redis' ? (
                 <div>
                   <label>Database</label>
                   <input type="text" value={formDatabase} onChange={(e) => setFormDatabase(e.target.value)} required />
+                </div>
+              ) : (
+                <div>
+                  <label>DB index (optional)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={15}
+                    placeholder="0"
+                    value={formDatabase}
+                    onChange={(e) => setFormDatabase(e.target.value)}
+                  />
                 </div>
               )}
               <div>

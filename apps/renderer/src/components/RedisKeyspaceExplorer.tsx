@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { KeyRound, AlertTriangle } from 'lucide-react';
+import { KeyRound, AlertTriangle, RefreshCw } from 'lucide-react';
 
 interface RedisKeyspaceExplorerProps {
   profileId: string;
@@ -78,6 +78,21 @@ export const RedisKeyspaceExplorer: React.FC<RedisKeyspaceExplorerProps> = ({ pr
           Scan
         </button>
       </form>
+
+      <div className="redis-keys-bar">
+        <span className="redis-keys-count">
+          {keys.length}
+          {cursor > 0 ? '+' : ''} {keys.length === 1 ? 'key' : 'keys'}
+        </span>
+        <button
+          className="icon-btn"
+          title="Re-scan keys"
+          onClick={() => loadInitialKeys(pattern)}
+          disabled={loading}
+        >
+          <RefreshCw size={13} className={loading ? 'spin' : ''} />
+        </button>
+      </div>
 
       {error && (
         <div className="alert error alert-inline">
