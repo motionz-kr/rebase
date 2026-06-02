@@ -24,3 +24,11 @@ export const MYSQL = {
   username: 'root',
   password: process.env.E2E_MYSQL_PASSWORD ?? 'password1!',
 };
+
+// Local Redis used by the Redis E2E (127.0.0.1:6379). The test only ever
+// touches keys under the `rebase:e2e:` prefix so it is safe against any real
+// data on the same instance.
+export const REDIS = {
+  host: '127.0.0.1',
+  port: Number(process.env.E2E_REDIS_PORT ?? 6379),
+};
