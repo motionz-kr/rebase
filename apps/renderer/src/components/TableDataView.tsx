@@ -9,6 +9,7 @@ import { toCsv, toJson, toTsv } from '../lib/gridExport';
 import { cellText, tsTimestamp, download } from '../lib/gridFormat';
 import { buildUpdate, buildInsert, buildDelete, type CellValue } from '../lib/dmlBuilder';
 import { classifyColumnType, coerceCellValue } from '../lib/cellTypes';
+import { nextCell } from '../lib/gridNav';
 
 interface Props {
   profileId: string;
@@ -62,6 +63,7 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
   const [preview, setPreview] = useState<string[] | null>(null);
 
   const bodyRef = useRef<HTMLDivElement>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [containerHeight, setContainerHeight] = useState(300);
   const reqRef = useRef(0);
@@ -194,7 +196,18 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
     const last = columns.length - 1;
     setSel((prev) => (shift && prev ? { r1: prev.r1, c1: 0, r2: r, c2: last } : { r1: r, c1: 0, r2: r, c2: last }));
   };
+  // Scroll the body so the given (virtualized) row is fully visible.
+  const ensureVisible = (r: number) => {
+    const el = bodyRef.current;
+    if (!el) return;
+    const top = r * ROW_HEIGHT;
+    const bottom = top + ROW_HEIGHT;
+    if (top < el.scrollTop) el.scrollTop = top;
+    else if (bottom > el.scrollTop + el.clientHeight) el.scrollTop = bottom - el.clientHeight;
+  };
+
   const onKeyDown = (e: React.KeyboardEvent) => {
+    if (editing) return; // the cell input handles its own keys while editing
     if ((e.metaKey || e.ctrlKey) && (e.key === 'c' || e.key === 'C')) {
       e.preventDefault();
       if (!sel) return;
@@ -206,7 +219,30 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
         grid.push(row);
       }
       void navigator.clipboard.writeText(toTsv(grid));
+      return;
     }
+    if (rows.length === 0 || columns.length === 0) return;
+    // Enter starts editing the active cell.
+    if (e.key === 'Enter' && sel) {
+      e.preventDefault();
+      startEdit(sel.r2, sel.c2);
+      return;
+    }
+    if (!sel) {
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown', 'Tab'].includes(e.key)) {
+        e.preventDefault();
+        setSel({ r1: 0, c1: 0, r2: 0, c2: 0 });
+        ensureVisible(0);
+      }
+      return;
+    }
+    const pageRows = Math.max(1, Math.floor(containerHeight / ROW_HEIGHT) - 1);
+    const nc = nextCell({ r: sel.r2, c: sel.c2 }, e.key, e.shiftKey, rows.length - 1, columns.length - 1, pageRows);
+    if (!nc) return;
+    e.preventDefault();
+    const extend = e.shiftKey && e.key !== 'Tab';
+    setSel((prev) => (extend && prev ? { ...prev, r2: nc.r, c2: nc.c } : { r1: nc.r, c1: nc.c, r2: nc.r, c2: nc.c }));
+    ensureVisible(nc.r);
   };
 
   // ---- editing ----
@@ -232,6 +268,20 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
     const value: CellValue = coerceCellValue(classifyColumnType(colTypes[c] ?? ''), editText);
     setEdits((prev) => ({ ...prev, [r]: { ...(prev[r] ?? {}), [c]: value } }));
     setEditing(null);
+  };
+  // Commit the current edit, then advance the selection (Enter → down, Tab →
+  // right/left) and return focus to the grid so navigation continues.
+  const commitAndMove = (key: 'Enter' | 'Tab', shiftKey: boolean) => {
+    if (!editing) return;
+    const { r, c } = editing;
+    commitEdit();
+    const pageRows = Math.max(1, Math.floor(containerHeight / ROW_HEIGHT) - 1);
+    const nc = nextCell({ r, c }, key === 'Enter' ? 'ArrowDown' : 'Tab', shiftKey, rows.length - 1, columns.length - 1, pageRows);
+    if (nc) {
+      setSel({ r1: nc.r, c1: nc.c, r2: nc.r, c2: nc.c });
+      ensureVisible(nc.r);
+    }
+    requestAnimationFrame(() => gridRef.current?.focus());
   };
   const commitNull = () => {
     if (!editing) return;
@@ -333,7 +383,7 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
         <div className="alert error"><AlertTriangle size={14} /><span style={{ whiteSpace: 'pre-wrap' }}>{error}</span></div>
       )}
 
-      <div className="grid" tabIndex={0} onKeyDown={onKeyDown}>
+      <div className="grid" tabIndex={0} ref={gridRef} onKeyDown={onKeyDown}>
         <div className="grid-head">
           <div className="grid-idx">#</div>
           {columns.map((col, idx) => (
@@ -385,8 +435,9 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
                               value={editText}
                               onChange={(e) => setEditText(e.target.value)}
                               onKeyDown={(e) => {
-                                if (e.key === 'Enter') commitEdit();
-                                else if (e.key === 'Escape') setEditing(null);
+                                if (e.key === 'Enter') { e.preventDefault(); commitAndMove('Enter', e.shiftKey); }
+                                else if (e.key === 'Tab') { e.preventDefault(); commitAndMove('Tab', e.shiftKey); }
+                                else if (e.key === 'Escape') { setEditing(null); requestAnimationFrame(() => gridRef.current?.focus()); }
                               }}
                               onBlur={commitEdit}
                             />
