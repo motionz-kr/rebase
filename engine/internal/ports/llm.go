@@ -46,17 +46,21 @@ type LLMRequest struct {
 type LLMEventKind string
 
 const (
-	EventText     LLMEventKind = "text"      // incremental assistant text
-	EventToolCall LLMEventKind = "tool_call" // model wants to run a tool
-	EventDone     LLMEventKind = "done"      // turn complete
-	EventError    LLMEventKind = "error"
+	EventText       LLMEventKind = "text"        // incremental assistant text
+	EventToolCall   LLMEventKind = "tool_call"   // model wants to run a tool
+	EventToolResult LLMEventKind = "tool_result" // a host-dispatched tool's result (for the UI)
+	EventDone       LLMEventKind = "done"        // turn complete
+	EventError      LLMEventKind = "error"
 )
 
 type LLMEvent struct {
-	Kind     LLMEventKind `json:"kind"`
-	Text     string       `json:"text,omitempty"`
-	ToolCall *ToolCall    `json:"toolCall,omitempty"`
-	Err      string       `json:"err,omitempty"`
+	Kind       LLMEventKind `json:"kind"`
+	Text       string       `json:"text,omitempty"`
+	ToolCall   *ToolCall    `json:"toolCall,omitempty"`
+	ToolName   string       `json:"toolName,omitempty"`   // for EventToolResult
+	ToolCallID string       `json:"toolCallId,omitempty"` // for EventToolResult
+	Result     any          `json:"result,omitempty"`     // for EventToolResult
+	Err        string       `json:"err,omitempty"`
 }
 
 type ProviderStatus struct {

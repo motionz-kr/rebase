@@ -2619,3 +2619,38 @@
 .agent-tools-detail > summary::before { content: '▸'; font-size: 9px; }
 .agent-tools-detail[open] > summary::before { content: '▾'; }
 .agent-tools-detail[open] > summary { margin-bottom: 4px; }
+
+.agent-result {
+  margin: 6px 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--bg);
+}
+.agent-result-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 9px;
+  font-size: 11px;
+  color: var(--text-3);
+  background: var(--bg-panel);
+}
+.agent-result-scroll { overflow-x: auto; max-height: 260px; overflow-y: auto; }
+.agent-result-grid {
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  width: max-content;
+  min-width: 100%;
+}
+.agent-result-grid th, .agent-result-grid td {
+  border: 1px solid var(--border);
+  padding: 3px 8px;
+  text-align: left;
+  white-space: nowrap;
+}
+.agent-result-grid th { background: var(--bg-panel); color: var(--text-2); position: sticky; top: 0; }
+.agent-result-grid .cell-null { color: var(--text-3); font-style: italic; }
+.agent-result-more { padding: 4px 9px; font-size: 11px; color: var(--text-3); }

@@ -37,6 +37,12 @@ func (s *StubProvider) Complete(_ context.Context, req ports.LLMRequest, emit fu
 
 	trimmed := strings.TrimSpace(last.Text)
 	upper := strings.ToUpper(trimmed)
+	// A raw SELECT routes through run_select so the result grid is exercised.
+	if strings.HasPrefix(upper, "SELECT ") {
+		emit(ports.LLMEvent{Kind: ports.EventToolCall, ToolCall: &ports.ToolCall{ID: "stub-sel", Name: "run_select", Args: map[string]any{"sql": trimmed}}})
+		emit(ports.LLMEvent{Kind: ports.EventDone})
+		return nil
+	}
 	// If the user typed a raw write statement, route it through propose_write so
 	// the approval gate is exercised (the stub never executes it itself).
 	for _, kw := range []string{"INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE", "TRUNCATE"} {

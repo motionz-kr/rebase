@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Bot, CornerDownLeft, X, Wrench, Settings, AlertTriangle, Play, Check, Maximize2, Minimize2 } from 'lucide-react';
-import { applyAgentChunk, prettyToolName, type AgentMessage } from '../lib/agentStream';
+import { applyAgentChunk, prettyToolName, asGridResult, type AgentMessage } from '../lib/agentStream';
 import { classifyStatement } from '../lib/sqlDanger';
 
 interface Proposal {
@@ -337,6 +337,48 @@ export const AgentChat: React.FC<AgentChatProps> = ({
                 </div>
               </details>
             )}
+            {(m.results ?? []).map((r, k) => {
+              const grid = asGridResult(r.result);
+              if (!grid) return null;
+              const call = m.tools.find((t) => t.id === r.toolCallId);
+              const sql = call ? String(call.args?.sql ?? '') : '';
+              const rows = grid.rows.slice(0, 12);
+              return (
+                <div className="agent-result" key={`r${k}`}>
+                  <div className="agent-result-head">
+                    <span>
+                      {prettyToolName(r.toolName)} · {grid.rows.length} row{grid.rows.length === 1 ? '' : 's'}
+                    </span>
+                    {sql && onSendToEditor && (
+                      <button className="btn btn-secondary btn-xs" onClick={() => onSendToEditor(sql)}>
+                        Send query to editor
+                      </button>
+                    )}
+                  </div>
+                  <div className="agent-result-scroll">
+                    <table className="agent-result-grid">
+                      <thead>
+                        <tr>
+                          {grid.columns.map((c, ci) => (
+                            <th key={ci}>{c}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((row, ri) => (
+                          <tr key={ri}>
+                            {grid.columns.map((_, ci) => (
+                              <td key={ci}>{row[ci] === null ? <span className="cell-null">NULL</span> : String(row[ci])}</td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {grid.rows.length > rows.length && <div className="agent-result-more">…{grid.rows.length - rows.length} more rows</div>}
+                </div>
+              );
+            })}
             <div className="agent-text">{m.text || (busy && i === messages.length - 1 ? '…' : '')}</div>
             {m.tools.map((t, j) => {
               if (t.name !== 'propose_write') return null;

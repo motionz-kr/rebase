@@ -96,6 +96,9 @@ func (s *AgentService) Run(ctx context.Context, conversation []ports.LLMMessage,
 		if derr != nil {
 			payload = fmt.Sprintf(`{"error":%q}`, derr.Error())
 		} else {
+			// Show the full result to the UI (local), but feed only the
+			// policy-sanitized version back to the model.
+			emit(ports.LLMEvent{Kind: ports.EventToolResult, ToolName: pending.Name, ToolCallID: pending.ID, Result: result})
 			b, _ := json.Marshal(sanitizeForPolicy(pending.Name, result, s.policy))
 			payload = string(b)
 		}

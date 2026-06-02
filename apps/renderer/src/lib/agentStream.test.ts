@@ -1,5 +1,33 @@
 import { describe, it, expect } from 'vitest';
-import { applyAgentChunk, prettyToolName, type AgentMessage } from './agentStream';
+import { applyAgentChunk, prettyToolName, asGridResult, type AgentMessage } from './agentStream';
+
+describe('asGridResult', () => {
+  it('recognizes a {columns, rows} result', () => {
+    expect(asGridResult({ columns: ['a'], rows: [[1]] })).toEqual({ columns: ['a'], rows: [[1]] });
+  });
+  it('returns null for non-grid results', () => {
+    expect(asGridResult({ duplicates: [] })).toBeNull();
+    expect(asGridResult('x')).toBeNull();
+    expect(asGridResult(null)).toBeNull();
+  });
+});
+
+describe('applyAgentChunk tool_result', () => {
+  it('attaches a tool result to the last assistant message', () => {
+    let m: AgentMessage[] = [
+      { role: 'user', text: 'show users', tools: [] },
+      { role: 'assistant', text: '', tools: [] },
+    ];
+    m = applyAgentChunk(m, {
+      kind: 'tool_result',
+      toolName: 'run_select',
+      toolCallId: 'c1',
+      result: { columns: ['id'], rows: [[1], [2]] },
+    });
+    expect(m[1].results).toHaveLength(1);
+    expect(m[1].results![0].toolName).toBe('run_select');
+  });
+});
 
 describe('prettyToolName', () => {
   it('strips the mcp server prefix', () => {

@@ -20,9 +20,12 @@ export interface QueryStreamChunk {
 
 // One streamed event from an agent turn (mirrors the engine's ports.LLMEvent).
 export interface AgentStreamChunk {
-  kind: 'text' | 'tool_call' | 'done' | 'error';
+  kind: 'text' | 'tool_call' | 'tool_result' | 'done' | 'error';
   text?: string;
   toolCall?: { id: string; name: string; args: Record<string, unknown> };
+  toolName?: string;
+  toolCallId?: string;
+  result?: unknown;
   err?: string;
 }
 
