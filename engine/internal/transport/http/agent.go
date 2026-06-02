@@ -3,6 +3,7 @@ package http
 import (
 	"encoding/json"
 	"net/http"
+	"os"
 
 	"github.com/smlee/database-local-engine/engine/internal/adapters/llm"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/mysql"
@@ -11,6 +12,21 @@ import (
 	"github.com/smlee/database-local-engine/engine/internal/application"
 	"github.com/smlee/database-local-engine/engine/internal/ports"
 )
+
+// buildMCPConfig returns a claude --mcp-config JSON that launches this same
+// engine binary in -mcp mode as the "rebase" tool server for the profile.
+func buildMCPConfig(exePath, profileID string) string {
+	cfg := map[string]any{
+		"mcpServers": map[string]any{
+			"rebase": map[string]any{
+				"command": exePath,
+				"args":    []string{"-mcp", profileID, "-token", "mcp", "-handshake", os.DevNull},
+			},
+		},
+	}
+	b, _ := json.Marshal(cfg)
+	return string(b)
+}
 
 type AgentHandler struct {
 	token             string
@@ -83,6 +99,21 @@ func (h *AgentHandler) Run() http.Handler {
 		switch body.Provider {
 		case "anthropic":
 			provider = llm.NewAnthropicProvider(body.APIKey, body.Model, "")
+		case "cli":
+			exe, err := os.Executable()
+			if err != nil {
+				http.Error(w, "cannot locate engine binary for MCP: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			tmp, err := os.CreateTemp("", "rebase-mcp-*.json")
+			if err != nil {
+				http.Error(w, "cannot write MCP config: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			_, _ = tmp.WriteString(buildMCPConfig(exe, body.ProfileID))
+			_ = tmp.Close()
+			defer os.Remove(tmp.Name())
+			provider = llm.NewCliProvider(tmp.Name(), "default", os.Environ())
 		default:
 			provider = llm.NewStubProvider()
 		}

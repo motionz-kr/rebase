@@ -10,7 +10,7 @@ interface Proposal {
 }
 
 interface AgentSettings {
-  provider: 'stub' | 'anthropic';
+  provider: 'stub' | 'anthropic' | 'cli';
   apiKey: string;
   model: string;
   autonomy: 'approval' | 'autonomous';
@@ -189,9 +189,16 @@ export const AgentChat: React.FC<AgentChatProps> = ({ profileId, connectionName,
               onChange={(e) => updateSettings({ provider: e.target.value as AgentSettings['provider'] })}
             >
               <option value="stub">Stub (offline)</option>
-              <option value="anthropic">Anthropic API</option>
+              <option value="anthropic">Anthropic API key</option>
+              <option value="cli">Local CLI — claude (uses your login)</option>
             </select>
           </label>
+          {settings.provider === 'cli' && (
+            <p className="agent-settings-note">
+              Uses your already-logged-in <code>claude</code> CLI — no API key needed. Requires <code>claude</code> on PATH
+              and signed in (run <code>claude</code> once in a terminal).
+            </p>
+          )}
           {settings.provider === 'anthropic' && (
             <>
               <label>

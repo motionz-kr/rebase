@@ -48,17 +48,35 @@ func (c *CliProvider) Complete(ctx context.Context, req ports.LLMRequest, emit f
 	if err != nil {
 		return err
 	}
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
 		return err
 	}
+	var sawDone bool
 	sc := bufio.NewScanner(stdout)
 	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
 	for sc.Scan() {
 		for _, e := range decodeClaudeLine(sc.Bytes()) {
+			if e.Kind == ports.EventDone {
+				sawDone = true
+			}
 			emit(e)
 		}
 	}
-	return cmd.Wait()
+	if err := cmd.Wait(); err != nil {
+		// Surface claude's own diagnostics (auth / not-installed) instead of a
+		// bare exit code, and don't double-emit if a result line already ended it.
+		detail := strings.TrimSpace(stderr.String())
+		if detail == "" {
+			detail = err.Error()
+		}
+		emit(ports.LLMEvent{Kind: ports.EventError, Err: "claude CLI failed: " + detail})
+		if !sawDone {
+			emit(ports.LLMEvent{Kind: ports.EventDone})
+		}
+	}
+	return nil
 }
 
 func lastUserText(req ports.LLMRequest) string {
@@ -74,7 +92,7 @@ func lastUserText(req ports.LLMRequest) string {
 func buildClaudeArgs(mcpConfigPath, permissionMode string) []string {
 	return []string{
 		"-p",
-		"--input-format", "stream-json",
+		"--verbose", // required by claude when -p + --output-format=stream-json
 		"--output-format", "stream-json",
 		"--mcp-config", mcpConfigPath,
 		"--strict-mcp-config",

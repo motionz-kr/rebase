@@ -68,7 +68,7 @@ func TestBuildClaudeArgs(t *testing.T) {
 	args := buildClaudeArgs("/tmp/mcp.json", "default")
 	j := strings.Join(args, " ")
 	for _, want := range []string{
-		"-p", "--input-format stream-json", "--output-format stream-json",
+		"-p", "--verbose", "--output-format stream-json",
 		"--mcp-config /tmp/mcp.json", "--strict-mcp-config",
 		"--allowedTools mcp__rebase__*", "--permission-mode default",
 	} {
