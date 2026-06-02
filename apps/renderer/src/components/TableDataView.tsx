@@ -211,6 +211,10 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
+    // Let inputs (filter row, new-row cells, cell editor) handle their own keys —
+    // don't hijack Tab/arrows for grid-cell navigation while typing in a field.
+    const tag = (e.target as HTMLElement).tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
     if (editing) return; // the cell input handles its own keys while editing
     if ((e.metaKey || e.ctrlKey) && (e.key === 'c' || e.key === 'C')) {
       e.preventDefault();
