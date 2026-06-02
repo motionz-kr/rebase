@@ -97,6 +97,10 @@ declare global {
       onQueryStreamChunk: (callback: (queryId: string, chunk: any) => void) => () => void;
       redisScan: (profileId: string, pattern: string, cursor: number, count: number) => Promise<ResultWrapper<RedisKeyspaceInfo>>;
       redisValue: (profileId: string, key: string) => Promise<ResultWrapper<RedisValueInfo>>;
+      redisSet: (profileId: string, key: string, value: string) => Promise<ResultWrapper<{ ok: boolean }>>;
+      redisDelete: (profileId: string, key: string) => Promise<ResultWrapper<{ existed: boolean }>>;
+      redisExpire: (profileId: string, key: string, seconds: number) => Promise<ResultWrapper<{ ok: boolean }>>;
+      redisRename: (profileId: string, key: string, newKey: string) => Promise<ResultWrapper<{ ok: boolean }>>;
       listSavedQueries: (workspaceId: string) => Promise<ResultWrapper<any[]>>;
       saveQuery: (savedQuery: any) => Promise<ResultWrapper<any>>;
       deleteSavedQuery: (id: string) => Promise<ResultWrapper<{ success: boolean }>>;

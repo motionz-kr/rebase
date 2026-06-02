@@ -88,4 +88,8 @@ type RedisConnector interface {
 	DBConnector
 	ScanKeys(ctx context.Context, p domain.ConnectionProfile, password string, pattern string, cursor uint64, count int64) (RedisKeyspaceInfo, error)
 	GetKeyValue(ctx context.Context, p domain.ConnectionProfile, password string, key string) (RedisValueInfo, error)
+	SetString(ctx context.Context, p domain.ConnectionProfile, password string, key string, value string) error
+	DeleteKey(ctx context.Context, p domain.ConnectionProfile, password string, key string) (bool, error)
+	SetTTL(ctx context.Context, p domain.ConnectionProfile, password string, key string, seconds int64) error
+	RenameKey(ctx context.Context, p domain.ConnectionProfile, password string, key string, newKey string) error
 }
