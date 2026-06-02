@@ -26,7 +26,15 @@ export const ResultGrid: React.FC<Props> = ({ columns, rows, rowHeight = 32 }) =
   const [menuOpen, setMenuOpen] = useState(false);
 
   const bodyRef = useRef<HTMLDivElement>(null);
+  const headRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
+
+  // Keep the (overflow-hidden) header aligned with the body's horizontal scroll.
+  const onBodyScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    setScrollTop(el.scrollTop);
+    if (headRef.current) headRef.current.scrollLeft = el.scrollLeft;
+  };
   const [containerHeight, setContainerHeight] = useState(300);
 
   const display = useMemo(() => {
@@ -170,7 +178,7 @@ export const ResultGrid: React.FC<Props> = ({ columns, rows, rowHeight = 32 }) =
         </div>
       </div>
 
-      <div className="grid-head">
+      <div className="grid-head" ref={headRef}>
         <div className="grid-idx">#</div>
         {columns.map((col, idx) => (
           <div key={idx} className="grid-cell grid-head-cell" title={col} onClick={() => toggleSort(idx)}>
@@ -180,7 +188,7 @@ export const ResultGrid: React.FC<Props> = ({ columns, rows, rowHeight = 32 }) =
         ))}
       </div>
 
-      <div className="grid-body" ref={bodyRef} onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}>
+      <div className="grid-body" ref={bodyRef} onScroll={onBodyScroll}>
         {display.length === 0 ? (
           <div className="grid-empty">No rows.</div>
         ) : (
