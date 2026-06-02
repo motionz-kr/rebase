@@ -70,6 +70,8 @@ declare global {
       listTables: (profileId: string, database: string) => Promise<ResultWrapper<TableInfo[]>>;
       describeTable: (profileId: string, database: string, table: string) => Promise<ResultWrapper<TableDescription>>;
       getTableDDL: (profileId: string, database: string, table: string) => Promise<ResultWrapper<{ ddl: string }>>;
+      listViews: (profileId: string, database: string) => Promise<ResultWrapper<TableInfo[]>>;
+      getViewDDL: (profileId: string, database: string, view: string) => Promise<ResultWrapper<{ ddl: string }>>;
       getSchemaCompletion: (profileId: string, database: string) => Promise<ResultWrapper<{ tables: { name: string; columns: { name: string; type: string }[] }[] }>>;
       executeQueryStream: (queryId: string, profileId: string, query: string, options?: { allowWrite?: boolean; confirmDestructive?: boolean; maxRows?: number; fetchAll?: boolean }) => Promise<ResultWrapper<{ success: boolean }>>;
       cancelQuery: (queryId: string) => Promise<ResultWrapper<{ success: boolean }>>;
