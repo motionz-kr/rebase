@@ -68,7 +68,18 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
 
   const bodyRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
+  const headRef = useRef<HTMLDivElement>(null);
+  const filterRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
+
+  // Keep the (overflow-hidden) header + filter rows aligned with the body's
+  // horizontal scroll so columns stay lined up when scrolling wide tables.
+  const onBodyScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    setScrollTop(el.scrollTop);
+    if (headRef.current) headRef.current.scrollLeft = el.scrollLeft;
+    if (filterRef.current) filterRef.current.scrollLeft = el.scrollLeft;
+  };
   const [containerHeight, setContainerHeight] = useState(300);
   const reqRef = useRef(0);
 
@@ -394,7 +405,7 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
       )}
 
       <div className="grid" tabIndex={0} ref={gridRef} onKeyDown={onKeyDown}>
-        <div className="grid-head">
+        <div className="grid-head" ref={headRef}>
           <div className="grid-idx">#</div>
           {columns.map((col, idx) => (
             <div key={idx} className="grid-cell grid-head-cell" title={hasPending ? '저장 또는 되돌리기 후 정렬' : col} onClick={() => toggleSort(col)}>
@@ -404,7 +415,7 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
           ))}
         </div>
 
-        <div className="grid-filter-row">
+        <div className="grid-filter-row" ref={filterRef}>
           <div className="grid-idx"><Search size={12} /></div>
           {columns.map((col, idx) => (
             <div key={idx} className="grid-cell">
@@ -420,7 +431,7 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
           ))}
         </div>
 
-        <div className="grid-body" ref={bodyRef} onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}>
+        <div className="grid-body" ref={bodyRef} onScroll={onBodyScroll}>
           {rows.length === 0 ? (
             <div className="grid-empty">{loading ? '로딩…' : 'No rows.'}</div>
           ) : (
