@@ -1770,6 +1770,7 @@
   gap: 6px;
   padding: 7px 12px;
   flex-shrink: 0;
+  background: var(--bg-panel);
   border-bottom: 1px solid var(--border);
 }
 .tdv-fb-icon {
@@ -1798,13 +1799,14 @@
   padding: 0 4px 0 9px;
   font-size: 12px;
   border-radius: 999px;
-  background: var(--accent-soft);
-  border: 1px solid var(--accent-border);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
   color: var(--text);
   white-space: nowrap;
 }
 .filter-chip .fc-col {
   font-weight: 600;
+  color: var(--accent);
 }
 .filter-chip .fc-val {
   color: var(--text-2);
@@ -1827,7 +1829,7 @@
   cursor: pointer;
 }
 .filter-chip .fc-x:hover {
-  background: color-mix(in srgb, var(--accent) 25%, transparent);
+  background: var(--bg-active);
   color: var(--text);
 }
 .tdv-pager {
