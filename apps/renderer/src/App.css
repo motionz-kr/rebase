@@ -1762,20 +1762,73 @@
   align-items: center;
   gap: 8px;
 }
-.grid-filter-row {
+/* Filter builder bar (above the table) */
+.tdv-filterbar {
   display: flex;
-  overflow: hidden; /* scrolled programmatically in sync with the body */
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 7px 12px;
+  flex-shrink: 0;
   border-bottom: 1px solid var(--border);
-  background: var(--bg-panel);
 }
-.grid-filter-row .grid-cell {
-  padding: 2px 4px;
+.tdv-fb-icon {
+  color: var(--text-3);
+  flex-shrink: 0;
 }
-.tdv-filter-input {
-  width: 100%;
-  height: 22px;
-  font-size: 11px;
+.tdv-fb-col {
+  height: 26px;
+  font-size: 12px;
   padding: 0 6px;
+  max-width: 180px;
+}
+.tdv-fb-val {
+  height: 26px;
+  width: 180px;
+  font-size: 12px;
+}
+.tdv-fb-clear {
+  color: var(--text-3);
+}
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 24px;
+  padding: 0 4px 0 9px;
+  font-size: 12px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
+  color: var(--text);
+  white-space: nowrap;
+}
+.filter-chip .fc-col {
+  font-weight: 600;
+}
+.filter-chip .fc-val {
+  color: var(--text-2);
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.filter-chip .fc-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-left: 2px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 11px;
+  cursor: pointer;
+}
+.filter-chip .fc-x:hover {
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
+  color: var(--text);
 }
 .tdv-pager {
   display: flex;
