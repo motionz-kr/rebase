@@ -311,9 +311,6 @@ function App() {
     <div className="app">
       <header className="topbar">
         <div className="brand">
-          <span className="brand-mark">
-            <Database size={14} />
-          </span>
           <span className="brand-name" aria-label="Rebase">
             {'Rebase'.split('').map((ch, i) => (
               <span
