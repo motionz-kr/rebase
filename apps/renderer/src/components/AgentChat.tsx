@@ -1,14 +1,29 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Bot, CornerDownLeft, X, Wrench, Settings } from 'lucide-react';
+import { Bot, CornerDownLeft, X, Wrench, Settings, AlertTriangle, Play, Check } from 'lucide-react';
 import { applyAgentChunk, type AgentMessage } from '../lib/agentStream';
+import { classifyStatement } from '../lib/sqlDanger';
+
+interface Proposal {
+  sql: string;
+  status: 'pending' | 'running' | 'done' | 'error' | 'dismissed';
+  message?: string;
+}
 
 interface AgentSettings {
   provider: 'stub' | 'anthropic';
   apiKey: string;
   model: string;
+  autonomy: 'approval' | 'autonomous';
+  dataExposure: 'metadata' | 'on_request' | 'unrestricted';
 }
 const SETTINGS_KEY = 'rebase.agent.settings';
-const defaultSettings: AgentSettings = { provider: 'stub', apiKey: '', model: 'claude-sonnet-4-6' };
+const defaultSettings: AgentSettings = {
+  provider: 'stub',
+  apiKey: '',
+  model: 'claude-sonnet-4-6',
+  autonomy: 'approval',
+  dataExposure: 'metadata',
+};
 
 function loadSettings(): AgentSettings {
   try {
@@ -32,8 +47,11 @@ export const AgentChat: React.FC<AgentChatProps> = ({ profileId, connectionName,
   const [busy, setBusy] = useState(false);
   const [settings, setSettings] = useState<AgentSettings>(loadSettings);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [proposals, setProposals] = useState<Record<string, Proposal>>({});
   const runRef = useRef<string | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
+  const profileRef = useRef(profileId);
+  profileRef.current = profileId;
 
   const updateSettings = (patch: Partial<AgentSettings>) => {
     setSettings((prev) => {
@@ -47,6 +65,26 @@ export const AgentChat: React.FC<AgentChatProps> = ({ profileId, connectionName,
     });
   };
 
+  const runProposal = async (id: string, sql: string) => {
+    const pid = profileRef.current;
+    if (!pid) return;
+    setProposals((prev) => ({ ...prev, [id]: { sql, status: 'running' } }));
+    try {
+      const res = await window.electronAPI.executeBatch(pid, [sql]);
+      const ok = res.success && res.data?.ok;
+      setProposals((prev) => ({
+        ...prev,
+        [id]: {
+          sql,
+          status: ok ? 'done' : 'error',
+          message: ok ? `${res.data?.rowsAffected ?? 0} row(s) affected` : res.data?.error || res.error || 'failed',
+        },
+      }));
+    } catch (e) {
+      setProposals((prev) => ({ ...prev, [id]: { sql, status: 'error', message: e instanceof Error ? e.message : 'failed' } }));
+    }
+  };
+
   useEffect(() => {
     const off = window.electronAPI.onAgentStreamChunk((rId, chunk) => {
       if (rId !== runRef.current) return;
@@ -55,6 +93,23 @@ export const AgentChat: React.FC<AgentChatProps> = ({ profileId, connectionName,
     });
     return off;
   }, []);
+
+  // Autonomous mode auto-runs only safe proposals; dangerous ones always wait
+  // for an explicit click. Approval mode waits for every write.
+  useEffect(() => {
+    if (settings.autonomy !== 'autonomous') return;
+    messages.forEach((m, i) =>
+      m.tools.forEach((t, j) => {
+        if (t.name !== 'propose_write') return;
+        const key = `${i}:${j}`;
+        const sql = String(t.args?.sql ?? '');
+        if (!proposals[key] && sql && classifyStatement(sql).risk === 'safe') {
+          void runProposal(key, sql);
+        }
+      })
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, settings.autonomy]);
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -83,6 +138,7 @@ export const AgentChat: React.FC<AgentChatProps> = ({ profileId, connectionName,
       provider: settings.provider,
       apiKey: settings.apiKey,
       model: settings.model,
+      dataExposure: settings.dataExposure,
     });
     if (!res.success) {
       setMessages((prev) => applyAgentChunk(prev, { kind: 'error', err: res.error || 'agent request failed' }));
@@ -153,6 +209,32 @@ export const AgentChat: React.FC<AgentChatProps> = ({ profileId, connectionName,
               </p>
             </>
           )}
+          <label>
+            Autonomy
+            <select
+              value={settings.autonomy}
+              onChange={(e) => updateSettings({ autonomy: e.target.value as AgentSettings['autonomy'] })}
+            >
+              <option value="approval">Approval (you run every write)</option>
+              <option value="autonomous">Autonomous (auto-run safe writes)</option>
+            </select>
+          </label>
+          <label>
+            Data exposure
+            <select
+              value={settings.dataExposure}
+              onChange={(e) => updateSettings({ dataExposure: e.target.value as AgentSettings['dataExposure'] })}
+            >
+              <option value="metadata">Metadata only (no row values to model)</option>
+              <option value="on_request">On request</option>
+              <option value="unrestricted">Unrestricted</option>
+            </select>
+          </label>
+          {settings.autonomy === 'autonomous' && settings.dataExposure === 'unrestricted' && (
+            <p className="agent-settings-note warn">
+              ⚠️ Autonomous + Unrestricted is the least restrictive combination.
+            </p>
+          )}
         </div>
       )}
 
@@ -177,6 +259,44 @@ export const AgentChat: React.FC<AgentChatProps> = ({ profileId, connectionName,
               </div>
             )}
             <div className="agent-text">{m.text || (busy && i === messages.length - 1 ? '…' : '')}</div>
+            {m.tools.map((t, j) => {
+              if (t.name !== 'propose_write') return null;
+              const sql = String(t.args?.sql ?? '');
+              const key = `${i}:${j}`;
+              const cls = classifyStatement(sql);
+              const p = proposals[key] ?? { sql, status: 'pending' as const };
+              return (
+                <div className={`agent-proposal ${cls.risk}`} key={`p${j}`}>
+                  <div className="agent-proposal-head">
+                    {cls.risk === 'dangerous' ? <AlertTriangle size={13} /> : <Wrench size={13} />}
+                    <span>Proposed change{cls.risk === 'dangerous' ? ' — dangerous' : ''}</span>
+                  </div>
+                  <pre className="agent-proposal-sql">{sql}</pre>
+                  {cls.reasons.length > 0 && <div className="agent-proposal-why">{cls.reasons.join('; ')}</div>}
+                  {p.status === 'pending' && (
+                    <div className="agent-proposal-actions">
+                      <button className="btn btn-primary btn-sm" onClick={() => runProposal(key, sql)} disabled={!profileId}>
+                        <Play size={12} /> Run
+                      </button>
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => setProposals((prev) => ({ ...prev, [key]: { sql, status: 'dismissed' } }))}
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  )}
+                  {p.status === 'running' && <div className="agent-proposal-status">Running…</div>}
+                  {p.status === 'done' && (
+                    <div className="agent-proposal-status ok">
+                      <Check size={12} /> {p.message}
+                    </div>
+                  )}
+                  {p.status === 'error' && <div className="agent-proposal-status err">{p.message}</div>}
+                  {p.status === 'dismissed' && <div className="agent-proposal-status">Dismissed</div>}
+                </div>
+              );
+            })}
           </div>
         ))}
       </div>

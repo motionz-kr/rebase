@@ -52,11 +52,12 @@ func (h *AgentHandler) Run() http.Handler {
 			return
 		}
 		var body struct {
-			ProfileID string             `json:"profileId"`
-			Messages  []ports.LLMMessage `json:"messages"`
-			Provider  string             `json:"provider"`
-			APIKey    string             `json:"apiKey"`
-			Model     string             `json:"model"`
+			ProfileID    string             `json:"profileId"`
+			Messages     []ports.LLMMessage `json:"messages"`
+			Provider     string             `json:"provider"`
+			APIKey       string             `json:"apiKey"`
+			Model        string             `json:"model"`
+			DataExposure string             `json:"dataExposure"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, "invalid request body", http.StatusBadRequest)
@@ -88,6 +89,7 @@ func (h *AgentHandler) Run() http.Handler {
 
 		registry := agent.NewSQLRegistry(conn, *profile, password, profile.Database)
 		svc := agent.NewAgentService(provider, registry, 16)
+		svc.SetPolicy(agent.Policy{DataExposure: body.DataExposure})
 
 		w.Header().Set("Content-Type", "application/x-ndjson")
 		w.Header().Set("Cache-Control", "no-cache")

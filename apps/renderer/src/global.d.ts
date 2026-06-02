@@ -142,7 +142,7 @@ declare global {
         runId: string,
         profileId: string,
         messages: Array<{ role: string; text: string }>,
-        options?: { provider?: string; apiKey?: string; model?: string }
+        options?: { provider?: string; apiKey?: string; model?: string; dataExposure?: string }
       ) => Promise<ResultWrapper<{ success: boolean }>>;
       agentCancel: (runId: string) => Promise<ResultWrapper<{ success: boolean }>>;
       onAgentStreamChunk: (callback: (runId: string, chunk: AgentStreamChunk) => void) => () => void;

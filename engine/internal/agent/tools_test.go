@@ -121,6 +121,22 @@ func TestRegistryRunSelectAndExplain(t *testing.T) {
 	}
 }
 
+func TestProposeWriteDoesNotExecute(t *testing.T) {
+	conn := &fakeSQL{}
+	reg := NewSQLRegistry(conn, domainProfile(), "", "devdb")
+	out, err := reg.Dispatch(context.Background(), "propose_write", map[string]any{"sql": "DELETE FROM users"})
+	if err != nil {
+		t.Fatalf("propose_write: %v", err)
+	}
+	if conn.lastQuery != "" {
+		t.Errorf("propose_write must NOT execute; ran %q", conn.lastQuery)
+	}
+	b, _ := json.Marshal(out)
+	if !containsSub(string(b), `"risk":"dangerous"`) {
+		t.Errorf("WHERE-less DELETE should be flagged dangerous: %s", b)
+	}
+}
+
 func TestRegistryUnknownTool(t *testing.T) {
 	reg := NewSQLRegistry(&fakeSQL{}, domainProfile(), "", "devdb")
 	if _, err := reg.Dispatch(context.Background(), "nope", nil); err == nil {

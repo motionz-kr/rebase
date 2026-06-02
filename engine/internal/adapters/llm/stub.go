@@ -35,7 +35,19 @@ func (s *StubProvider) Complete(_ context.Context, req ports.LLMRequest, emit fu
 		return nil
 	}
 
-	// Drive a tool call when the user asks about tables/schema.
+	trimmed := strings.TrimSpace(last.Text)
+	upper := strings.ToUpper(trimmed)
+	// If the user typed a raw write statement, route it through propose_write so
+	// the approval gate is exercised (the stub never executes it itself).
+	for _, kw := range []string{"INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE", "TRUNCATE"} {
+		if strings.HasPrefix(upper, kw+" ") {
+			emit(ports.LLMEvent{Kind: ports.EventToolCall, ToolCall: &ports.ToolCall{ID: "stub-write", Name: "propose_write", Args: map[string]any{"sql": trimmed}}})
+			emit(ports.LLMEvent{Kind: ports.EventDone})
+			return nil
+		}
+	}
+
+	// Drive a read tool when the user asks about tables/schema.
 	lower := strings.ToLower(last.Text)
 	if strings.Contains(lower, "table") || strings.Contains(lower, "schema") {
 		emit(ports.LLMEvent{Kind: ports.EventToolCall, ToolCall: &ports.ToolCall{ID: "stub-1", Name: "list_tables", Args: map[string]any{}}})

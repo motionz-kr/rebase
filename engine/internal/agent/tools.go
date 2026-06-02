@@ -186,5 +186,24 @@ func NewSQLRegistry(conn sqlReader, p domain.ConnectionProfile, password, databa
 		},
 	})
 
+	r.add(Tool{
+		Spec: ports.ToolSpec{
+			Name: "propose_write",
+			Description: "Propose an INSERT/UPDATE/DELETE or DDL (CREATE/ALTER/DROP) statement. " +
+				"Returns the SQL with a safety assessment. This does NOT execute — the user reviews and runs it.",
+			Schema: sqlArgSchema,
+		},
+		Run: func(_ context.Context, args map[string]any) (any, error) {
+			sql := strArg(args, "sql")
+			c := ClassifyStatement(sql)
+			return map[string]any{
+				"proposed": true,
+				"sql":      sql,
+				"risk":     c.Risk,
+				"reasons":  c.Reasons,
+			}, nil
+		},
+	})
+
 	return r
 }

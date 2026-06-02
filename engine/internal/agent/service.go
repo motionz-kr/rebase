@@ -8,11 +8,20 @@ import (
 	"github.com/smlee/database-local-engine/engine/internal/ports"
 )
 
+// Policy controls what tool output is allowed back into the model context.
+type Policy struct {
+	// DataExposure: "unrestricted" (default), "on_request", or "metadata".
+	// Under metadata/on_request, row values from data tools are withheld and
+	// replaced with a column/row-count summary.
+	DataExposure string
+}
+
 type AgentService struct {
 	provider ports.LLMProvider
 	registry *Registry
 	maxSteps int
 	system   string
+	policy   Policy
 }
 
 func NewAgentService(p ports.LLMProvider, reg *Registry, maxSteps int) *AgentService {
@@ -20,7 +29,29 @@ func NewAgentService(p ports.LLMProvider, reg *Registry, maxSteps int) *AgentSer
 		maxSteps = 16
 	}
 	return &AgentService{provider: p, registry: reg, maxSteps: maxSteps,
-		system: "You are a database assistant. Use the provided tools to inspect the schema and answer precisely."}
+		system: "You are a database assistant. Use the provided tools to inspect the schema and answer precisely. " +
+			"To change data or schema, call propose_write — never claim a change was applied unless the user ran it."}
+}
+
+// SetPolicy configures the data-exposure gate (default: unrestricted).
+func (s *AgentService) SetPolicy(p Policy) { s.policy = p }
+
+// dataTools produce row values that the data-exposure policy may withhold.
+var dataTools = map[string]bool{"run_select": true, "explain_query": true, "profile_table": true}
+
+func sanitizeForPolicy(toolName string, result any, p Policy) any {
+	if p.DataExposure == "" || p.DataExposure == "unrestricted" || !dataTools[toolName] {
+		return result
+	}
+	if qr, ok := result.(queryResult); ok {
+		return map[string]any{
+			"withheld": true,
+			"reason":   "data-exposure policy (" + p.DataExposure + "): row values are not sent to the model",
+			"columns":  qr.Columns,
+			"rowCount": qr.RowCount,
+		}
+	}
+	return result
 }
 
 // Run drives the agent loop, forwarding text + tool events to emit. It returns
@@ -56,7 +87,7 @@ func (s *AgentService) Run(ctx context.Context, conversation []ports.LLMMessage,
 		if derr != nil {
 			payload = fmt.Sprintf(`{"error":%q}`, derr.Error())
 		} else {
-			b, _ := json.Marshal(result)
+			b, _ := json.Marshal(sanitizeForPolicy(pending.Name, result, s.policy))
 			payload = string(b)
 		}
 		messages = append(messages,

@@ -69,6 +69,65 @@ func TestServiceRunsToolThenAnswers(t *testing.T) {
 	}
 }
 
+// selectThenAnswer asks for run_select, then captures the fed-back tool result.
+type selectThenAnswer struct {
+	turn       int
+	toolResult string
+}
+
+func (p *selectThenAnswer) Status(context.Context) (ports.ProviderStatus, error) {
+	return ports.ProviderStatus{Ready: true}, nil
+}
+func (p *selectThenAnswer) Complete(_ context.Context, req ports.LLMRequest, emit func(ports.LLMEvent)) error {
+	if p.turn == 0 {
+		p.turn++
+		emit(ports.LLMEvent{Kind: ports.EventToolCall, ToolCall: &ports.ToolCall{ID: "s1", Name: "run_select", Args: map[string]any{"sql": "SELECT * FROM users"}}})
+		emit(ports.LLMEvent{Kind: ports.EventDone})
+		return nil
+	}
+	p.toolResult = req.Messages[len(req.Messages)-1].Text
+	emit(ports.LLMEvent{Kind: ports.EventText, Text: "done"})
+	emit(ports.LLMEvent{Kind: ports.EventDone})
+	return nil
+}
+
+func TestServiceDataExposureMetadataWithholdsRows(t *testing.T) {
+	reg := NewSQLRegistry(&fakeSQL{}, domainProfile(), "", "devdb")
+	prov := &selectThenAnswer{}
+	svc := NewAgentService(prov, reg, 8)
+	svc.SetPolicy(Policy{DataExposure: "metadata"})
+
+	err := svc.Run(context.Background(), []ports.LLMMessage{{Role: ports.RoleUser, Text: "show users"}}, func(ports.LLMEvent) {})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if containsSubT(prov.toolResult, "alice") {
+		t.Errorf("metadata policy must withhold row values, but result leaked them: %s", prov.toolResult)
+	}
+	if !containsSubT(prov.toolResult, "withheld") || !containsSubT(prov.toolResult, "rowCount") {
+		t.Errorf("withheld result should carry a summary: %s", prov.toolResult)
+	}
+}
+
+func TestServiceDataExposureUnrestrictedSendsRows(t *testing.T) {
+	reg := NewSQLRegistry(&fakeSQL{}, domainProfile(), "", "devdb")
+	prov := &selectThenAnswer{}
+	svc := NewAgentService(prov, reg, 8) // default policy = unrestricted
+	_ = svc.Run(context.Background(), []ports.LLMMessage{{Role: ports.RoleUser, Text: "show users"}}, func(ports.LLMEvent) {})
+	if !containsSubT(prov.toolResult, "alice") {
+		t.Errorf("unrestricted policy should pass row values, got: %s", prov.toolResult)
+	}
+}
+
+func containsSubT(s, sub string) bool {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
+}
+
 type loopingProvider struct{}
 
 func (loopingProvider) Status(context.Context) (ports.ProviderStatus, error) {

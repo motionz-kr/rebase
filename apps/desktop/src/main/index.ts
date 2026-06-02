@@ -515,6 +515,7 @@ app.whenReady().then(() => {
         provider: options?.provider ?? 'stub',
         apiKey: options?.apiKey ?? '',
         model: options?.model ?? '',
+        dataExposure: options?.dataExposure ?? 'unrestricted',
       });
 
       const req = http.request(

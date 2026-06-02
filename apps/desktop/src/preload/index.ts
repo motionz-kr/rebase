@@ -27,7 +27,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     runId: string,
     profileId: string,
     messages: Array<{ role: string; text: string }>,
-    options?: { provider?: string; apiKey?: string; model?: string }
+    options?: { provider?: string; apiKey?: string; model?: string; dataExposure?: string }
   ) => ipcRenderer.invoke('agent-run', runId, profileId, messages, options),
   agentCancel: (runId: string) => ipcRenderer.invoke('agent-cancel', runId),
   onAgentStreamChunk: (callback: (runId: string, chunk: any) => void) => {
