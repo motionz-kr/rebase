@@ -6,6 +6,8 @@ import { ResultGrid } from './ResultGrid';
 import { SqlAutocomplete } from './SqlAutocomplete';
 import { formatSql } from '../lib/formatSql';
 import { splitStatements } from '../lib/splitStatements';
+import { analyzeEditableQuery, type EditableQuery } from '../lib/editableQuery';
+import { TableDataView } from './TableDataView';
 import type { SchemaInfo } from '../lib/sqlCompletion';
 
 loader.config({ monaco });
@@ -94,6 +96,9 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     ),
   ]);
   const [activeTabId, setActiveTabId] = useState('tab-1');
+  // When the run query is a plain single-table SELECT *, the result is shown in
+  // an editable table view (add/edit/delete) instead of the read-only grid.
+  const [editView, setEditView] = useState<EditableQuery | null>(null);
   const [writeMode, setWriteMode] = useState(false);
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [saveQueryName, setSaveQueryName] = useState('');
@@ -360,9 +365,20 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     // (DataGrip-style). A single statement keeps the existing streaming path.
     const statements = splitStatements(sql);
     if (statements.length > 1) {
+      setEditView(null);
       await runMultiStatements(statements, { allowWrite, confirmDestructive, fetchAll });
       return;
     }
+
+    // A plain single-table SELECT * → show an editable table view of that table
+    // instead of running a read-only result grid.
+    const editable = analyzeEditableQuery(sql);
+    if (editable) {
+      setTabs((prev) => prev.map((t) => (t.id === activeTabId ? { ...t, query: sql, error: null, policyPrompt: null } : t)));
+      setEditView(editable);
+      return;
+    }
+    setEditView(null);
 
     const queryId = `query-${crypto.randomUUID()}`;
     const startTime = Date.now();
@@ -668,7 +684,20 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
         </div>
       )}
 
-      {/* Results */}
+      {/* Editable result: a single-table SELECT * opens an editable table view. */}
+      {editView ? (
+        <div className="results">
+          <TableDataView
+            key={`edit.${editView.table}.${editView.orderBy?.col ?? ''}.${editView.orderBy?.dir ?? ''}`}
+            profileId={profileId}
+            driver={driver as 'mysql' | 'postgres'}
+            database={database}
+            table={editView.table}
+            initialOrderBy={editView.orderBy ?? undefined}
+            embedded
+          />
+        </div>
+      ) : (
       <div className="results">
         {activeTab.loading && activeTab.rows.length === 0 && activeTab.resultSets.length === 0 && (
           <div className="load-center">
@@ -771,6 +800,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
           </>
         )}
       </div>
+      )}
 
       {/* Save modal */}
       {showSaveModal && (
