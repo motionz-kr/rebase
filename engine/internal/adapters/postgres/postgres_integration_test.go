@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -55,5 +56,39 @@ func TestPostgreSQLConnector_ExecuteBatch(t *testing.T) {
 	}
 	if affected != 2 {
 		t.Errorf("expected rowsAffected 2, got %d", affected)
+	}
+}
+
+func TestPostgreSQLConnector_Views(t *testing.T) {
+	connector := NewPostgreSQLConnector()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	p := domain.ConnectionProfile{ID: "pg-views-1", Name: "PG", Driver: "postgres", Host: "127.0.0.1", Port: 5432, Database: "postgres", Username: "postgres", TLSMode: "none"}
+	pw := "postgres"
+	exec := func(q string) error {
+		_, err := connector.ExecuteQueryStream(ctx, p, pw, q, false, func(int64) {}, func([]string) error { return nil }, func([]any) error { return nil })
+		return err
+	}
+	_ = exec("DROP VIEW IF EXISTS v_test")
+	_ = exec("DROP TABLE IF EXISTS vt_base")
+	if err := exec("CREATE TABLE vt_base (id INT)"); err != nil { t.Fatalf("base: %v", err) }
+	defer exec("DROP TABLE IF EXISTS vt_base")
+	if err := exec("CREATE VIEW v_test AS SELECT id FROM vt_base"); err != nil { t.Fatalf("view: %v", err) }
+	defer exec("DROP VIEW IF EXISTS v_test")
+
+	views, err := connector.ListViews(ctx, p, pw, "postgres")
+	if err != nil { t.Fatalf("ListViews: %v", err) }
+	found := false
+	for _, v := range views { if v.Name == "v_test" { found = true } }
+	if !found { t.Errorf("expected v_test in views, got %v", views) }
+
+	tables, err := connector.ListTables(ctx, p, pw, "postgres")
+	if err != nil { t.Fatalf("ListTables: %v", err) }
+	for _, tb := range tables { if tb.Name == "v_test" { t.Errorf("ListTables must exclude views") } }
+
+	ddl, err := connector.GetViewDDL(ctx, p, pw, "postgres", "v_test")
+	if err != nil { t.Fatalf("GetViewDDL: %v", err) }
+	if !strings.Contains(ddl, "v_test") || !strings.Contains(strings.ToUpper(ddl), "SELECT") {
+		t.Errorf("unexpected view DDL: %q", ddl)
 	}
 }

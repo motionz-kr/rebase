@@ -91,7 +91,7 @@ func (c *PostgreSQLConnector) ListTables(ctx context.Context, p domain.Connectio
 	rows, err := db.QueryContext(ctx, `
 		SELECT table_name
 		FROM information_schema.tables
-		WHERE table_catalog = $1 AND table_schema = 'public'
+		WHERE table_catalog = $1 AND table_schema = 'public' AND table_type <> 'VIEW'
 	`, database)
 	if err != nil {
 		return nil, c.normalizeError(err)
@@ -385,6 +385,45 @@ func (c *PostgreSQLConnector) ExecuteBatch(ctx context.Context, p domain.Connect
 		return total, -1, c.normalizeError(err)
 	}
 	return total, -1, nil
+}
+
+func (c *PostgreSQLConnector) ListViews(ctx context.Context, p domain.ConnectionProfile, password string, database string) ([]ports.TableInfo, error) {
+	db, err := c.connect(p, password, database)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	rows, err := db.QueryContext(ctx, `SELECT table_name FROM information_schema.views WHERE table_catalog = $1 AND table_schema = 'public'`, database)
+	if err != nil {
+		return nil, c.normalizeError(err)
+	}
+	defer rows.Close()
+	var list []ports.TableInfo
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, c.normalizeError(err)
+		}
+		list = append(list, ports.TableInfo{Name: name})
+	}
+	return list, nil
+}
+
+func (c *PostgreSQLConnector) GetViewDDL(ctx context.Context, p domain.ConnectionProfile, password string, database string, view string) (string, error) {
+	db, err := c.connect(p, password, database)
+	if err != nil {
+		return "", err
+	}
+	defer db.Close()
+	var body string
+	if err := db.QueryRowContext(ctx, `SELECT pg_get_viewdef($1::regclass, true)`, "public."+view).Scan(&body); err != nil {
+		return "", c.normalizeError(err)
+	}
+	return fmt.Sprintf("CREATE OR REPLACE VIEW %s AS\n%s", quoteViewIdent(view), body), nil
+}
+
+func quoteViewIdent(s string) string {
+	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
 }
 
 func (c *PostgreSQLConnector) normalizeError(err error) error {
