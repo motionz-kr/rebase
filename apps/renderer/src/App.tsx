@@ -67,7 +67,7 @@ function App() {
   const [historyTrigger, setHistoryTrigger] = useState(0);
   const [savedTrigger, setSavedTrigger] = useState(0);
   const [schemaVersion, setSchemaVersion] = useState(0);
-  const [openTable, setOpenTable] = useState<Record<string, { db: string; table: string } | null>>({});
+  const [openTable, setOpenTable] = useState<Record<string, { db: string; table: string; filter?: { col: string; value: string } } | null>>({});
 
   // Create form state
   const [formDriver, setFormDriver] = useState<'mysql' | 'postgres' | 'redis'>('mysql');
@@ -576,11 +576,14 @@ function App() {
                     <RedisValueInspector profileId={id} redisKey={redisKeys[id] ?? null} />
                   ) : openTable[id] ? (
                     <TableDataView
+                      key={`${openTable[id]!.db}.${openTable[id]!.table}.${openTable[id]!.filter?.value ?? ''}`}
                       profileId={id}
                       driver={profile.driver as 'mysql' | 'postgres'}
                       database={openTable[id]!.db}
                       table={openTable[id]!.table}
                       onClose={() => setOpenTable((prev) => ({ ...prev, [id]: null }))}
+                      initialFilter={openTable[id]!.filter}
+                      onOpenRelated={(t, refCol, value) => setOpenTable((prev) => ({ ...prev, [id]: { db: openTable[id]!.db, table: t, filter: { col: refCol, value } } }))}
                     />
                   ) : (
                     <QueryEditor

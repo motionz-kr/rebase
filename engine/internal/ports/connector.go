@@ -36,6 +36,13 @@ type ColumnRef struct {
 	Type   string `json:"type"`
 }
 
+// ForeignKey describes a single foreign-key constraint column binding.
+type ForeignKey struct {
+	Column    string `json:"column"`
+	RefTable  string `json:"refTable"`
+	RefColumn string `json:"refColumn"`
+}
+
 type SQLConnector interface {
 	DBConnector
 	ListDatabases(ctx context.Context, p domain.ConnectionProfile, password string) ([]DatabaseInfo, error)
@@ -45,6 +52,7 @@ type SQLConnector interface {
 	DescribeTable(ctx context.Context, p domain.ConnectionProfile, password string, database string, table string) (TableDescription, error)
 	GetTableDDL(ctx context.Context, p domain.ConnectionProfile, password string, database string, table string) (string, error)
 	ListColumns(ctx context.Context, p domain.ConnectionProfile, password string, database string) ([]ColumnRef, error)
+	ListForeignKeys(ctx context.Context, p domain.ConnectionProfile, password string, database string, table string) ([]ForeignKey, error)
 	ExecuteQueryStream(ctx context.Context, p domain.ConnectionProfile, password string, query string, readOnly bool, onSessionStart func(sessionID int64), onHeader func(columns []string) error, onRow func(row []any) error) (int64, error)
 	ExecuteBatch(ctx context.Context, p domain.ConnectionProfile, password string, statements []string) (rowsAffected int64, failedIndex int, err error)
 	CancelSession(ctx context.Context, p domain.ConnectionProfile, password string, sessionID int64) error

@@ -179,6 +179,30 @@ func TestMySQLConnector_ExecuteBatch(t *testing.T) {
 	}
 }
 
+func TestMySQLConnector_ForeignKeys(t *testing.T) {
+	connector := NewMySQLConnector()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	p := domain.ConnectionProfile{ID: "mysql-fk-1", Name: "MySQL", Driver: "mysql", Host: "127.0.0.1", Port: 3306, Database: "devdb", Username: "root", TLSMode: "none"}
+	pw := "password1!"
+	exec := func(q string) error {
+		_, err := connector.ExecuteQueryStream(ctx, p, pw, q, false, func(int64) {}, func([]string) error { return nil }, func([]any) error { return nil })
+		return err
+	}
+	_ = exec("DROP TABLE IF EXISTS devdb.fk_child")
+	_ = exec("DROP TABLE IF EXISTS devdb.fk_parent")
+	if err := exec("CREATE TABLE devdb.fk_parent (id INT PRIMARY KEY)"); err != nil { t.Fatalf("parent: %v", err) }
+	defer exec("DROP TABLE IF EXISTS devdb.fk_parent")
+	if err := exec("CREATE TABLE devdb.fk_child (id INT, parent_id INT, FOREIGN KEY (parent_id) REFERENCES devdb.fk_parent(id))"); err != nil { t.Fatalf("child: %v", err) }
+	defer exec("DROP TABLE IF EXISTS devdb.fk_child")
+
+	fks, err := connector.ListForeignKeys(ctx, p, pw, "devdb", "fk_child")
+	if err != nil { t.Fatalf("ListForeignKeys: %v", err) }
+	if len(fks) != 1 || fks[0].Column != "parent_id" || fks[0].RefTable != "fk_parent" || fks[0].RefColumn != "id" {
+		t.Errorf("unexpected fks: %+v", fks)
+	}
+}
+
 func TestMySQLConnector_Views(t *testing.T) {
 	connector := NewMySQLConnector()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

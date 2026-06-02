@@ -38,6 +38,12 @@ export interface TableDescription {
   columns: ColumnInfo[];
 }
 
+export interface ForeignKeyInfo {
+  column: string;
+  refTable: string;
+  refColumn: string;
+}
+
 export interface RedisKeyspaceInfo {
   keys: string[];
   cursor: number;
@@ -68,6 +74,7 @@ declare global {
       testConnection: (profile: ConnectionProfile, password?: string) => Promise<ResultWrapper<{ success: boolean }>>;
       listDatabases: (profileId: string) => Promise<ResultWrapper<DatabaseInfo[]>>;
       listTables: (profileId: string, database: string) => Promise<ResultWrapper<TableInfo[]>>;
+      listForeignKeys: (profileId: string, database: string, table: string) => Promise<ResultWrapper<ForeignKeyInfo[]>>;
       describeTable: (profileId: string, database: string, table: string) => Promise<ResultWrapper<TableDescription>>;
       getTableDDL: (profileId: string, database: string, table: string) => Promise<ResultWrapper<{ ddl: string }>>;
       listViews: (profileId: string, database: string) => Promise<ResultWrapper<TableInfo[]>>;
