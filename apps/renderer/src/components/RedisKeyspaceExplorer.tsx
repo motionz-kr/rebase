@@ -17,18 +17,6 @@ export const RedisKeyspaceExplorer: React.FC<RedisKeyspaceExplorerProps> = ({ pr
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadInitialKeys('*');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profileId]);
-
-  // Re-scan with the current filter when the parent bumps the refresh token.
-  useEffect(() => {
-    if (refreshToken === 0) return;
-    loadInitialKeys(pattern);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refreshToken]);
-
   const loadInitialKeys = async (searchPattern: string) => {
     setLoading(true);
     setError(null);
@@ -40,8 +28,8 @@ export const RedisKeyspaceExplorer: React.FC<RedisKeyspaceExplorerProps> = ({ pr
       } else {
         setError(res.error || 'Failed to scan keys');
       }
-    } catch (e: any) {
-      setError(e.message || 'Error occurred scanning keys');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error occurred scanning keys');
     } finally {
       setLoading(false);
     }
@@ -58,8 +46,8 @@ export const RedisKeyspaceExplorer: React.FC<RedisKeyspaceExplorerProps> = ({ pr
       } else {
         setError(res.error || 'Failed to scan more keys');
       }
-    } catch (e: any) {
-      setError(e.message || 'Error occurred scanning keys');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error occurred scanning keys');
     } finally {
       setLoading(false);
     }
@@ -69,6 +57,21 @@ export const RedisKeyspaceExplorer: React.FC<RedisKeyspaceExplorerProps> = ({ pr
     e.preventDefault();
     loadInitialKeys(pattern);
   };
+
+  useEffect(() => {
+    // Intentional initial scan; loadInitialKeys manages its own loading state.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadInitialKeys('*');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profileId]);
+
+  // Re-scan with the current filter when the parent bumps the refresh token.
+  useEffect(() => {
+    if (refreshToken === 0) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadInitialKeys(pattern);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshToken]);
 
   return (
     <>

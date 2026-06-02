@@ -43,29 +43,6 @@ export const RedisValueInspector: React.FC<RedisValueInspectorProps> = ({
   const [draftKey, setDraftKey] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  // Reset all transient editing state whenever the selected key changes.
-  const resetEditing = () => {
-    setEditingValue(false);
-    setEditingTtl(false);
-    setRenaming(false);
-    setConfirmDelete(false);
-    setActionError(null);
-  };
-
-  useEffect(() => {
-    let ignore = false;
-    resetEditing();
-    if (redisKey) {
-      loadValue(() => ignore);
-    } else {
-      setInfo(null);
-    }
-    return () => {
-      ignore = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profileId, redisKey]);
-
   const loadValue = async (isStale?: () => boolean) => {
     if (!redisKey) return;
     setLoading(true);
@@ -78,13 +55,29 @@ export const RedisValueInspector: React.FC<RedisValueInspectorProps> = ({
       } else {
         setError(res.error || 'Failed to inspect key value');
       }
-    } catch (e: any) {
+    } catch (e) {
       if (isStale?.()) return;
-      setError(e.message || 'Error occurred inspecting value');
+      setError(e instanceof Error ? e.message : 'Error occurred inspecting value');
     } finally {
       if (!isStale?.()) setLoading(false);
     }
   };
+
+  // Transient editing state is reset by remounting (the parent keys this
+  // component on the selected key), so the effect only needs to (re)load.
+  useEffect(() => {
+    let ignore = false;
+    if (redisKey) {
+      // Intentional fetch-on-key-change; loadValue manages its own loading/error
+      // state (the async loader's leading setState is what trips this rule).
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      loadValue(() => ignore);
+    }
+    return () => {
+      ignore = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profileId, redisKey]);
 
   if (!redisKey) {
     return (
@@ -115,8 +108,8 @@ export const RedisValueInspector: React.FC<RedisValueInspectorProps> = ({
       } else {
         setActionError(res.error || 'Failed to set value');
       }
-    } catch (e: any) {
-      setActionError(e.message || 'Error setting value');
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Error setting value');
     } finally {
       setBusy(false);
     }
@@ -134,8 +127,8 @@ export const RedisValueInspector: React.FC<RedisValueInspectorProps> = ({
       } else {
         setActionError(res.error || 'Failed to update TTL');
       }
-    } catch (e: any) {
-      setActionError(e.message || 'Error updating TTL');
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Error updating TTL');
     } finally {
       setBusy(false);
     }
@@ -159,8 +152,8 @@ export const RedisValueInspector: React.FC<RedisValueInspectorProps> = ({
       } else {
         setActionError(res.error || 'Failed to rename key');
       }
-    } catch (e: any) {
-      setActionError(e.message || 'Error renaming key');
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Error renaming key');
     } finally {
       setBusy(false);
     }
@@ -179,14 +172,28 @@ export const RedisValueInspector: React.FC<RedisValueInspectorProps> = ({
       } else {
         setActionError(res.error || 'Failed to delete key');
       }
-    } catch (e: any) {
-      setActionError(e.message || 'Error deleting key');
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Error deleting key');
     } finally {
       setBusy(false);
     }
   };
 
   // --- Value rendering -----------------------------------------------------
+
+  // Parse collection values up-front so JSX is never constructed inside a
+  // try/catch (react-hooks/error-boundaries). On a parse failure we fall back
+  // to showing the raw text.
+  const showCollection = !!info && info.exists !== false && !(editingValue && info.type === 'string');
+  let parsed: unknown = null;
+  let parseFailed = false;
+  if (info && showCollection && info.type !== 'string') {
+    try {
+      parsed = JSON.parse(info.value);
+    } catch {
+      parseFailed = true;
+    }
+  }
 
   let content: React.ReactNode = null;
   if (info && info.exists !== false) {
@@ -214,74 +221,68 @@ export const RedisValueInspector: React.FC<RedisValueInspectorProps> = ({
           </div>
         </div>
       );
+    } else if (info.type === 'hash' && !parseFailed) {
+      const obj = parsed as Record<string, unknown>;
+      content = (
+        <table className="kv-table">
+          <thead>
+            <tr>
+              <th>Field</th>
+              <th>Value</th>
+            </tr>
+          </thead>
+          <tbody>
+            {Object.entries(obj).map(([f, v]) => (
+              <tr key={f}>
+                <td className="dim">{f}</td>
+                <td>{String(v)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      );
+    } else if (info.type === 'zset' && !parseFailed) {
+      const list = parsed as Array<{ member: string; score: number }>;
+      content = (
+        <table className="kv-table">
+          <thead>
+            <tr>
+              <th>Score</th>
+              <th>Member</th>
+            </tr>
+          </thead>
+          <tbody>
+            {list.map((item, idx) => (
+              <tr key={idx}>
+                <td className="accent">{item.score}</td>
+                <td>{item.member}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      );
+    } else if ((info.type === 'list' || info.type === 'set') && !parseFailed) {
+      const list = parsed as string[];
+      content = (
+        <table className="kv-table">
+          <thead>
+            <tr>
+              <th>{info.type === 'list' ? 'Index' : '#'}</th>
+              <th>Value</th>
+            </tr>
+          </thead>
+          <tbody>
+            {list.map((item, idx) => (
+              <tr key={idx}>
+                <td className="dim">{idx}</td>
+                <td>{item}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      );
     } else {
-      try {
-        if (info.type === 'hash') {
-          const obj = JSON.parse(info.value);
-          content = (
-            <table className="kv-table">
-              <thead>
-                <tr>
-                  <th>Field</th>
-                  <th>Value</th>
-                </tr>
-              </thead>
-              <tbody>
-                {Object.entries(obj).map(([f, v]) => (
-                  <tr key={f}>
-                    <td className="dim">{f}</td>
-                    <td>{String(v)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          );
-        } else if (info.type === 'zset') {
-          const list = JSON.parse(info.value) as Array<{ member: string; score: number }>;
-          content = (
-            <table className="kv-table">
-              <thead>
-                <tr>
-                  <th>Score</th>
-                  <th>Member</th>
-                </tr>
-              </thead>
-              <tbody>
-                {list.map((item, idx) => (
-                  <tr key={idx}>
-                    <td className="accent">{item.score}</td>
-                    <td>{item.member}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          );
-        } else if (info.type === 'list' || info.type === 'set') {
-          const list = JSON.parse(info.value) as string[];
-          content = (
-            <table className="kv-table">
-              <thead>
-                <tr>
-                  <th>{info.type === 'list' ? 'Index' : '#'}</th>
-                  <th>Value</th>
-                </tr>
-              </thead>
-              <tbody>
-                {list.map((item, idx) => (
-                  <tr key={idx}>
-                    <td className="dim">{idx}</td>
-                    <td>{item}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          );
-        } else {
-          content = <div className="value-raw">{info.value}</div>;
-        }
-      } catch {
-        content = <div className="value-raw">{info.value}</div>;
-      }
+      content = <div className="value-raw">{info.value}</div>;
     }
   }
 

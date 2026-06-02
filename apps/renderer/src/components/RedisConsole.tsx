@@ -36,8 +36,9 @@ export const RedisConsole: React.FC<RedisConsoleProps> = ({ profileId }) => {
       } else {
         setEntries((prev) => [...prev, { command: raw, output: res.error || 'Command failed', isError: true }]);
       }
-    } catch (e: any) {
-      setEntries((prev) => [...prev, { command: raw, output: e.message || 'Error', isError: true }]);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Error';
+      setEntries((prev) => [...prev, { command: raw, output: msg, isError: true }]);
     } finally {
       setBusy(false);
       setHistory((prev) => (prev[prev.length - 1] === raw ? prev : [...prev, raw]));

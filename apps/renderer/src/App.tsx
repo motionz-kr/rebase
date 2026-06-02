@@ -616,6 +616,7 @@ function App() {
                         <RedisConsole profileId={id} />
                       ) : (
                         <RedisValueInspector
+                          key={`${id}:${redisKeys[id] ?? '∅'}`}
                           profileId={id}
                           redisKey={redisKeys[id] ?? null}
                           onSelectKey={(k) => setRedisKeys((prev) => ({ ...prev, [id]: k }))}
