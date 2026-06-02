@@ -503,6 +503,88 @@ app.whenReady().then(() => {
     }
   });
 
+  ipcMain.handle('agent-run', async (event, runId, profileId, messages, options) => {
+    try {
+      if (!engineManager || engineManager.getPort() === null) {
+        throw new Error('Engine not started');
+      }
+      const port = engineManager.getPort()!;
+      const postData = JSON.stringify({
+        profileId,
+        messages,
+        provider: options?.provider ?? 'stub',
+        apiKey: options?.apiKey ?? '',
+        model: options?.model ?? '',
+      });
+
+      const req = http.request(
+        {
+          host: '127.0.0.1',
+          port,
+          path: '/agent/run',
+          method: 'POST',
+          headers: {
+            'X-App-Engine-Token': launchToken,
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(postData).toString(),
+          },
+        },
+        (res) => {
+          if (res.statusCode && res.statusCode >= 400) {
+            let errBody = '';
+            res.on('data', (c) => (errBody += c));
+            res.on('end', () => {
+              activeStreams.delete(runId);
+              if (mainWindow) {
+                mainWindow.webContents.send('agent-stream-chunk', runId, {
+                  kind: 'error',
+                  err: errBody || `Request failed with status ${res.statusCode}`,
+                });
+              }
+            });
+            return;
+          }
+          const rl = readline.createInterface({ input: res, terminal: false });
+          rl.on('line', (line) => {
+            if (!line.trim()) return;
+            try {
+              const data = JSON.parse(line);
+              if (mainWindow) mainWindow.webContents.send('agent-stream-chunk', runId, data);
+            } catch (e) {
+              console.error('Failed to parse agent NDJSON line:', e);
+            }
+          });
+          res.on('close', () => {
+            rl.close();
+            activeStreams.delete(runId);
+          });
+        }
+      );
+      req.on('error', (err) => {
+        activeStreams.delete(runId);
+        if (mainWindow && !req.destroyed) {
+          mainWindow.webContents.send('agent-stream-chunk', runId, { kind: 'error', err: err.message });
+        }
+      });
+
+      activeStreams.set(runId, req);
+      req.write(postData);
+      req.end();
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('agent-cancel', async (_event, runId) => {
+    const req = activeStreams.get(runId);
+    if (req) {
+      req.destroy();
+      activeStreams.delete(runId);
+    }
+    return { success: true };
+  });
+
   ipcMain.handle('execute-batch', async (event, profileId, statements) => {
     try {
       const data = await requestEngine({

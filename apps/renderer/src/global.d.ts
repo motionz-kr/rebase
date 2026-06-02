@@ -18,6 +18,14 @@ export interface QueryStreamChunk {
   verb?: string;
 }
 
+// One streamed event from an agent turn (mirrors the engine's ports.LLMEvent).
+export interface AgentStreamChunk {
+  kind: 'text' | 'tool_call' | 'done' | 'error';
+  text?: string;
+  toolCall?: { id: string; name: string; args: Record<string, unknown> };
+  err?: string;
+}
+
 export interface SavedQuery {
   id: string;
   workspaceId: string;
@@ -130,6 +138,14 @@ declare global {
         statements: string[]
       ) => Promise<ResultWrapper<{ ok: boolean; rowsAffected: number; failedIndex: number; error?: string }>>;
       onQueryStreamChunk: (callback: (queryId: string, chunk: QueryStreamChunk) => void) => () => void;
+      agentRun: (
+        runId: string,
+        profileId: string,
+        messages: Array<{ role: string; text: string }>,
+        options?: { provider?: string; apiKey?: string; model?: string }
+      ) => Promise<ResultWrapper<{ success: boolean }>>;
+      agentCancel: (runId: string) => Promise<ResultWrapper<{ success: boolean }>>;
+      onAgentStreamChunk: (callback: (runId: string, chunk: AgentStreamChunk) => void) => () => void;
       redisScan: (profileId: string, pattern: string, cursor: number, count: number) => Promise<ResultWrapper<RedisKeyspaceInfo>>;
       redisValue: (profileId: string, key: string) => Promise<ResultWrapper<RedisValueInfo>>;
       redisSet: (profileId: string, key: string, value: string) => Promise<ResultWrapper<{ ok: boolean }>>;

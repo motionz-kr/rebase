@@ -2301,3 +2301,133 @@
   padding: 0 2px;
 }
 .fk-link:hover { text-decoration: underline; }
+
+/* ============================================================
+   Agent panel (right dock)
+   ============================================================ */
+.agent-dock {
+  width: 380px;
+  min-width: 320px;
+  max-width: 46vw;
+  flex-shrink: 0;
+  border-left: 1px solid var(--border);
+  background: var(--bg-panel);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.agent-chat {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.agent-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.agent-head h2 {
+  font-size: 13px;
+  font-weight: 600;
+}
+.agent-conn {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-left: auto;
+  margin-right: 4px;
+  font-family: var(--mono);
+}
+.agent-log {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.agent-hint {
+  color: var(--text-3);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.agent-hint code {
+  font-family: var(--mono);
+  background: var(--bg);
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--text-2);
+}
+.agent-msg {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.agent-role {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-3);
+}
+.agent-msg.user .agent-text {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-radius: var(--radius);
+  padding: 8px 11px;
+}
+.agent-text {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.agent-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.agent-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-2);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 2px 7px;
+}
+.agent-input {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.agent-input textarea {
+  flex: 1;
+  resize: none;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  padding: 7px 10px;
+  line-height: 1.4;
+}
+.agent-input textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.agent-toggle.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}

@@ -212,6 +212,9 @@ func main() {
 	mux.Handle("/redis/rename", redisHandler.RenameKey())
 	mux.Handle("/redis/command", redisHandler.RunCommand())
 
+	agentHandler := internalHttp.NewAgentHandler(*token, connectionService)
+	mux.Handle("/agent/run", agentHandler.Run())
+
 	workspaceHandler := internalHttp.NewWorkspaceHandler(*token, workspaceService)
 	mux.Handle("/workspaces", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {

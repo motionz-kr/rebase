@@ -23,6 +23,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
     options?: { allowWrite?: boolean; confirmDestructive?: boolean; maxRows?: number; fetchAll?: boolean }
   ) => ipcRenderer.invoke('execute-query-stream', queryId, profileId, query, options),
   cancelQuery: (queryId: string) => ipcRenderer.invoke('cancel-query', queryId),
+  agentRun: (
+    runId: string,
+    profileId: string,
+    messages: Array<{ role: string; text: string }>,
+    options?: { provider?: string; apiKey?: string; model?: string }
+  ) => ipcRenderer.invoke('agent-run', runId, profileId, messages, options),
+  agentCancel: (runId: string) => ipcRenderer.invoke('agent-cancel', runId),
+  onAgentStreamChunk: (callback: (runId: string, chunk: any) => void) => {
+    const listener = (_event: any, rId: string, chunk: any) => callback(rId, chunk);
+    ipcRenderer.on('agent-stream-chunk', listener);
+    return () => {
+      ipcRenderer.removeListener('agent-stream-chunk', listener);
+    };
+  },
   executeBatch: (profileId: string, statements: string[]) =>
     ipcRenderer.invoke('execute-batch', profileId, statements),
   onQueryStreamChunk: (callback: (queryId: string, chunk: any) => void) => {
