@@ -1782,11 +1782,13 @@
   font-size: 12px;
   padding: 0 6px;
   max-width: 180px;
+  border-color: color-mix(in srgb, var(--border) 55%, transparent);
 }
 .tdv-fb-val {
   height: 26px;
   width: 180px;
   font-size: 12px;
+  border-color: color-mix(in srgb, var(--border) 55%, transparent);
 }
 .tdv-fb-clear {
   color: var(--text-3);
@@ -1800,7 +1802,7 @@
   font-size: 12px;
   border-radius: 999px;
   background: var(--bg-input);
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
   color: var(--text);
   white-space: nowrap;
 }
