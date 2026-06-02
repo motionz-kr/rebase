@@ -16,6 +16,8 @@ interface Props {
   database: string;
   table: string;
   onClose: () => void;
+  initialFilter?: { col: string; value: string };
+  onOpenRelated?: (table: string, refColumn: string, value: string) => void;
 }
 
 interface Sel {
@@ -35,7 +37,7 @@ function asCell(v: unknown): CellValue {
   return JSON.stringify(v);
 }
 
-export const TableDataView: React.FC<Props> = ({ profileId, driver, database, table, onClose }) => {
+export const TableDataView: React.FC<Props> = ({ profileId, driver, database, table, onClose, initialFilter, onOpenRelated }) => {
   const [columns, setColumns] = useState<string[]>([]);
   const [colTypes, setColTypes] = useState<string[]>([]);
   const [pkCols, setPkCols] = useState<string[]>([]);
@@ -43,8 +45,8 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
   const [page, setPage] = useState(0);
   const [hasNext, setHasNext] = useState(false);
   const [orderBy, setOrderBy] = useState<OrderBy | null>(null);
-  const [filters, setFilters] = useState<Record<string, string>>({});
-  const [appliedFilters, setAppliedFilters] = useState<ColFilter[]>([]);
+  const [filters, setFilters] = useState<Record<string, string>>(initialFilter ? { [initialFilter.col]: initialFilter.value } : {});
+  const [appliedFilters, setAppliedFilters] = useState<ColFilter[]>(initialFilter ? [{ col: initialFilter.col, value: initialFilter.value }] : []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -81,6 +83,22 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
     return () => {
       ignore = true;
     };
+  }, [profileId, database, table]);
+
+  const [fks, setFks] = useState<Record<string, { refTable: string; refColumn: string }>>({});
+  useEffect(() => {
+    let ignore = false;
+    (async () => {
+      try {
+        const res = await window.electronAPI.listForeignKeys(profileId, database, table);
+        if (!ignore && res.success && res.data) {
+          const m: Record<string, { refTable: string; refColumn: string }> = {};
+          for (const fk of res.data) m[fk.column] = { refTable: fk.refTable, refColumn: fk.refColumn };
+          setFks(m);
+        }
+      } catch { /* ignore — FK links are optional */ }
+    })();
+    return () => { ignore = true; };
   }, [profileId, database, table]);
 
   const clearPending = () => {
@@ -397,6 +415,14 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
                           onDoubleClick={() => startEdit(r, c)}
                         >
                           {text}
+                          {fks[columns[c]] && !isNull && onOpenRelated && (
+                            <button
+                              className="fk-link"
+                              title={`${fks[columns[c]].refTable} 행 열기`}
+                              onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
+                              onClick={(e) => { e.stopPropagation(); onOpenRelated(fks[columns[c]].refTable, fks[columns[c]].refColumn, String(displayValue(r, c))); }}
+                            >↗</button>
+                          )}
                         </div>
                       );
                     })}

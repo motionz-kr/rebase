@@ -1717,3 +1717,14 @@
   color: var(--text-3);
   padding: 6px 8px 2px 26px;
 }
+
+.fk-link {
+  margin-left: 6px;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0 2px;
+}
+.fk-link:hover { text-decoration: underline; }
