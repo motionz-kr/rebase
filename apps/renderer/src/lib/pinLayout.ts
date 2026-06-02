@@ -4,6 +4,7 @@
 
 export const IDX_W = 56; // row-index column width (matches .grid-idx)
 export const PIN_W = 180; // fixed width given to a pinned column
+export const COL_W = 200; // fixed width for non-pinned columns while pinning is active
 
 export interface PinLayout {
   order: number[]; // display order of original column indices
