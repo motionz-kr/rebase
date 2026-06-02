@@ -138,8 +138,8 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
       } else {
         setDdl({ table, text: '', loading: false, error: res.error || 'Failed to load DDL' });
       }
-    } catch (e: any) {
-      setDdl({ table, text: '', loading: false, error: e.message || 'Error loading DDL' });
+    } catch (e) {
+      setDdl({ table, text: '', loading: false, error: e instanceof Error ? e.message : 'Error loading DDL' });
     }
   };
 
@@ -150,8 +150,8 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
       const res = await window.electronAPI.getViewDDL(profileId, dbName, view);
       if (res.success && res.data) setDdl({ table: view, text: res.data.ddl, loading: false, error: null });
       else setDdl({ table: view, text: '', loading: false, error: res.error || 'Failed to load view DDL' });
-    } catch (e: any) {
-      setDdl({ table: view, text: '', loading: false, error: e.message || 'Error loading view DDL' });
+    } catch (e) {
+      setDdl({ table: view, text: '', loading: false, error: e instanceof Error ? e.message : 'Error loading view DDL' });
     }
   };
 
@@ -177,6 +177,8 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
 
   useEffect(() => {
     if (driver === 'redis') return;
+    // Intentional load-on-mount; loadDatabases manages its own state.
+    // eslint-disable-next-line react-hooks/immutability
     loadDatabases();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profileId, driver]);
@@ -191,8 +193,8 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
       } else {
         setError(res.error || 'Failed to list databases');
       }
-    } catch (e: any) {
-      setError(e.message || 'An error occurred while fetching databases');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'An error occurred while fetching databases');
     } finally {
       setLoading(false);
     }

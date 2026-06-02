@@ -40,6 +40,7 @@ export const IndexManagerDialog: React.FC<Props> = ({ profileId, driver, databas
   };
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profileId, database, table]);

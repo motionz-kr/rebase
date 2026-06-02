@@ -48,7 +48,8 @@ export const ResultGrid: React.FC<Props> = ({ columns, rows, rowHeight = 32 }) =
   const togglePin = (col: number) =>
     setPinned((prev) => {
       const next = new Set(prev);
-      next.has(col) ? next.delete(col) : next.add(col);
+      if (next.has(col)) next.delete(col);
+      else next.add(col);
       return next;
     });
 
@@ -82,11 +83,13 @@ export const ResultGrid: React.FC<Props> = ({ columns, rows, rowHeight = 32 }) =
 
   // Clear selection when the data/derivation changes.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSel(null);
   }, [rows, filter, sort]);
 
   // Reset pinned columns when the column set changes (e.g. a new query).
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPinned(new Set());
   }, [columns]);
 

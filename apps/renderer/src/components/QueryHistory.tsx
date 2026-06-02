@@ -37,6 +37,7 @@ export const QueryHistory: React.FC<QueryHistoryProps> = ({ profileId, onSelectQ
   };
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadHistory();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profileId, refreshTrigger]);

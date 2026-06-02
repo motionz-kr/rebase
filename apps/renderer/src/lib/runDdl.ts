@@ -24,7 +24,7 @@ function runOne(profileId: string, sql: string): Promise<{ ok: boolean; error?: 
       resolve(result);
     };
 
-    cleanup = window.electronAPI.onQueryStreamChunk((id, chunk: any) => {
+    cleanup = window.electronAPI.onQueryStreamChunk((id, chunk) => {
       if (id !== queryId || settled) return;
       if (chunk.type === 'done') {
         finish({ ok: true });
@@ -40,8 +40,8 @@ function runOne(profileId: string, sql: string): Promise<{ ok: boolean; error?: 
       .then((res) => {
         if (!res.success) finish({ ok: false, error: res.error || 'Failed to start statement' });
       })
-      .catch((e: any) => {
-        finish({ ok: false, error: e?.message || 'Request failed' });
+      .catch((e) => {
+        finish({ ok: false, error: e instanceof Error ? e.message : 'Request failed' });
       });
   });
 }

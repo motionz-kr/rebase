@@ -5,6 +5,41 @@ export interface HealthResult {
   error?: string;
 }
 
+// One chunk of a streamed query result (NDJSON from the engine).
+export interface QueryStreamChunk {
+  type: 'meta' | 'row' | 'done' | 'error' | 'policy' | string;
+  columns?: string[];
+  data?: unknown[];
+  message?: string;
+  rowsAffected?: number;
+  truncated?: boolean;
+  rowLimit?: number;
+  code?: string;
+  verb?: string;
+}
+
+export interface SavedQuery {
+  id: string;
+  workspaceId: string;
+  profileId: string;
+  name: string;
+  queryText: string;
+  isFavorite: boolean;
+  createdAt: string;
+}
+
+export interface QueryHistoryEntry {
+  id: string;
+  workspaceId: string;
+  profileId: string;
+  queryText: string;
+  executedAt: string;
+  durationMs: number;
+  success: boolean;
+  errorMessage: string | null;
+  rowCount: number | null;
+}
+
 export interface ConnectionProfile {
   id?: string;
   name: string;
@@ -94,7 +129,7 @@ declare global {
         profileId: string,
         statements: string[]
       ) => Promise<ResultWrapper<{ ok: boolean; rowsAffected: number; failedIndex: number; error?: string }>>;
-      onQueryStreamChunk: (callback: (queryId: string, chunk: any) => void) => () => void;
+      onQueryStreamChunk: (callback: (queryId: string, chunk: QueryStreamChunk) => void) => () => void;
       redisScan: (profileId: string, pattern: string, cursor: number, count: number) => Promise<ResultWrapper<RedisKeyspaceInfo>>;
       redisValue: (profileId: string, key: string) => Promise<ResultWrapper<RedisValueInfo>>;
       redisSet: (profileId: string, key: string, value: string) => Promise<ResultWrapper<{ ok: boolean }>>;
@@ -102,11 +137,11 @@ declare global {
       redisExpire: (profileId: string, key: string, seconds: number) => Promise<ResultWrapper<{ ok: boolean }>>;
       redisRename: (profileId: string, key: string, newKey: string) => Promise<ResultWrapper<{ ok: boolean }>>;
       redisCommand: (profileId: string, args: string[]) => Promise<ResultWrapper<{ output: string; isError: boolean }>>;
-      listSavedQueries: (workspaceId: string) => Promise<ResultWrapper<any[]>>;
-      saveQuery: (savedQuery: any) => Promise<ResultWrapper<any>>;
+      listSavedQueries: (workspaceId: string) => Promise<ResultWrapper<SavedQuery[]>>;
+      saveQuery: (savedQuery: Record<string, unknown>) => Promise<ResultWrapper<SavedQuery>>;
       deleteSavedQuery: (id: string) => Promise<ResultWrapper<{ success: boolean }>>;
-      listQueryHistory: (workspaceId: string, profileId: string) => Promise<ResultWrapper<any[]>>;
-      addQueryHistory: (history: any) => Promise<ResultWrapper<any>>;
+      listQueryHistory: (workspaceId: string, profileId: string) => Promise<ResultWrapper<QueryHistoryEntry[]>>;
+      addQueryHistory: (history: Record<string, unknown>) => Promise<ResultWrapper<QueryHistoryEntry>>;
     };
   }
 }

@@ -102,12 +102,14 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
   const togglePin = (col: number) =>
     setPinned((prev) => {
       const next = new Set(prev);
-      next.has(col) ? next.delete(col) : next.add(col);
+      if (next.has(col)) next.delete(col);
+      else next.add(col);
       return next;
     });
   // Reset pins only when the actual column set changes (not on page/refresh).
   const colKey = columns.join('');
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPinned(new Set());
   }, [colKey]);
   useEffect(() => {
@@ -134,8 +136,8 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
         setColumns(cols.map((c) => c.name));
         setColTypes(cols.map((c) => c.type));
         setPkCols(cols.filter((c) => c.primaryKey).map((c) => c.name));
-      } catch (e: any) {
-        if (!ignore) setError(e?.message || 'Failed to describe table');
+      } catch (e) {
+        if (!ignore) setError(e instanceof Error ? e.message : 'Failed to describe table');
       }
     })();
     return () => {
@@ -190,6 +192,7 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
   }, [profileId, driver, table, appliedFilters, orderBy, page]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchPage();
   }, [fetchPage]);
 
@@ -419,11 +422,14 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
     if (stmts.length === 0) return;
     setSaving(true);
     setError(null);
+    // Elapsed-time measurement in an async handler (not render).
+    // eslint-disable-next-line react-hooks/purity
     const started = Date.now();
     const res = await runBatch(profileId, stmts);
     setSaving(false);
     setLastExec({
       sql: stmts.join(';\n') + ';',
+      // eslint-disable-next-line react-hooks/purity
       durationMs: Date.now() - started,
       rowsAffected: res.ok ? res.rowsAffected : null,
       error: res.ok ? null : res.error ?? '저장 실패',

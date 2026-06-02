@@ -25,7 +25,7 @@ interface PolicyPrompt {
 interface ResultSet {
   statement: string;
   columns: string[];
-  rows: any[][];
+  rows: unknown[][];
   rowsAffected: number | null;
   error: string | null;
   truncated: boolean;
@@ -37,7 +37,7 @@ interface QueryTab {
   name: string;
   query: string;
   columns: string[];
-  rows: any[][];
+  rows: unknown[][];
   loading: boolean;
   error: string | null;
   rowsAffected: number | null;
@@ -153,17 +153,17 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
           const updated = { ...tab };
 
           if (chunk.type === 'meta') {
-            updated.columns = chunk.columns;
+            updated.columns = chunk.columns ?? [];
             updated.rows = [];
           } else if (chunk.type === 'row') {
-            updated.rows = [...updated.rows, chunk.data];
+            updated.rows = [...updated.rows, chunk.data ?? []];
           } else if (chunk.type === 'policy') {
             updated.loading = false;
             updated.queryId = null;
-            updated.policyPrompt = { code: chunk.code, message: chunk.message, verb: chunk.verb };
+            updated.policyPrompt = { code: chunk.code ?? '', message: chunk.message ?? '', verb: chunk.verb ?? '' };
           } else if (chunk.type === 'done') {
             updated.loading = false;
-            updated.rowsAffected = chunk.rowsAffected;
+            updated.rowsAffected = chunk.rowsAffected ?? null;
             updated.truncated = chunk.truncated === true;
             updated.rowLimit = chunk.rowLimit ?? 0;
             updated.elapsedTimeMs = tab.startTime ? Date.now() - tab.startTime : 0;
@@ -172,7 +172,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
               sql: tab.query,
               durationMs: updated.elapsedTimeMs,
               rowCount: updated.columns.length > 0 ? updated.rows.length : null,
-              rowsAffected: updated.columns.length > 0 ? null : chunk.rowsAffected,
+              rowsAffected: updated.columns.length > 0 ? null : chunk.rowsAffected ?? null,
               error: null,
             };
 
@@ -187,10 +187,10 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
                 rowCount: updated.rows.length || chunk.rowsAffected,
               })
               .then(() => onQueryExecuted?.())
-              .catch((err: any) => console.error('Failed to log history:', err));
+              .catch((err) => console.error('Failed to log history:', err));
           } else if (chunk.type === 'error') {
             updated.loading = false;
-            updated.error = chunk.message;
+            updated.error = chunk.message ?? null;
             updated.elapsedTimeMs = tab.startTime ? Date.now() - tab.startTime : 0;
             updated.queryId = null;
             updated.lastExec = { sql: tab.query, durationMs: updated.elapsedTimeMs, error: chunk.message };
@@ -206,7 +206,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
                 rowCount: 0,
               })
               .then(() => onQueryExecuted?.())
-              .catch((err: any) => console.error('Failed to log error history:', err));
+              .catch((err) => console.error('Failed to log error history:', err));
           }
 
           return updated;
@@ -240,7 +240,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
       const queryId = `query-${crypto.randomUUID()}`;
       multiCancelRef.current = queryId;
       let columns: string[] = [];
-      const rows: any[][] = [];
+      const rows: unknown[][] = [];
       let settled = false;
       const finish = (payload: { result?: ResultSet; policy?: PolicyPrompt }) => {
         if (settled) return;
@@ -251,18 +251,18 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
       const cleanup = window.electronAPI.onQueryStreamChunk((qid, chunk) => {
         if (qid !== queryId) return;
         if (chunk.type === 'meta') {
-          columns = chunk.columns;
+          columns = chunk.columns ?? [];
         } else if (chunk.type === 'row') {
-          rows.push(chunk.data);
+          rows.push(chunk.data ?? []);
         } else if (chunk.type === 'policy') {
-          finish({ policy: { code: chunk.code, message: chunk.message, verb: chunk.verb } });
+          finish({ policy: { code: chunk.code ?? '', message: chunk.message ?? '', verb: chunk.verb ?? '' } });
         } else if (chunk.type === 'done') {
           finish({
             result: {
               statement: stmt,
               columns,
               rows,
-              rowsAffected: chunk.rowsAffected,
+              rowsAffected: chunk.rowsAffected ?? null,
               error: null,
               truncated: chunk.truncated === true,
               rowLimit: chunk.rowLimit ?? 0,
@@ -270,7 +270,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
           });
         } else if (chunk.type === 'error') {
           finish({
-            result: { statement: stmt, columns, rows, rowsAffected: null, error: chunk.message, truncated: false, rowLimit: 0 },
+            result: { statement: stmt, columns, rows, rowsAffected: null, error: chunk.message ?? null, truncated: false, rowLimit: 0 },
           });
         }
       });
@@ -283,9 +283,9 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
             });
           }
         })
-        .catch((e: any) => {
+        .catch((e) => {
           finish({
-            result: { statement: stmt, columns: [], rows: [], rowsAffected: null, error: e.message || 'Execution request failed', truncated: false, rowLimit: 0 },
+            result: { statement: stmt, columns: [], rows: [], rowsAffected: null, error: e instanceof Error ? e.message : 'Execution request failed', truncated: false, rowLimit: 0 },
           });
         });
     });
@@ -439,10 +439,10 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
           )
         );
       }
-    } catch (e: any) {
+    } catch (e) {
       setTabs((prev) =>
         prev.map((t) =>
-          t.id === activeTabId ? { ...t, loading: false, error: e.message || 'Execution request failed', queryId: null } : t
+          t.id === activeTabId ? { ...t, loading: false, error: e instanceof Error ? e.message : 'Execution request failed', queryId: null } : t
         )
       );
     }
@@ -484,7 +484,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
           t.id === activeTabId ? { ...t, loading: false, error: 'Query cancelled.', queryId: null } : t
         )
       );
-    } catch (e: any) {
+    } catch (e) {
       console.error('Failed to cancel query:', e);
     }
   };
@@ -530,8 +530,8 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
       } else {
         alert('Failed to save query: ' + (res.error || 'Unknown error'));
       }
-    } catch (err: any) {
-      alert('Error saving query: ' + err.message);
+    } catch (err) {
+      alert('Error saving query: ' + (err instanceof Error ? err.message : 'Unknown error'));
     } finally {
       setIsSaving(false);
     }

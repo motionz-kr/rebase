@@ -34,8 +34,8 @@ export const CsvImportDialog: React.FC<Props> = ({ profileId, driver, database, 
       try {
         const res = await window.electronAPI.describeTable(profileId, database, table);
         if (!ignore && res.success && res.data) setCols(res.data.columns);
-      } catch (e: any) {
-        if (!ignore) setError(e?.message || 'Failed to describe table');
+      } catch (e) {
+        if (!ignore) setError(e instanceof Error ? e.message : 'Failed to describe table');
       }
     })();
     return () => { ignore = true; };
