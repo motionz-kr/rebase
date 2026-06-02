@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as http from 'http';
 import * as crypto from 'crypto';
 import * as readline from 'readline';
+import { execFile, spawn } from 'child_process';
 import { EngineManager } from './engine_manager';
 import isDev from 'electron-is-dev';
 
@@ -501,6 +502,193 @@ app.whenReady().then(() => {
     } catch (err: any) {
       return { success: false, error: err.message };
     }
+  });
+
+  ipcMain.handle('agent-run', async (event, runId, profileId, messages, options) => {
+    try {
+      if (!engineManager || engineManager.getPort() === null) {
+        throw new Error('Engine not started');
+      }
+      const port = engineManager.getPort()!;
+      const postData = JSON.stringify({
+        profileId,
+        messages,
+        provider: options?.provider ?? 'stub',
+        apiKey: options?.apiKey ?? '',
+        model: options?.model ?? '',
+        dataExposure: options?.dataExposure ?? 'unrestricted',
+      });
+
+      const req = http.request(
+        {
+          host: '127.0.0.1',
+          port,
+          path: '/agent/run',
+          method: 'POST',
+          headers: {
+            'X-App-Engine-Token': launchToken,
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(postData).toString(),
+          },
+        },
+        (res) => {
+          if (res.statusCode && res.statusCode >= 400) {
+            let errBody = '';
+            res.on('data', (c) => (errBody += c));
+            res.on('end', () => {
+              activeStreams.delete(runId);
+              if (mainWindow) {
+                mainWindow.webContents.send('agent-stream-chunk', runId, {
+                  kind: 'error',
+                  err: errBody || `Request failed with status ${res.statusCode}`,
+                });
+              }
+            });
+            return;
+          }
+          const rl = readline.createInterface({ input: res, terminal: false });
+          rl.on('line', (line) => {
+            if (!line.trim()) return;
+            try {
+              const data = JSON.parse(line);
+              if (mainWindow) mainWindow.webContents.send('agent-stream-chunk', runId, data);
+            } catch (e) {
+              console.error('Failed to parse agent NDJSON line:', e);
+            }
+          });
+          res.on('close', () => {
+            rl.close();
+            activeStreams.delete(runId);
+          });
+        }
+      );
+      req.on('error', (err) => {
+        activeStreams.delete(runId);
+        if (mainWindow && !req.destroyed) {
+          mainWindow.webContents.send('agent-stream-chunk', runId, { kind: 'error', err: err.message });
+        }
+      });
+
+      activeStreams.set(runId, req);
+      req.write(postData);
+      req.end();
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  // Agent API keys live in the OS keychain (via the engine), never in renderer
+  // localStorage. These call the engine's /agent/key endpoint.
+  function engineKeyRequest(
+    method: 'GET' | 'POST' | 'DELETE',
+    provider: string,
+    body?: Record<string, unknown>
+  ): Promise<any> {
+    return new Promise((resolve) => {
+      if (!engineManager || engineManager.getPort() === null) {
+        resolve({ success: false, error: 'Engine not started' });
+        return;
+      }
+      const port = engineManager.getPort()!;
+      const payload = body ? JSON.stringify(body) : null;
+      const path = method === 'POST' ? '/agent/key' : `/agent/key?provider=${encodeURIComponent(provider)}`;
+      const headers: Record<string, string> = { 'X-App-Engine-Token': launchToken };
+      if (payload) {
+        headers['Content-Type'] = 'application/json';
+        headers['Content-Length'] = Buffer.byteLength(payload).toString();
+      }
+      const req = http.request({ host: '127.0.0.1', port, path, method, headers }, (res) => {
+        let data = '';
+        res.on('data', (c) => (data += c));
+        res.on('end', () => {
+          if (res.statusCode && res.statusCode >= 400) {
+            resolve({ success: false, error: data || `status ${res.statusCode}` });
+            return;
+          }
+          try {
+            resolve({ success: true, data: JSON.parse(data || '{}') });
+          } catch {
+            resolve({ success: true, data: {} });
+          }
+        });
+      });
+      req.on('error', (err) => resolve({ success: false, error: err.message }));
+      if (payload) req.write(payload);
+      req.end();
+    });
+  }
+
+  ipcMain.handle('agent-key-status', (_event, provider: string) => engineKeyRequest('GET', provider));
+  ipcMain.handle('agent-key-set', (_event, provider: string, key: string) =>
+    engineKeyRequest('POST', provider, { provider, key })
+  );
+  ipcMain.handle('agent-key-clear', (_event, provider: string) => engineKeyRequest('DELETE', provider));
+
+  // Strip the agent-harness / proxy overrides so a spawned claude uses the
+  // user's own login (mirrors the engine's sanitizeEnv).
+  function sanitizedEnv(): NodeJS.ProcessEnv {
+    const env: NodeJS.ProcessEnv = {};
+    for (const [k, v] of Object.entries(process.env)) {
+      if (k === 'ANTHROPIC_BASE_URL' || k === 'ANTHROPIC_API_KEY' || k.startsWith('CLAUDE_CODE_')) continue;
+      env[k] = v;
+    }
+    return env;
+  }
+
+  ipcMain.handle('agent-cli-status', async (_event, tool: string) => {
+    const cli = tool === 'codex' ? 'codex' : 'claude';
+    const args = cli === 'codex' ? ['login', 'status'] : ['auth', 'status'];
+    return new Promise((resolve) => {
+      execFile(cli, args, { env: sanitizedEnv(), timeout: 10000 }, (err, stdout, stderr) => {
+        const out = (stdout || '').trim();
+        if (err && !out) {
+          const notFound = /ENOENT/.test(String(err));
+          resolve({
+            success: true,
+            data: { installed: !notFound, loggedIn: false, detail: notFound ? `${cli} CLI not found on PATH` : (stderr || String(err)).trim() },
+          });
+          return;
+        }
+        // claude emits JSON; codex emits a plain "Logged in using …" line.
+        try {
+          const j = JSON.parse(out);
+          resolve({
+            success: true,
+            data: { installed: true, loggedIn: !!j.loggedIn, email: j.email, subscription: j.subscriptionType, authMethod: j.authMethod },
+          });
+        } catch {
+          resolve({ success: true, data: { installed: true, loggedIn: /logged ?in/i.test(out), detail: out } });
+        }
+      });
+    });
+  });
+
+  ipcMain.handle('agent-cli-login', async (_event, tool: string) => {
+    const cli = tool === 'codex' ? 'codex' : 'claude';
+    const cmd = cli === 'codex' ? 'codex login' : 'claude auth login';
+    try {
+      if (process.platform === 'darwin') {
+        spawn('osascript', ['-e', `tell application "Terminal" to do script "${cmd}"`, '-e', 'tell application "Terminal" to activate'], {
+          detached: true,
+          stdio: 'ignore',
+        }).unref();
+      } else {
+        spawn(cli, cli === 'codex' ? ['login'] : ['auth', 'login'], { detached: true, stdio: 'ignore', env: sanitizedEnv() }).unref();
+      }
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('agent-cancel', async (_event, runId) => {
+    const req = activeStreams.get(runId);
+    if (req) {
+      req.destroy();
+      activeStreams.delete(runId);
+    }
+    return { success: true };
   });
 
   ipcMain.handle('execute-batch', async (event, profileId, statements) => {

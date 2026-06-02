@@ -10,12 +10,14 @@ import {
   AlertTriangle,
   Server,
   ChevronRight,
+  Bot,
 } from 'lucide-react';
 import { SchemaExplorer } from './components/SchemaExplorer';
 import { QueryEditor } from './components/QueryEditor';
 import { RedisKeyspaceExplorer } from './components/RedisKeyspaceExplorer';
 import { RedisValueInspector } from './components/RedisValueInspector';
 import { RedisConsole } from './components/RedisConsole';
+import { AgentChat } from './components/AgentChat';
 import { SavedQueries } from './components/SavedQueries';
 import { QueryHistory } from './components/QueryHistory';
 import { TableDataView } from './components/TableDataView';
@@ -60,6 +62,8 @@ function App() {
   const [redisKeys, setRedisKeys] = useState<Record<string, string | null>>({});
   const [redisRefresh, setRedisRefresh] = useState<Record<string, number>>({});
   const [redisTab, setRedisTab] = useState<Record<string, 'inspector' | 'console'>>({});
+  const [showAgent, setShowAgent] = useState(false);
+  const [agentPopped, setAgentPopped] = useState(false);
 
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -332,6 +336,13 @@ function App() {
           </span>
         </div>
         <div className="topbar-status">
+          <button
+            className={`btn btn-secondary btn-sm agent-toggle${showAgent ? ' active' : ''}`}
+            onClick={() => setShowAgent((v) => !v)}
+            title="Toggle the AI agent panel"
+          >
+            <Bot size={14} /> Agent
+          </button>
           <span className={`status-pill ${status}`}>
             <span className="status-dot" />
             {status === 'connected' ? 'Engine ready' : status === 'checking' ? 'Connecting' : 'Engine down'}
@@ -554,7 +565,7 @@ function App() {
         </aside>
 
         {/* Main: keep-mounted panel per connected connection, focused one visible */}
-        <main className="main">
+        <main className="main" style={showAgent && agentPopped ? { display: 'none' } : undefined}>
           {conns.order.length === 0 ? (
             <div className="empty-state full">
               <div className="es-icon">
@@ -656,6 +667,21 @@ function App() {
             })
           )}
         </main>
+        {showAgent && (
+          <aside className={`agent-dock${agentPopped ? ' popped' : ''}`}>
+            <AgentChat
+              profileId={conns.focusedId}
+              connectionName={focusedProfile?.name}
+              onClose={() => setShowAgent(false)}
+              popped={agentPopped}
+              onTogglePopout={() => setAgentPopped((v) => !v)}
+              onSendToEditor={(sql) => {
+                setAgentPopped(false);
+                handleSelectQuery(sql);
+              }}
+            />
+          </aside>
+        )}
       </div>
     </div>
   );

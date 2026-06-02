@@ -15,8 +15,13 @@ import (
 	"time"
 
 	"github.com/smlee/database-local-engine/engine/internal/adapters/keychain"
+	"github.com/smlee/database-local-engine/engine/internal/adapters/mcp"
+	"github.com/smlee/database-local-engine/engine/internal/adapters/mysql"
+	"github.com/smlee/database-local-engine/engine/internal/adapters/postgres"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/sqlite"
+	"github.com/smlee/database-local-engine/engine/internal/agent"
 	"github.com/smlee/database-local-engine/engine/internal/application"
+	"github.com/smlee/database-local-engine/engine/internal/ports"
 	internalHttp "github.com/smlee/database-local-engine/engine/internal/transport/http"
 	_ "modernc.org/sqlite"
 )
@@ -46,6 +51,7 @@ func main() {
 	token := flag.String("token", "", "launch token for API authentication")
 	handshakePath := flag.String("handshake", "", "file path to write handshake information")
 	dbPath := flag.String("db", "", "SQLite database file path")
+	mcpProfile := flag.String("mcp", "", "run as an MCP stdio server exposing DB tools for this profile id")
 	flag.Parse()
 
 	if *token == "" {
@@ -156,6 +162,13 @@ func main() {
 	secretStore := keychain.NewKeyringStore("AntigravityDBDesktop")
 	connectionService := application.NewConnectionService(profileRepo, secretStore)
 
+	// MCP mode: serve the DB tool registry over stdio (for a local CLI like
+	// `claude --mcp-config`) instead of the HTTP API, then exit.
+	if *mcpProfile != "" {
+		runMCPServer(connectionService, *mcpProfile)
+		return
+	}
+
 	workspaceRepo := sqlite.NewSQLiteWorkspaceRepository(db)
 	workspaceService := application.NewWorkspaceService(workspaceRepo)
 
@@ -211,6 +224,10 @@ func main() {
 	mux.Handle("/redis/expire", redisHandler.SetTTL())
 	mux.Handle("/redis/rename", redisHandler.RenameKey())
 	mux.Handle("/redis/command", redisHandler.RunCommand())
+
+	agentHandler := internalHttp.NewAgentHandler(*token, connectionService)
+	mux.Handle("/agent/run", agentHandler.Run())
+	mux.Handle("/agent/key", agentHandler.Key())
 
 	workspaceHandler := internalHttp.NewWorkspaceHandler(*token, workspaceService)
 	mux.Handle("/workspaces", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -306,4 +323,27 @@ func main() {
 
 	_ = os.Remove(*handshakePath)
 	log.Println("Engine stopped.")
+}
+
+// runMCPServer serves the agent's DB tool registry over stdio as an MCP server
+// for the given profile, then returns when stdin closes.
+func runMCPServer(svc *application.ConnectionService, profileID string) {
+	ctx := context.Background()
+	profile, password, err := svc.GetProfile(ctx, profileID)
+	if err != nil {
+		log.Fatalf("mcp: failed to load profile %s: %v", profileID, err)
+	}
+	var conn ports.SQLConnector
+	switch profile.Driver {
+	case "mysql":
+		conn = mysql.NewMySQLConnector()
+	case "postgres":
+		conn = postgres.NewPostgreSQLConnector()
+	default:
+		log.Fatalf("mcp: unsupported driver %q (SQL drivers only)", profile.Driver)
+	}
+	registry := agent.NewSQLRegistry(conn, *profile, password, profile.Database)
+	if err := mcp.NewServer(registry).Serve(ctx, os.Stdin, os.Stdout); err != nil {
+		log.Fatalf("mcp: server error: %v", err)
+	}
 }
