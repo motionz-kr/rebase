@@ -58,3 +58,7 @@ Thumbs.db
 # Claude Code local session/state
 # ──────────────────────────────────────────────
 .claude/
+
+# Playwright
+apps/desktop/test-results/
+apps/desktop/playwright-report/
