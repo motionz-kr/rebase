@@ -70,16 +70,14 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
   const bodyRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const headRef = useRef<HTMLDivElement>(null);
-  const filterRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
 
-  // Keep the (overflow-hidden) header + filter rows aligned with the body's
-  // horizontal scroll so columns stay lined up when scrolling wide tables.
+  // Keep the (overflow-hidden) header aligned with the body's horizontal scroll
+  // so columns stay lined up when scrolling wide tables.
   const onBodyScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
     setScrollTop(el.scrollTop);
     if (headRef.current) headRef.current.scrollLeft = el.scrollLeft;
-    if (filterRef.current) filterRef.current.scrollLeft = el.scrollLeft;
   };
 
   // Column pinning: pinned columns move to the front and stick to the left.
@@ -228,11 +226,28 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
     });
   };
 
-  const applyFilters = () => {
+  // Filter builder (above the grid): pick a column + value to add a filter; active
+  // filters show as removable chips. Each change re-applies (resets to page 0).
+  const [filterCol, setFilterCol] = useState('');
+  const [filterVal, setFilterVal] = useState('');
+  const applyFilterMap = (next: Record<string, string>) => {
     if (hasPending) return;
+    setFilters(next);
     setPage(0);
-    setAppliedFilters(columns.map((c) => ({ col: c, value: filters[c] ?? '' })).filter((f) => f.value.trim() !== ''));
+    setAppliedFilters(Object.entries(next).filter(([, v]) => v.trim() !== '').map(([col, value]) => ({ col, value })));
   };
+  const addFilter = () => {
+    const col = filterCol || columns[0];
+    if (!col || !filterVal.trim()) return;
+    applyFilterMap({ ...filters, [col]: filterVal.trim() });
+    setFilterVal('');
+  };
+  const removeFilter = (col: string) => {
+    const next = { ...filters };
+    delete next[col];
+    applyFilterMap(next);
+  };
+  const activeFilters = Object.entries(filters).filter(([, v]) => v.trim() !== '');
 
   // selection + copy
   const bounds = (s: Sel) => ({
@@ -445,6 +460,32 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
         <div className="alert error"><AlertTriangle size={14} /><span style={{ whiteSpace: 'pre-wrap' }}>{error}</span></div>
       )}
 
+      {/* Filter builder — lives above the table (not as an in-grid row). */}
+      <div className="tdv-filterbar">
+        <Search size={13} className="tdv-fb-icon" />
+        <select className="tdv-fb-col" value={filterCol || columns[0] || ''} onChange={(e) => setFilterCol(e.target.value)} disabled={hasPending || columns.length === 0}>
+          {columns.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <input
+          className="input tdv-fb-val"
+          placeholder="값으로 필터…"
+          value={filterVal}
+          disabled={hasPending}
+          onChange={(e) => setFilterVal(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') addFilter(); }}
+        />
+        <button className="btn btn-secondary btn-xs" onClick={addFilter} disabled={hasPending || !filterVal.trim()}>필터 추가</button>
+        {activeFilters.map(([col, val]) => (
+          <span key={col} className="filter-chip">
+            <span className="fc-col">{col}</span> = <span className="fc-val">{val}</span>
+            <button className="fc-x" title="필터 제거" onClick={() => removeFilter(col)}>✕</button>
+          </span>
+        ))}
+        {activeFilters.length > 0 && (
+          <button className="btn btn-ghost btn-xs tdv-fb-clear" onClick={() => applyFilterMap({})} disabled={hasPending}>모두 지우기</button>
+        )}
+      </div>
+
       <div className="grid" tabIndex={0} ref={gridRef} onKeyDown={onKeyDown}>
         <div className="grid-head" ref={headRef}>
           <div className="grid-idx" style={idxStyle('var(--bg-panel-2)')}>#</div>
@@ -462,25 +503,6 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
                 {pinned.has(idx) && <Pin size={11} className="pin-mark" />}
                 {col}
                 {orderBy && orderBy.col === col ? (orderBy.dir === 'asc' ? ' ▲' : ' ▼') : ''}
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="grid-filter-row" ref={filterRef}>
-          <div className="grid-idx" style={idxStyle('var(--bg-panel)')}><Search size={12} /></div>
-          {lay.order.map((idx) => {
-            const col = columns[idx];
-            return (
-              <div key={idx} className={`grid-cell ${pinned.has(idx) ? 'pinned' : ''}`} style={cellGeom(idx, 'var(--bg-panel)')}>
-                <input
-                  className="input tdv-filter-input"
-                  value={filters[col] ?? ''}
-                  placeholder="필터…"
-                  onChange={(e) => setFilters((f) => ({ ...f, [col]: e.target.value }))}
-                  onKeyDown={(e) => { if (e.key === 'Enter') applyFilters(); }}
-                  onBlur={applyFilters}
-                />
               </div>
             );
           })}
