@@ -10,13 +10,16 @@ const (
 	RoleTool      LLMRole = "tool"
 )
 
-// LLMMessage is one turn in the conversation. For RoleTool, ToolCallID/ToolName
-// identify which tool call this is the result of, and Text holds the result JSON.
+// LLMMessage is one turn in the conversation.
+//   - RoleAssistant with ToolName/ToolCallID/ToolArgs represents the model's
+//     tool-use request (kept so stateless providers can replay it each turn).
+//   - RoleTool with ToolCallID/ToolName carries the tool result JSON in Text.
 type LLMMessage struct {
-	Role       LLMRole `json:"role"`
-	Text       string  `json:"text"`
-	ToolCallID string  `json:"toolCallId,omitempty"`
-	ToolName   string  `json:"toolName,omitempty"`
+	Role       LLMRole        `json:"role"`
+	Text       string         `json:"text"`
+	ToolCallID string         `json:"toolCallId,omitempty"`
+	ToolName   string         `json:"toolName,omitempty"`
+	ToolArgs   map[string]any `json:"toolArgs,omitempty"`
 }
 
 // ToolSpec is the schema advertised to the model.

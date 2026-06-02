@@ -60,7 +60,7 @@ func (s *AgentService) Run(ctx context.Context, conversation []ports.LLMMessage,
 			payload = string(b)
 		}
 		messages = append(messages,
-			ports.LLMMessage{Role: ports.RoleAssistant, ToolName: pending.Name, ToolCallID: pending.ID},
+			ports.LLMMessage{Role: ports.RoleAssistant, ToolName: pending.Name, ToolCallID: pending.ID, ToolArgs: pending.Args},
 			ports.LLMMessage{Role: ports.RoleTool, ToolCallID: pending.ID, ToolName: pending.Name, Text: payload},
 		)
 	}

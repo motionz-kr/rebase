@@ -17,12 +17,20 @@ func (f *fakeProvider) Status(context.Context) (ports.ProviderStatus, error) {
 func (f *fakeProvider) Complete(_ context.Context, req ports.LLMRequest, emit func(ports.LLMEvent)) error {
 	if f.turn == 0 {
 		f.turn++
-		emit(ports.LLMEvent{Kind: ports.EventToolCall, ToolCall: &ports.ToolCall{ID: "c1", Name: "list_tables", Args: map[string]any{}}})
+		emit(ports.LLMEvent{Kind: ports.EventToolCall, ToolCall: &ports.ToolCall{ID: "c1", Name: "describe_table", Args: map[string]any{"table": "users"}}})
+		emit(ports.LLMEvent{Kind: ports.EventDone})
+		return nil
+	}
+	// The assistant tool-use message must be replayed with its args so a
+	// stateless provider can reconstruct the tool_use block.
+	assistant := req.Messages[len(req.Messages)-2]
+	if assistant.Role != ports.RoleAssistant || assistant.ToolName != "describe_table" || assistant.ToolArgs["table"] != "users" {
+		emit(ports.LLMEvent{Kind: ports.EventError, Err: "assistant tool-use args not replayed"})
 		emit(ports.LLMEvent{Kind: ports.EventDone})
 		return nil
 	}
 	last := req.Messages[len(req.Messages)-1]
-	if last.Role != ports.RoleTool || !strings.Contains(last.Text, "users") {
+	if last.Role != ports.RoleTool || !strings.Contains(last.Text, "id") {
 		emit(ports.LLMEvent{Kind: ports.EventError, Err: "tool result not fed back"})
 		emit(ports.LLMEvent{Kind: ports.EventDone})
 		return nil
@@ -33,8 +41,10 @@ func (f *fakeProvider) Complete(_ context.Context, req ports.LLMRequest, emit fu
 }
 
 func TestServiceRunsToolThenAnswers(t *testing.T) {
-	reg := NewSQLRegistry(&fakeSQL{tables: []ports.TableInfo{{Name: "users"}, {Name: "orders"}}},
-		domainProfile(), "", "devdb")
+	reg := NewSQLRegistry(&fakeSQL{
+		tables:  []ports.TableInfo{{Name: "users"}, {Name: "orders"}},
+		columns: []ports.ColumnInfo{{Name: "id", Type: "int", PrimaryKey: true}},
+	}, domainProfile(), "", "devdb")
 	svc := NewAgentService(&fakeProvider{}, reg, 8)
 
 	var text strings.Builder
