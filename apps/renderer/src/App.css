@@ -2535,3 +2535,49 @@
   flex: 1;
   max-width: none;
 }
+
+/* --- Agent composer (Claude-Desktop-style provider/model picker) --- */
+.agent-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.agent-composer textarea {
+  resize: none;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  padding: 8px 10px;
+  line-height: 1.4;
+}
+.agent-composer textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.agent-composer-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.agent-composer-spacer {
+  flex: 1;
+}
+.agent-pick {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-2);
+  font-size: 11.5px;
+  padding: 3px 6px;
+  max-width: 180px;
+}
+.agent-pick:focus {
+  outline: none;
+  border-color: var(--accent);
+}

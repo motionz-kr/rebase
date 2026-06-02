@@ -315,7 +315,7 @@ export const AgentChat: React.FC<AgentChatProps> = ({ profileId, connectionName,
         ))}
       </div>
 
-      <div className="agent-input">
+      <div className="agent-composer">
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -324,10 +324,45 @@ export const AgentChat: React.FC<AgentChatProps> = ({ profileId, connectionName,
           rows={2}
           disabled={busy || !profileId}
         />
-        <button className="icon-btn" onClick={send} disabled={busy || !profileId || !input.trim()} title="Send (Enter)">
-          <CornerDownLeft size={15} />
-        </button>
+        <div className="agent-composer-bar">
+          <select
+            className="agent-pick"
+            title="Provider"
+            value={settings.provider}
+            onChange={(e) => updateSettings({ provider: e.target.value as AgentSettings['provider'] })}
+          >
+            <option value="stub">Stub</option>
+            <option value="anthropic">Anthropic API</option>
+            <option value="cli">claude CLI</option>
+          </select>
+          {settings.provider === 'anthropic' && (
+            <select
+              className="agent-pick"
+              title="Model"
+              value={settings.model}
+              onChange={(e) => updateSettings({ model: e.target.value })}
+            >
+              {modelOptions(settings.model).map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+          )}
+          <span className="agent-composer-spacer" />
+          <button className="btn btn-primary btn-sm" onClick={send} disabled={busy || !profileId || !input.trim()} title="Send (Enter)">
+            <CornerDownLeft size={13} /> Send
+          </button>
+        </div>
       </div>
     </div>
   );
 };
+
+// modelOptions lists a few common Anthropic models plus whatever the user has
+// configured (so a custom model typed in settings is never lost from the picker).
+function modelOptions(current: string): string[] {
+  const common = ['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-4-6'];
+  const all = current ? [current, ...common] : common;
+  return Array.from(new Set(all));
+}
