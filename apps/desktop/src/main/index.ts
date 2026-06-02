@@ -128,7 +128,7 @@ function createWindow() {
     minWidth: 640,
     minHeight: 420,
     resizable: true,
-    title: 'Antigravity DB',
+    title: 'Rebase',
     // Hide the OS title bar but keep the native traffic-light buttons (macOS),
     // so the app's own header fills that space and matches the theme. The header
     // is the drag region (-webkit-app-region: drag in CSS).

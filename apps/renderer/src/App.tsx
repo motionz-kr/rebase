@@ -315,7 +315,7 @@ function App() {
             <Database size={14} />
           </span>
           <span className="brand-name">
-            Antigravity <span>DB</span>
+            Re<span>base</span>
           </span>
         </div>
         <div className="topbar-status">
