@@ -206,6 +206,11 @@ func main() {
 	redisHandler := internalHttp.NewRedisHandler(*token, connectionService)
 	mux.Handle("/redis/scan", redisHandler.ScanKeys())
 	mux.Handle("/redis/value", redisHandler.GetKeyValue())
+	mux.Handle("/redis/set", redisHandler.SetString())
+	mux.Handle("/redis/del", redisHandler.DeleteKey())
+	mux.Handle("/redis/expire", redisHandler.SetTTL())
+	mux.Handle("/redis/rename", redisHandler.RenameKey())
+	mux.Handle("/redis/command", redisHandler.RunCommand())
 
 	workspaceHandler := internalHttp.NewWorkspaceHandler(*token, workspaceService)
 	mux.Handle("/workspaces", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

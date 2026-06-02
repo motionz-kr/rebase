@@ -96,3 +96,174 @@ func (h *RedisHandler) GetKeyValue() http.Handler {
 		json.NewEncoder(w).Encode(info)
 	})
 }
+
+// SetString handles POST /redis/set with body {profileId, key, value}.
+func (h *RedisHandler) SetString() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !h.checkToken(r) {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		var body struct {
+			ProfileID string `json:"profileId"`
+			Key       string `json:"key"`
+			Value     string `json:"value"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+		if body.ProfileID == "" || body.Key == "" {
+			http.Error(w, "profileId and key are required", http.StatusBadRequest)
+			return
+		}
+		profile, password, err := h.service.GetProfile(r.Context(), body.ProfileID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if err := h.redisConnector.SetString(r.Context(), *profile, password, body.Key, body.Value); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+	})
+}
+
+// DeleteKey handles POST /redis/del with body {profileId, key}.
+func (h *RedisHandler) DeleteKey() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !h.checkToken(r) {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		var body struct {
+			ProfileID string `json:"profileId"`
+			Key       string `json:"key"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+		if body.ProfileID == "" || body.Key == "" {
+			http.Error(w, "profileId and key are required", http.StatusBadRequest)
+			return
+		}
+		profile, password, err := h.service.GetProfile(r.Context(), body.ProfileID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		existed, err := h.redisConnector.DeleteKey(r.Context(), *profile, password, body.Key)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]bool{"existed": existed})
+	})
+}
+
+// SetTTL handles POST /redis/expire with body {profileId, key, seconds}.
+// A negative seconds value clears the expiry (PERSIST).
+func (h *RedisHandler) SetTTL() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !h.checkToken(r) {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		var body struct {
+			ProfileID string `json:"profileId"`
+			Key       string `json:"key"`
+			Seconds   int64  `json:"seconds"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+		if body.ProfileID == "" || body.Key == "" {
+			http.Error(w, "profileId and key are required", http.StatusBadRequest)
+			return
+		}
+		profile, password, err := h.service.GetProfile(r.Context(), body.ProfileID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if err := h.redisConnector.SetTTL(r.Context(), *profile, password, body.Key, body.Seconds); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+	})
+}
+
+// RunCommand handles POST /redis/command with body {profileId, args:[]string}.
+func (h *RedisHandler) RunCommand() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !h.checkToken(r) {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		var body struct {
+			ProfileID string   `json:"profileId"`
+			Args      []string `json:"args"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+		if body.ProfileID == "" || len(body.Args) == 0 {
+			http.Error(w, "profileId and a non-empty args array are required", http.StatusBadRequest)
+			return
+		}
+		profile, password, err := h.service.GetProfile(r.Context(), body.ProfileID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		res, err := h.redisConnector.RunCommand(r.Context(), *profile, password, body.Args)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(res)
+	})
+}
+
+// RenameKey handles POST /redis/rename with body {profileId, key, newKey}.
+func (h *RedisHandler) RenameKey() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !h.checkToken(r) {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		var body struct {
+			ProfileID string `json:"profileId"`
+			Key       string `json:"key"`
+			NewKey    string `json:"newKey"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+		if body.ProfileID == "" || body.Key == "" || body.NewKey == "" {
+			http.Error(w, "profileId, key and newKey are required", http.StatusBadRequest)
+			return
+		}
+		profile, password, err := h.service.GetProfile(r.Context(), body.ProfileID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if err := h.redisConnector.RenameKey(r.Context(), *profile, password, body.Key, body.NewKey); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+	})
+}

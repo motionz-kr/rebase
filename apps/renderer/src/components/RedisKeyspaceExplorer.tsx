@@ -1,24 +1,21 @@
 import React, { useState, useEffect } from 'react';
-import { KeyRound, AlertTriangle } from 'lucide-react';
+import { KeyRound, AlertTriangle, RefreshCw } from 'lucide-react';
 
 interface RedisKeyspaceExplorerProps {
   profileId: string;
   onSelectKey: (key: string) => void;
   selectedKey: string | null;
   onDisconnect: () => void;
+  /** Bumped by the parent to force a re-scan (e.g. after a key rename/delete). */
+  refreshToken?: number;
 }
 
-export const RedisKeyspaceExplorer: React.FC<RedisKeyspaceExplorerProps> = ({ profileId, onSelectKey, selectedKey }) => {
+export const RedisKeyspaceExplorer: React.FC<RedisKeyspaceExplorerProps> = ({ profileId, onSelectKey, selectedKey, refreshToken = 0 }) => {
   const [keys, setKeys] = useState<string[]>([]);
   const [cursor, setCursor] = useState(0);
   const [pattern, setPattern] = useState('*');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    loadInitialKeys('*');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profileId]);
 
   const loadInitialKeys = async (searchPattern: string) => {
     setLoading(true);
@@ -31,8 +28,8 @@ export const RedisKeyspaceExplorer: React.FC<RedisKeyspaceExplorerProps> = ({ pr
       } else {
         setError(res.error || 'Failed to scan keys');
       }
-    } catch (e: any) {
-      setError(e.message || 'Error occurred scanning keys');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error occurred scanning keys');
     } finally {
       setLoading(false);
     }
@@ -49,8 +46,8 @@ export const RedisKeyspaceExplorer: React.FC<RedisKeyspaceExplorerProps> = ({ pr
       } else {
         setError(res.error || 'Failed to scan more keys');
       }
-    } catch (e: any) {
-      setError(e.message || 'Error occurred scanning keys');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error occurred scanning keys');
     } finally {
       setLoading(false);
     }
@@ -61,6 +58,21 @@ export const RedisKeyspaceExplorer: React.FC<RedisKeyspaceExplorerProps> = ({ pr
     loadInitialKeys(pattern);
   };
 
+  useEffect(() => {
+    // Intentional initial scan; loadInitialKeys manages its own loading state.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadInitialKeys('*');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profileId]);
+
+  // Re-scan with the current filter when the parent bumps the refresh token.
+  useEffect(() => {
+    if (refreshToken === 0) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadInitialKeys(pattern);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshToken]);
+
   return (
     <>
       <form className="redis-search" onSubmit={handleSearchSubmit}>
@@ -69,6 +81,21 @@ export const RedisKeyspaceExplorer: React.FC<RedisKeyspaceExplorerProps> = ({ pr
           Scan
         </button>
       </form>
+
+      <div className="redis-keys-bar">
+        <span className="redis-keys-count">
+          {keys.length}
+          {cursor > 0 ? '+' : ''} {keys.length === 1 ? 'key' : 'keys'}
+        </span>
+        <button
+          className="icon-btn"
+          title="Re-scan keys"
+          onClick={() => loadInitialKeys(pattern)}
+          disabled={loading}
+        >
+          <RefreshCw size={13} className={loading ? 'spin' : ''} />
+        </button>
+      </div>
 
       {error && (
         <div className="alert error alert-inline">

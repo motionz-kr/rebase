@@ -84,8 +84,21 @@ type RedisValueInfo struct {
 	Truncated bool `json:"truncated"`
 }
 
+// RedisCommandResult is the reply from an arbitrary console command. IsError is
+// true when Redis itself rejected the command (e.g. WRONGTYPE); Output then
+// holds the error text. Connection failures surface as a Go error instead.
+type RedisCommandResult struct {
+	Output  string `json:"output"`
+	IsError bool   `json:"isError"`
+}
+
 type RedisConnector interface {
 	DBConnector
 	ScanKeys(ctx context.Context, p domain.ConnectionProfile, password string, pattern string, cursor uint64, count int64) (RedisKeyspaceInfo, error)
 	GetKeyValue(ctx context.Context, p domain.ConnectionProfile, password string, key string) (RedisValueInfo, error)
+	SetString(ctx context.Context, p domain.ConnectionProfile, password string, key string, value string) error
+	DeleteKey(ctx context.Context, p domain.ConnectionProfile, password string, key string) (bool, error)
+	SetTTL(ctx context.Context, p domain.ConnectionProfile, password string, key string, seconds int64) error
+	RenameKey(ctx context.Context, p domain.ConnectionProfile, password string, key string, newKey string) error
+	RunCommand(ctx context.Context, p domain.ConnectionProfile, password string, args []string) (RedisCommandResult, error)
 }

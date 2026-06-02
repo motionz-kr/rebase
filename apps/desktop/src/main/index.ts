@@ -556,6 +556,71 @@ app.whenReady().then(() => {
     }
   });
 
+  ipcMain.handle('redis-set', async (event, profileId, key, value) => {
+    try {
+      const data = await requestEngine({
+        method: 'POST',
+        path: '/redis/set',
+        body: { profileId, key, value },
+      });
+      return { success: true, data };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('redis-delete', async (event, profileId, key) => {
+    try {
+      const data = await requestEngine({
+        method: 'POST',
+        path: '/redis/del',
+        body: { profileId, key },
+      });
+      return { success: true, data };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('redis-expire', async (event, profileId, key, seconds) => {
+    try {
+      const data = await requestEngine({
+        method: 'POST',
+        path: '/redis/expire',
+        body: { profileId, key, seconds },
+      });
+      return { success: true, data };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('redis-rename', async (event, profileId, key, newKey) => {
+    try {
+      const data = await requestEngine({
+        method: 'POST',
+        path: '/redis/rename',
+        body: { profileId, key, newKey },
+      });
+      return { success: true, data };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('redis-command', async (event, profileId, args) => {
+    try {
+      const data = await requestEngine({
+        method: 'POST',
+        path: '/redis/command',
+        body: { profileId, args },
+      });
+      return { success: true, data };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
   ipcMain.handle('list-saved-queries', async (event, workspaceId) => {
     try {
       const data = await requestEngine({

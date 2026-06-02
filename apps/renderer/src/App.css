@@ -1139,6 +1139,26 @@
   padding: 8px 10px;
   flex-shrink: 0;
 }
+.redis-keys-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px 6px;
+  flex-shrink: 0;
+}
+.redis-keys-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.redis-keys-bar .icon-btn {
+  color: var(--text-3);
+}
+.redis-keys-bar .icon-btn:hover {
+  color: var(--accent);
+}
 .key-list {
   display: flex;
   flex-direction: column;
@@ -1297,6 +1317,243 @@
   font-size: 12px;
   font-weight: 600;
   color: var(--text-2);
+}
+
+/* --- Redis value/key editing --- */
+.value-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.value-editor {
+  width: 100%;
+  min-height: 120px;
+  resize: vertical;
+  padding: 12px 14px;
+  background: var(--bg-panel);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text);
+}
+.value-editor:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.value-edit-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.key-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 14px;
+}
+.key-actions .rename-row,
+.key-actions .confirm-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+.key-actions .confirm-row {
+  color: var(--text-2);
+  font-size: 12.5px;
+}
+.key-actions .confirm-row code {
+  font-family: var(--mono);
+  color: var(--text);
+}
+.rename-input {
+  flex: 1;
+  min-width: 120px;
+  padding: 6px 10px;
+  background: var(--bg-panel);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--text);
+}
+.rename-input:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.btn-danger-ghost {
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--red) 45%, transparent);
+  color: var(--red);
+}
+.btn-danger-ghost:hover {
+  background: color-mix(in srgb, var(--red) 14%, transparent);
+}
+
+.meta-value.ttl-edit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ttl-input {
+  width: 86px;
+  padding: 4px 8px;
+  background: var(--bg-panel);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  font-size: 12px;
+  color: var(--text);
+}
+.ttl-input:focus {
+  outline: none;
+}
+.meta-value .icon-btn {
+  margin-left: 6px;
+  color: var(--text-3);
+}
+.meta-value .icon-btn:hover {
+  color: var(--accent);
+}
+
+/* --- Redis pane tabs + command console --- */
+.redis-pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.redis-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 8px 12px 0;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.redis-tab {
+  padding: 7px 14px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-3);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  margin-bottom: -1px;
+}
+.redis-tab:hover {
+  color: var(--text-2);
+}
+.redis-tab.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+.redis-pane .inspector {
+  flex: 1;
+  min-height: 0;
+}
+
+.redis-console {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.redis-console-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px 10px;
+  flex-shrink: 0;
+}
+.redis-console-head h2 {
+  font-size: 14px;
+  font-weight: 600;
+  flex: 1;
+}
+.redis-console-log {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 16px 10px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+.redis-console-hint {
+  color: var(--text-3);
+  font-family: var(--sans, inherit);
+  font-size: 12.5px;
+  line-height: 1.6;
+  padding: 8px 0;
+}
+.redis-console-hint code,
+.redis-console-confirm code {
+  font-family: var(--mono);
+  background: var(--bg-panel);
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--text);
+}
+.redis-console-entry {
+  margin-bottom: 10px;
+}
+.redis-console-cmd {
+  color: var(--text-2);
+  margin-bottom: 2px;
+}
+.redis-console-prompt {
+  color: var(--accent);
+  font-weight: 700;
+  user-select: none;
+}
+.redis-console-out {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.redis-console-out.is-error {
+  color: var(--red);
+}
+.redis-console-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.redis-console-input input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 13px;
+}
+.redis-console-input input:focus {
+  outline: none;
+}
+.redis-console-confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--amber-soft);
+  color: var(--text-2);
+  font-size: 12.5px;
+  flex-shrink: 0;
+}
+.redis-console-confirm span {
+  flex: 1;
 }
 
 /* ============================================================
