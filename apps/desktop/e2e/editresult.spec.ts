@@ -38,8 +38,8 @@ test.describe('MySQL editable query result', () => {
 
     // Add a row and save through the preview modal.
     await addBtn.click();
-    await panel.locator('.new-row .input').nth(0).fill('2');
-    await panel.locator('.new-row .input').nth(1).fill('two');
+    await panel.locator('.new-row input').nth(0).fill('2');
+    await panel.locator('.new-row input').nth(1).fill('two');
     await panel.locator('button', { hasText: '저장' }).first().click();
     await win.locator('.modal-foot button', { hasText: '실행' }).click();
     await expect(win.locator('.modal-overlay')).toHaveCount(0, { timeout: 15_000 });
