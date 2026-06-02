@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { sqlLiteral, buildUpdate, buildInsert, buildDelete } from './dmlBuilder';
+import { sqlLiteral, buildUpdate, buildInsert, buildDelete, buildMultiInsert } from './dmlBuilder';
 
 describe('sqlLiteral', () => {
   it('renders null as NULL', () => {
@@ -50,5 +50,16 @@ describe('buildDelete', () => {
     expect(
       buildDelete('postgres', 't', [{ col: 'a', value: 1 }, { col: 'b', value: "x'y" }])
     ).toBe(`DELETE FROM "t" WHERE "a" = 1 AND "b" = 'x''y'`);
+  });
+});
+
+describe('buildMultiInsert', () => {
+  it('builds a multi-row INSERT (mysql)', () => {
+    expect(
+      buildMultiInsert('mysql', 'users', ['id', 'name'], [[1, 'Al'], [2, null]])
+    ).toBe("INSERT INTO `users` (`id`, `name`) VALUES (1, 'Al'), (2, NULL)");
+  });
+  it('builds a single-row INSERT (postgres)', () => {
+    expect(buildMultiInsert('postgres', 't', ['a'], [['x']])).toBe(`INSERT INTO "t" ("a") VALUES ('x')`);
   });
 });
