@@ -1,6 +1,6 @@
 {
-  "appId": "com.antigravity.dbdesktop",
-  "productName": "AntigravityDB",
+  "appId": "com.rebase.app",
+  "productName": "Rebase",
   "directories": {
     "output": "dist/installers",
     "buildResources": "build"
