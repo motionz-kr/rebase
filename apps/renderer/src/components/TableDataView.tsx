@@ -16,9 +16,13 @@ interface Props {
   driver: Driver;
   database: string;
   table: string;
-  onClose: () => void;
+  onClose?: () => void;
   initialFilter?: { col: string; value: string };
+  initialOrderBy?: OrderBy;
   onOpenRelated?: (table: string, refColumn: string, value: string) => void;
+  // Rendered inside the query result area (not the full-panel table browser);
+  // hides the "back to query" affordance.
+  embedded?: boolean;
 }
 
 interface Sel {
@@ -38,14 +42,14 @@ function asCell(v: unknown): CellValue {
   return JSON.stringify(v);
 }
 
-export const TableDataView: React.FC<Props> = ({ profileId, driver, database, table, onClose, initialFilter, onOpenRelated }) => {
+export const TableDataView: React.FC<Props> = ({ profileId, driver, database, table, onClose, initialFilter, initialOrderBy, onOpenRelated, embedded }) => {
   const [columns, setColumns] = useState<string[]>([]);
   const [colTypes, setColTypes] = useState<string[]>([]);
   const [pkCols, setPkCols] = useState<string[]>([]);
   const [rows, setRows] = useState<unknown[][]>([]);
   const [page, setPage] = useState(0);
   const [hasNext, setHasNext] = useState(false);
-  const [orderBy, setOrderBy] = useState<OrderBy | null>(null);
+  const [orderBy, setOrderBy] = useState<OrderBy | null>(initialOrderBy ?? null);
   const [filters, setFilters] = useState<Record<string, string>>(initialFilter ? { [initialFilter.col]: initialFilter.value } : {});
   const [appliedFilters, setAppliedFilters] = useState<ColFilter[]>(initialFilter ? [{ col: initialFilter.col, value: initialFilter.value }] : []);
   const [loading, setLoading] = useState(true);
@@ -375,7 +379,9 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
               </div>
             )}
           </div>
-          <button className="btn btn-secondary btn-xs" onClick={onClose}><X size={13} /> 쿼리로 돌아가기</button>
+          {!embedded && onClose && (
+            <button className="btn btn-secondary btn-xs" onClick={onClose}><X size={13} /> 쿼리로 돌아가기</button>
+          )}
         </div>
       </div>
 
