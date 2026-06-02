@@ -1696,3 +1696,15 @@
   color: var(--accent);
   background: var(--bg-hover);
 }
+
+/* CSV import dialog */
+.csv-file { display: flex; align-items: center; gap: 8px; }
+.csv-file input[type="file"] { font-size: 12px; color: var(--text-2); }
+.csv-map { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; max-height: 180px; overflow-y: auto; }
+.csv-map-head { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 11px; color: var(--text-3); }
+.csv-map-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items: center; }
+.csv-map-row .input { height: 26px; font-size: 12px; }
+.csv-preview { max-height: 180px; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+.csv-preview table { border-collapse: collapse; font-size: 11px; width: 100%; }
+.csv-preview th, .csv-preview td { border: 1px solid var(--border); padding: 3px 6px; text-align: left; white-space: nowrap; }
+.csv-preview th { background: var(--bg-panel-2); position: sticky; top: 0; }

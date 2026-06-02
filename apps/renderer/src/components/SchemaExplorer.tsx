@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronRight, Database, Table2, KeyRound, AlertTriangle, FileCode, Copy, X, Pencil, PlusSquare, Eraser, Trash2, Type, FilePlus } from 'lucide-react';
+import { ChevronRight, Database, Table2, KeyRound, AlertTriangle, FileCode, Copy, X, Pencil, PlusSquare, Eraser, Trash2, Type, FilePlus, Upload } from 'lucide-react';
 import { TableEditDialog } from './TableEditDialog';
 import { TableActionDialog, type TableAction } from './TableActionDialog';
 import { CreateTableDialog } from './CreateTableDialog';
+import { CsvImportDialog } from './CsvImportDialog';
 import type { ColumnInfo } from '../global';
 
 interface SchemaExplorerProps {
@@ -37,6 +38,7 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
   const [ddl, setDdl] = useState<{ table: string; text: string; loading: boolean; error: string | null } | null>(null);
   const [edit, setEdit] = useState<{ db: string; table: string; focusNewColumn: boolean } | null>(null);
   const [tableAction, setTableAction] = useState<{ db: string; table: string; action: TableAction } | null>(null);
+  const [csvImport, setCsvImport] = useState<{ db: string; table: string } | null>(null);
   const [dbMenu, setDbMenu] = useState<{ x: number; y: number; db: string } | null>(null);
   const [create, setCreate] = useState<{ db: string } | null>(null);
 
@@ -302,6 +304,9 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
           <button className="ctx-item" onClick={() => showDDL(menu.db, menu.table)}>
             <FileCode size={13} /> Show DDL
           </button>
+          <button className="ctx-item" onClick={() => { setCsvImport({ db: menu.db, table: menu.table }); setMenu(null); }}>
+            <Upload size={13} /> CSV 가져오기…
+          </button>
           <div className="ctx-sep" />
           <button className="ctx-item" onClick={() => { setEdit({ db: menu.db, table: menu.table, focusNewColumn: false }); setMenu(null); }}>
             <Pencil size={13} /> 테이블 수정…
@@ -344,6 +349,18 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
           action={tableAction.action}
           onClose={() => setTableAction(null)}
           onApplied={() => refreshAfterDdl(tableAction.db)}
+        />
+      )}
+
+      {csvImport && (
+        <CsvImportDialog
+          key={`${csvImport.db}.${csvImport.table}`}
+          profileId={profileId}
+          driver={driver as 'mysql' | 'postgres'}
+          database={csvImport.db}
+          table={csvImport.table}
+          onClose={() => setCsvImport(null)}
+          onImported={() => refreshAfterDdl(csvImport.db)}
         />
       )}
 

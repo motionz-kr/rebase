@@ -35,3 +35,11 @@ export function buildDelete(driver: Driver, table: string, pk: ColValue[]): stri
   const where = pk.map((c) => `${quoteIdent(driver, c.col)} = ${sqlLiteral(driver, c.value)}`).join(' AND ');
   return `DELETE FROM ${quoteIdent(driver, table)} WHERE ${where}`;
 }
+
+// Build a single multi-row INSERT. Column names are plain strings; values are
+// CellValue tuples rendered via sqlLiteral (number/boolean unquoted, null → NULL).
+export function buildMultiInsert(driver: Driver, table: string, cols: string[], rows: CellValue[][]): string {
+  const names = cols.map((c) => quoteIdent(driver, c)).join(', ');
+  const tuples = rows.map((r) => '(' + r.map((v) => sqlLiteral(driver, v)).join(', ') + ')').join(', ');
+  return `INSERT INTO ${quoteIdent(driver, table)} (${names}) VALUES ${tuples}`;
+}
