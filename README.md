@@ -1,54 +1,124 @@
+<div align="center">
+
 # Rebase
 
-A fast, local-first desktop database manager (MySQL · PostgreSQL · Redis) built on
-Electron + React with a Go query engine. Browse schemas, run queries, edit data
-inline, and manage objects — all from one keyboard-friendly UI.
+**A fast, local-first desktop database manager for MySQL, PostgreSQL & Redis.**
 
-## Stack
+Browse schemas, write SQL with autocomplete, and edit data inline — backed by a Go
+query engine that streams results to a keyboard-friendly Electron UI.
 
-- **Electron 28** desktop shell (`apps/desktop`) — main/preload, spawns the engine
-- **React 19 + Vite** renderer (`apps/renderer`) — UI, Monaco SQL editor
-- **Go 1.25** local engine (`engine/`) — Clean Architecture (domain / application /
-  ports / adapters / transport), streams query results over a local HTTP bridge
-- Profiles in SQLite (`~/.antigravity/metadata.db`), secrets in the OS keychain
+![Rebase](docs/screenshot.png)
 
-## Features
+</div>
 
-- Connections: create / edit / delete; MySQL, PostgreSQL, Redis
-- Schema explorer — tables, views, indexes, foreign keys; create/alter table, DDL view
-- SQL editor — autocomplete, format, EXPLAIN, multi-statement scripts, history
-- Result grid — sort, filter, export (CSV/JSON), keyboard navigation, **pin columns**,
-  one-click "recent 500 rows"
-- Editable results — inline cell edit, add/delete rows, transactional save,
-  **⌘/Ctrl+Enter to submit** (DataGrip-style); execution status bar
-- CSV import, FK navigation
+---
 
-## Develop
+## ✨ Features
+
+**Connections**
+- Create, edit, and delete connection profiles (MySQL · PostgreSQL · Redis)
+- TLS modes; passwords stored in the OS keychain (never in plaintext)
+
+**Schema explorer**
+- Tables, views, indexes, and foreign keys
+- Create / alter tables, manage indexes, view DDL — all from the context menu
+
+**SQL editor**
+- Monaco editor with schema-aware autocomplete and one-click formatting
+- `EXPLAIN`, multi-statement scripts (one result tab each), and query history
+- Streaming results with a row cap (opt-in "fetch all")
+
+**Result grid**
+- Sort, per-column filter chips, export (CSV / JSON)
+- Full keyboard navigation, **pin/freeze columns**, copy selection
+- One-click **"recent 500 rows"** from any table
+
+**Editable data**
+- Inline cell editing, add / delete rows, **transactional save** (all-or-nothing)
+- **⌘/Ctrl+Enter to submit** pending edits (DataGrip-style)
+- Execution status bar — last statement, time, and rows affected (click to expand)
+
+**More** — CSV import, foreign-key navigation, EXPLAIN plans, themed IntelliJ-style dark UI.
+
+## ⌨️ Keyboard shortcuts
+
+| Shortcut | Action |
+| --- | --- |
+| `⌘/Ctrl` + `Enter` | Run query (editor) · submit pending edits (table) |
+| `⌘/Ctrl` + `Alt` + `L` | Format SQL |
+| `Double-click` / `Enter` | Edit the focused cell |
+| `Tab` · `↑ ↓ ← →` | Move between cells |
+| `⌘/Ctrl` + `C` | Copy the selection |
+
+## 🧱 Architecture
+
+A pnpm monorepo with a clear split between the UI shell, the renderer, and the engine:
+
+```
+rebase/
+├── apps/
+│   ├── desktop/     Electron main + preload — spawns & supervises the engine
+│   └── renderer/    React 19 + Vite UI (Monaco editor, grids)
+├── engine/          Go local engine — Clean Architecture
+│   └── internal/    domain · application · ports · adapters · transport/http
+└── docs/            Architecture notes, ADRs, specs & plans
+```
+
+- **Electron 28** desktop shell; the renderer talks to the engine only through a
+  preload IPC bridge.
+- **Go 1.25** engine exposes a localhost HTTP API and streams query rows (NDJSON).
+  DB drivers live behind a `SQLConnector` port — adding a database means adding an
+  adapter, not touching the UI.
+- Connection profiles persist in a local SQLite store; secrets go to the OS keychain.
+
+> Layering, policies, and testing rules are documented in
+> [`AGENTS.md`](AGENTS.md) and [`docs/`](docs/).
+
+## 🚀 Getting started
+
+**Prerequisites:** Node 20+ (via nvm), pnpm, Go 1.25+.
 
 ```bash
 pnpm install
-pnpm dev            # vite renderer + electron (spawns the Go engine)
+pnpm dev          # starts the Vite renderer + Electron (which spawns the Go engine)
 ```
 
-Toolchain: Node (nvm), pnpm, Go at `/Users/smlee/sdk/go/bin`.
-
-## Test
+## 🧪 Testing
 
 ```bash
-pnpm --filter renderer test     # renderer unit tests (vitest)
-cd engine && go test ./...      # engine unit + integration (needs local DBs)
-pnpm --filter desktop test:e2e  # Playwright Electron E2E (skips if no local MySQL)
+pnpm --filter renderer test      # renderer unit tests (vitest)
+cd engine && go test ./...       # engine unit + integration tests (integration needs local DBs)
+pnpm --filter desktop test:e2e   # Playwright Electron E2E (auto-skips if no local MySQL)
 ```
 
-## Build (production)
+Every feature is built test-first where there is pure logic, then verified by
+actually driving the running app (Playwright / CDP) — see `AGENTS.md`.
+
+## 📦 Building for production
 
 ```bash
 pnpm build                                   # engine + renderer + desktop
-cd apps/desktop && CSC_IDENTITY_AUTO_DISCOVERY=false pnpm exec electron-builder --mac
-# → apps/desktop/dist/installers/Rebase-*.dmg
+cd apps/desktop \
+  && CSC_IDENTITY_AUTO_DISCOVERY=false pnpm exec electron-builder --mac
+# → apps/desktop/dist/installers/Rebase-<version>-arm64.dmg
 ```
 
-Unsigned builds run locally; for distribution to other Macs, sign with a Developer
-ID certificate and notarize (or have recipients clear quarantine: `xattr -cr Rebase.app`).
+The unsigned build runs locally (ad-hoc signed). To distribute to other Macs either:
 
-See `AGENTS.md` and `docs/` for architecture and contribution rules.
+- **Personal / internal:** recipients clear the quarantine flag once —
+  `xattr -cr /Applications/Rebase.app` — or use *System Settings → Privacy &
+  Security → Open Anyway*; or
+- **Public:** sign with an Apple **Developer ID Application** certificate and
+  notarize (`electron-builder` does this automatically once the cert is in the
+  keychain and notarization credentials are set).
+
+## 📚 Documentation
+
+| Doc | What's inside |
+| --- | --- |
+| [`AGENTS.md`](AGENTS.md) | Working rules — TDD, Clean Architecture, live-verification |
+| [`docs/architecture.md`](docs/architecture.md) | System architecture |
+| [`docs/development-principles.md`](docs/development-principles.md) | Layer rules & conventions |
+| [`docs/testing-strategy.md`](docs/testing-strategy.md) | Test layers (unit → E2E) |
+| [`docs/security.md`](docs/security.md) | Secret handling & query policy |
+| [`docs/adr/`](docs/adr/) | Architecture decision records |
