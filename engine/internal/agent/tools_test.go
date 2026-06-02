@@ -11,8 +11,10 @@ import (
 
 // fakeSQL implements just the SQLConnector methods the read tools use.
 type fakeSQL struct {
-	tables  []ports.TableInfo
-	columns []ports.ColumnInfo
+	tables       []ports.TableInfo
+	columns      []ports.ColumnInfo
+	lastQuery    string
+	lastReadOnly bool
 }
 
 func (f *fakeSQL) ListTables(_ context.Context, _ domain.ConnectionProfile, _ string, _ string) ([]ports.TableInfo, error) {
@@ -29,6 +31,15 @@ func (f *fakeSQL) ListIndexes(_ context.Context, _ domain.ConnectionProfile, _ s
 }
 func (f *fakeSQL) ListForeignKeys(_ context.Context, _ domain.ConnectionProfile, _ string, _ string, _ string) ([]ports.ForeignKey, error) {
 	return []ports.ForeignKey{{Column: "owner_id", RefTable: "users", RefColumn: "id"}}, nil
+}
+func (f *fakeSQL) ExecuteQueryStream(_ context.Context, _ domain.ConnectionProfile, _ string, query string, readOnly bool, onStart func(int64), onHeader func([]string) error, onRow func([]any) error) (int64, error) {
+	f.lastQuery = query
+	f.lastReadOnly = readOnly
+	onStart(1)
+	_ = onHeader([]string{"id", "name"})
+	_ = onRow([]any{int64(1), "alice"})
+	_ = onRow([]any{int64(2), "bob"})
+	return 0, nil
 }
 
 // domainProfile is a shared test helper (used by service_test.go too).
@@ -83,6 +94,31 @@ func containsSub(s, sub string) bool {
 		}
 	}
 	return false
+}
+
+func TestRegistryRunSelectAndExplain(t *testing.T) {
+	conn := &fakeSQL{}
+	reg := NewSQLRegistry(conn, domainProfile(), "", "devdb")
+	ctx := context.Background()
+
+	out, err := reg.Dispatch(ctx, "run_select", map[string]any{"sql": "SELECT * FROM users"})
+	if err != nil {
+		t.Fatalf("run_select: %v", err)
+	}
+	if !conn.lastReadOnly {
+		t.Error("run_select must execute read-only")
+	}
+	b, _ := json.Marshal(out)
+	if !containsSub(string(b), `"rowCount":2`) || !containsSub(string(b), "alice") {
+		t.Errorf("run_select result wrong: %s", b)
+	}
+
+	if _, err := reg.Dispatch(ctx, "explain_query", map[string]any{"sql": "SELECT 1"}); err != nil {
+		t.Fatalf("explain_query: %v", err)
+	}
+	if conn.lastQuery != "EXPLAIN SELECT 1" {
+		t.Errorf("explain_query should prefix EXPLAIN, got %q", conn.lastQuery)
+	}
 }
 
 func TestRegistryUnknownTool(t *testing.T) {

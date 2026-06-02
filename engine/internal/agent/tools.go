@@ -16,6 +16,39 @@ type sqlReader interface {
 	GetTableDDL(ctx context.Context, p domain.ConnectionProfile, password, database, table string) (string, error)
 	ListIndexes(ctx context.Context, p domain.ConnectionProfile, password, database, table string) ([]ports.Index, error)
 	ListForeignKeys(ctx context.Context, p domain.ConnectionProfile, password, database, table string) ([]ports.ForeignKey, error)
+	ExecuteQueryStream(ctx context.Context, p domain.ConnectionProfile, password string, query string, readOnly bool, onSessionStart func(sessionID int64), onHeader func(columns []string) error, onRow func(row []any) error) (int64, error)
+}
+
+// readQueryLimit caps how many rows a read tool collects into the model context.
+const readQueryLimit = 200
+
+type queryResult struct {
+	Columns   []string `json:"columns"`
+	Rows      [][]any  `json:"rows"`
+	RowCount  int      `json:"rowCount"`
+	Truncated bool     `json:"truncated"`
+}
+
+// runReadQuery executes a read-only query and collects up to readQueryLimit rows.
+func runReadQuery(ctx context.Context, conn sqlReader, p domain.ConnectionProfile, password, sql string) (queryResult, error) {
+	res := queryResult{Rows: [][]any{}}
+	_, err := conn.ExecuteQueryStream(ctx, p, password, sql, true,
+		func(int64) {},
+		func(cols []string) error { res.Columns = cols; return nil },
+		func(row []any) error {
+			if len(res.Rows) >= readQueryLimit {
+				res.Truncated = true
+				return nil
+			}
+			res.Rows = append(res.Rows, row)
+			return nil
+		},
+	)
+	if err != nil {
+		return queryResult{}, err
+	}
+	res.RowCount = len(res.Rows)
+	return res, nil
 }
 
 type Tool struct {
@@ -122,6 +155,34 @@ func NewSQLRegistry(conn sqlReader, p domain.ConnectionProfile, password, databa
 		Spec: ports.ToolSpec{Name: "list_foreign_keys", Description: "List the foreign keys (column, referenced table/column) of a table.", Schema: tableArgSchema},
 		Run: func(ctx context.Context, args map[string]any) (any, error) {
 			return conn.ListForeignKeys(ctx, p, password, database, strArg(args, "table"))
+		},
+	})
+
+	sqlArgSchema := map[string]any{
+		"type":       "object",
+		"properties": map[string]any{"sql": map[string]any{"type": "string"}},
+		"required":   []string{"sql"},
+	}
+
+	r.add(Tool{
+		Spec: ports.ToolSpec{
+			Name:        "run_select",
+			Description: "Run a read-only SELECT and return up to 200 rows. Rejects writes.",
+			Schema:      sqlArgSchema,
+		},
+		Run: func(ctx context.Context, args map[string]any) (any, error) {
+			return runReadQuery(ctx, conn, p, password, strArg(args, "sql"))
+		},
+	})
+
+	r.add(Tool{
+		Spec: ports.ToolSpec{
+			Name:        "explain_query",
+			Description: "Return the database's execution plan for a query (runs EXPLAIN).",
+			Schema:      sqlArgSchema,
+		},
+		Run: func(ctx context.Context, args map[string]any) (any, error) {
+			return runReadQuery(ctx, conn, p, password, "EXPLAIN "+strArg(args, "sql"))
 		},
 	})
 
