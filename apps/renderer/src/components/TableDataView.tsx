@@ -283,6 +283,11 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
     const tag = (e.target as HTMLElement).tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
     if (editing) return; // the cell input handles its own keys while editing
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault();
+      void save();
+      return;
+    }
     if ((e.metaKey || e.ctrlKey) && (e.key === 'c' || e.key === 'C')) {
       e.preventDefault();
       if (!sel) return;
@@ -424,6 +429,18 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
     }
   };
 
+  // ⌘/Ctrl+Enter submits pending changes directly (DataGrip-style). When pressed
+  // while editing a cell, we first commit that cell, then save once `editing`
+  // clears so the just-committed edit is included.
+  const submitPendingRef = useRef(false);
+  useEffect(() => {
+    if (editing === null && submitPendingRef.current) {
+      submitPendingRef.current = false;
+      void save();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing]);
+
   return (
     <div className="tdv">
       <div className="tdv-head">
@@ -438,7 +455,7 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
               <button className="btn btn-secondary btn-xs" onClick={addRow}><Plus size={12} /> 행 추가</button>
               <button className="btn btn-secondary btn-xs" disabled={!sel} onClick={markDelete}><Trash2 size={12} /> 삭제 표시</button>
               <button className="btn btn-secondary btn-xs" disabled={!hasPending || saving} onClick={clearPending}><Undo2 size={12} /> 되돌리기</button>
-              <button className="btn btn-primary btn-xs" disabled={!hasPending || saving} onClick={() => setPreview(pendingStatements())}><Save size={12} /> 저장</button>
+              <button className="btn btn-primary btn-xs" disabled={!hasPending || saving} title="저장 (미리보기) · 바로 적용: ⌘/Ctrl+Enter" onClick={() => setPreview(pendingStatements())}><Save size={12} /> 저장</button>
             </>
           )}
           <button className="icon-btn" title="새로고침" disabled={hasPending} onClick={() => void fetchPage()}><RefreshCw size={14} className={loading ? 'spin' : ''} /></button>
@@ -540,7 +557,8 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
                               value={editText}
                               onChange={(e) => setEditText(e.target.value)}
                               onKeyDown={(e) => {
-                                if (e.key === 'Enter') { e.preventDefault(); commitAndMove('Enter', e.shiftKey); }
+                                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submitPendingRef.current = true; commitEdit(); }
+                                else if (e.key === 'Enter') { e.preventDefault(); commitAndMove('Enter', e.shiftKey); }
                                 else if (e.key === 'Tab') { e.preventDefault(); commitAndMove('Tab', e.shiftKey); }
                                 else if (e.key === 'Escape') { setEditing(null); requestAnimationFrame(() => gridRef.current?.focus()); }
                               }}
