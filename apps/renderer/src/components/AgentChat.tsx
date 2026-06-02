@@ -10,7 +10,7 @@ interface Proposal {
 }
 
 interface AgentSettings {
-  provider: 'stub' | 'anthropic' | 'cli';
+  provider: 'stub' | 'anthropic' | 'openai' | 'cli';
   apiKey: string;
   model: string;
   autonomy: 'approval' | 'autonomous';
@@ -72,6 +72,8 @@ export const AgentChat: React.FC<AgentChatProps> = ({
   const profileRef = useRef(profileId);
   profileRef.current = profileId;
 
+  const needsApiKey = (p: AgentSettings['provider']) => p === 'anthropic' || p === 'openai';
+
   const updateSettings = (patch: Partial<AgentSettings>) => {
     setSettings((prev) => {
       const next = { ...prev, ...patch };
@@ -82,6 +84,14 @@ export const AgentChat: React.FC<AgentChatProps> = ({
       }
       return next;
     });
+  };
+
+  // Switch provider, nudging the model to a sensible default for the new one.
+  const setProvider = (provider: AgentSettings['provider']) => {
+    const patch: Partial<AgentSettings> = { provider };
+    if (provider === 'openai' && settings.model.startsWith('claude')) patch.model = 'gpt-4o';
+    if (provider === 'anthropic' && settings.model.startsWith('gpt')) patch.model = 'claude-sonnet-4-6';
+    updateSettings(patch);
   };
 
   const runProposal = async (id: string, sql: string) => {
@@ -212,12 +222,10 @@ export const AgentChat: React.FC<AgentChatProps> = ({
         <div className="agent-settings">
           <label>
             Provider
-            <select
-              value={settings.provider}
-              onChange={(e) => updateSettings({ provider: e.target.value as AgentSettings['provider'] })}
-            >
+            <select value={settings.provider} onChange={(e) => setProvider(e.target.value as AgentSettings['provider'])}>
               <option value="stub">Stub (offline)</option>
               <option value="anthropic">Anthropic API key</option>
+              <option value="openai">OpenAI API key</option>
               <option value="cli">Local CLI — claude (uses your login)</option>
             </select>
           </label>
@@ -254,27 +262,24 @@ export const AgentChat: React.FC<AgentChatProps> = ({
               </div>
             </div>
           )}
-          {settings.provider === 'anthropic' && (
+          {needsApiKey(settings.provider) && (
             <>
               <label>
                 API key
                 <input
                   type="password"
                   value={settings.apiKey}
-                  placeholder="sk-ant-…"
+                  placeholder={settings.provider === 'openai' ? 'sk-…' : 'sk-ant-…'}
                   onChange={(e) => updateSettings({ apiKey: e.target.value })}
                 />
               </label>
               <label>
                 Model
-                <input
-                  type="text"
-                  value={settings.model}
-                  onChange={(e) => updateSettings({ model: e.target.value })}
-                />
+                <input type="text" value={settings.model} onChange={(e) => updateSettings({ model: e.target.value })} />
               </label>
               <p className="agent-settings-note">
-                The key is sent to the local engine only and used directly against the Anthropic API.
+                The key is sent to the local engine only and used directly against the{' '}
+                {settings.provider === 'openai' ? 'OpenAI' : 'Anthropic'} API.
               </p>
             </>
           )}
@@ -406,20 +411,21 @@ export const AgentChat: React.FC<AgentChatProps> = ({
             className="agent-pick"
             title="Provider"
             value={settings.provider}
-            onChange={(e) => updateSettings({ provider: e.target.value as AgentSettings['provider'] })}
+            onChange={(e) => setProvider(e.target.value as AgentSettings['provider'])}
           >
             <option value="stub">Stub</option>
             <option value="anthropic">Anthropic API</option>
+            <option value="openai">OpenAI API</option>
             <option value="cli">claude CLI</option>
           </select>
-          {settings.provider === 'anthropic' && (
+          {needsApiKey(settings.provider) && (
             <select
               className="agent-pick"
               title="Model"
               value={settings.model}
               onChange={(e) => updateSettings({ model: e.target.value })}
             >
-              {modelOptions(settings.model).map((m) => (
+              {modelOptions(settings.provider, settings.model).map((m) => (
                 <option key={m} value={m}>
                   {m}
                 </option>
@@ -438,8 +444,10 @@ export const AgentChat: React.FC<AgentChatProps> = ({
 
 // modelOptions lists a few common Anthropic models plus whatever the user has
 // configured (so a custom model typed in settings is never lost from the picker).
-function modelOptions(current: string): string[] {
-  const common = ['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-4-6'];
-  const all = current ? [current, ...common] : common;
-  return Array.from(new Set(all));
+function modelOptions(provider: string, current: string): string[] {
+  const presets =
+    provider === 'openai'
+      ? ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1']
+      : ['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-4-6'];
+  return Array.from(new Set(current ? [current, ...presets] : presets));
 }

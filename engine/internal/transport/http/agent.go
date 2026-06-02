@@ -99,6 +99,8 @@ func (h *AgentHandler) Run() http.Handler {
 		switch body.Provider {
 		case "anthropic":
 			provider = llm.NewAnthropicProvider(body.APIKey, body.Model, "")
+		case "openai":
+			provider = llm.NewOpenAIProvider(body.APIKey, body.Model, "")
 		case "cli":
 			exe, err := os.Executable()
 			if err != nil {
