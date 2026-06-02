@@ -122,6 +122,10 @@ export const ResultGrid: React.FC<Props> = ({ columns, rows, rowHeight = 32 }) =
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
+    // Let inputs (e.g. the filter box) handle their own keys instead of hijacking
+    // Tab/arrows for grid-cell navigation.
+    const tag = (e.target as HTMLElement).tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
     if ((e.metaKey || e.ctrlKey) && (e.key === 'c' || e.key === 'C')) {
       e.preventDefault();
       copySelection();
