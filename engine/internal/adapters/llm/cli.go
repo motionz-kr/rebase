@@ -29,6 +29,10 @@ func NewCliProvider(mcpConfigPath, permissionMode string, env []string) *CliProv
 	return &CliProvider{bin: "claude", mcpConfigPath: mcpConfigPath, permission: permissionMode, env: sanitizeEnv(env)}
 }
 
+// SelfDriving reports that claude runs its own agent loop (calling our tools via
+// MCP), so AgentService must not re-dispatch its tool calls.
+func (c *CliProvider) SelfDriving() bool { return true }
+
 func (c *CliProvider) Status(_ context.Context) (ports.ProviderStatus, error) {
 	if _, err := exec.LookPath(c.bin); err != nil {
 		return ports.ProviderStatus{Ready: false, Detail: "claude CLI not found on PATH"}, nil

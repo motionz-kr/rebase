@@ -61,6 +61,15 @@ func (s *AgentService) Run(ctx context.Context, conversation []ports.LLMMessage,
 	messages := append([]ports.LLMMessage(nil), conversation...)
 	specs := s.registry.Specs()
 
+	// Self-driving providers (e.g. the local CLI, which runs its own agent loop
+	// and calls our tools over MCP) own the loop entirely: invoke once and stream
+	// their events through. Re-dispatching their tool calls here would run the
+	// provider again per tool use — an accidental multi-call loop.
+	if sd, ok := s.provider.(interface{ SelfDriving() bool }); ok && sd.SelfDriving() {
+		req := ports.LLMRequest{System: s.system, Messages: messages, Tools: specs}
+		return s.provider.Complete(ctx, req, emit)
+	}
+
 	for step := 0; step < s.maxSteps; step++ {
 		if err := ctx.Err(); err != nil {
 			return err

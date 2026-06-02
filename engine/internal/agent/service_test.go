@@ -128,6 +128,51 @@ func containsSubT(s, sub string) bool {
 	return false
 }
 
+// selfDrivingProv emits a tool_call (as claude would, via MCP) then a text
+// answer, all in one Complete. It must be invoked exactly once.
+type selfDrivingProv struct{ calls int }
+
+func (p *selfDrivingProv) SelfDriving() bool { return true }
+func (p *selfDrivingProv) Status(context.Context) (ports.ProviderStatus, error) {
+	return ports.ProviderStatus{Ready: true}, nil
+}
+func (p *selfDrivingProv) Complete(_ context.Context, _ ports.LLMRequest, emit func(ports.LLMEvent)) error {
+	p.calls++
+	emit(ports.LLMEvent{Kind: ports.EventToolCall, ToolCall: &ports.ToolCall{ID: "x", Name: "mcp__rebase__list_tables"}})
+	emit(ports.LLMEvent{Kind: ports.EventText, Text: "1 table: demo_users"})
+	emit(ports.LLMEvent{Kind: ports.EventDone})
+	return nil
+}
+
+func TestServiceSelfDrivingProviderRunsOnce(t *testing.T) {
+	reg := NewSQLRegistry(&fakeSQL{}, domainProfile(), "", "devdb")
+	prov := &selfDrivingProv{}
+	svc := NewAgentService(prov, reg, 16)
+
+	var text string
+	var toolCalls int
+	err := svc.Run(context.Background(), []ports.LLMMessage{{Role: ports.RoleUser, Text: "how many tables?"}}, func(e ports.LLMEvent) {
+		if e.Kind == ports.EventText {
+			text += e.Text
+		}
+		if e.Kind == ports.EventToolCall {
+			toolCalls++
+		}
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if prov.calls != 1 {
+		t.Errorf("self-driving provider must be invoked exactly once, got %d", prov.calls)
+	}
+	if toolCalls != 1 {
+		t.Errorf("expected the tool-use event forwarded once, got %d", toolCalls)
+	}
+	if text != "1 table: demo_users" {
+		t.Errorf("answer = %q", text)
+	}
+}
+
 type loopingProvider struct{}
 
 func (loopingProvider) Status(context.Context) (ports.ProviderStatus, error) {
