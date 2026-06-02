@@ -337,6 +337,38 @@ func (c *MySQLConnector) CancelSession(ctx context.Context, p domain.ConnectionP
 
 
 
+// ExecuteBatch runs all statements inside a single transaction. On the first
+// failure it rolls back and returns the 0-based index of the failed statement;
+// on success it commits and returns the total rows affected with failedIndex -1.
+func (c *MySQLConnector) ExecuteBatch(ctx context.Context, p domain.ConnectionProfile, password string, statements []string) (int64, int, error) {
+	db, err := c.connectForQuery(p, password)
+	if err != nil {
+		return 0, -1, err
+	}
+	defer db.Close()
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, -1, c.normalizeError(err)
+	}
+
+	var total int64
+	for i, stmt := range statements {
+		res, execErr := tx.ExecContext(ctx, stmt)
+		if execErr != nil {
+			_ = tx.Rollback()
+			return total, i, c.normalizeError(execErr)
+		}
+		if n, aerr := res.RowsAffected(); aerr == nil {
+			total += n
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return total, -1, c.normalizeError(err)
+	}
+	return total, -1, nil
+}
+
 func (c *MySQLConnector) normalizeError(err error) error {
 	if err == nil {
 		return nil
