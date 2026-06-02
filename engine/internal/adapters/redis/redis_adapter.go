@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,6 +27,7 @@ func (c *RedisConnector) TestConnection(ctx context.Context, p domain.Connection
 		Addr:        fmt.Sprintf("%s:%d", p.Host, p.Port),
 		Username:    p.Username,
 		Password:    password,
+		DB:          redisDB(p),
 		DialTimeout: 2 * time.Second,
 	}
 
@@ -76,6 +78,7 @@ func (c *RedisConnector) connect(p domain.ConnectionProfile, password string) (*
 		Addr:        fmt.Sprintf("%s:%d", p.Host, p.Port),
 		Username:    p.Username,
 		Password:    password,
+		DB:          redisDB(p),
 		DialTimeout: 5 * time.Second,
 	}
 
@@ -86,6 +89,62 @@ func (c *RedisConnector) connect(p domain.ConnectionProfile, password string) (*
 	}
 
 	return redisDriver.NewClient(opts), nil
+}
+
+// redisDB parses the profile's Database field as the Redis logical DB index
+// (0–15, default 0).
+func redisDB(p domain.ConnectionProfile) int {
+	if n, err := strconv.Atoi(strings.TrimSpace(p.Database)); err == nil && n >= 0 {
+		return n
+	}
+	return 0
+}
+
+// SetString sets a string value, preserving any existing TTL (KEEPTTL).
+func (c *RedisConnector) SetString(ctx context.Context, p domain.ConnectionProfile, password string, key string, value string) error {
+	client, err := c.connect(p, password)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+	return c.normalizeError(client.Set(ctx, key, value, redisDriver.KeepTTL).Err())
+}
+
+// DeleteKey removes a key; the bool reports whether the key existed.
+func (c *RedisConnector) DeleteKey(ctx context.Context, p domain.ConnectionProfile, password string, key string) (bool, error) {
+	client, err := c.connect(p, password)
+	if err != nil {
+		return false, err
+	}
+	defer client.Close()
+	n, err := client.Del(ctx, key).Result()
+	if err != nil {
+		return false, c.normalizeError(err)
+	}
+	return n > 0, nil
+}
+
+// SetTTL sets the key's expiry in seconds; a negative value clears it (PERSIST).
+func (c *RedisConnector) SetTTL(ctx context.Context, p domain.ConnectionProfile, password string, key string, seconds int64) error {
+	client, err := c.connect(p, password)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+	if seconds < 0 {
+		return c.normalizeError(client.Persist(ctx, key).Err())
+	}
+	return c.normalizeError(client.Expire(ctx, key, time.Duration(seconds)*time.Second).Err())
+}
+
+// RenameKey renames a key (RENAME); fails if the source key is missing.
+func (c *RedisConnector) RenameKey(ctx context.Context, p domain.ConnectionProfile, password string, key string, newKey string) error {
+	client, err := c.connect(p, password)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+	return c.normalizeError(client.Rename(ctx, key, newKey).Err())
 }
 
 func (c *RedisConnector) ScanKeys(ctx context.Context, p domain.ConnectionProfile, password string, pattern string, cursor uint64, count int64) (ports.RedisKeyspaceInfo, error) {
@@ -132,7 +191,13 @@ func (c *RedisConnector) GetKeyValue(ctx context.Context, p domain.ConnectionPro
 	if err != nil {
 		return ports.RedisValueInfo{}, c.normalizeError(err)
 	}
+	// go-redis returns the sentinels -1 (no expiry) and -2 (missing) as raw
+	// negative nanosecond durations, so converting via Seconds() truncates them
+	// to 0. Pass those through as-is; only real expiries get second precision.
 	ttlSeconds := int64(ttlDuration.Seconds())
+	if ttlDuration < 0 {
+		ttlSeconds = int64(ttlDuration)
+	}
 
 	const collectionPreviewLimit = 100
 	truncated := false
