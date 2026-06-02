@@ -5,6 +5,7 @@ import { TableActionDialog, type TableAction } from './TableActionDialog';
 import { CreateTableDialog } from './CreateTableDialog';
 import { CsvImportDialog } from './CsvImportDialog';
 import { IndexManagerDialog } from './IndexManagerDialog';
+import { buildRecentRowsQuery } from '../lib/recentQuery';
 import type { ColumnInfo } from '../global';
 
 interface SchemaExplorerProps {
@@ -13,6 +14,7 @@ interface SchemaExplorerProps {
   onDisconnect: () => void;
   onSchemaChanged?: () => void;
   onOpenTableData?: (db: string, table: string) => void;
+  onRunQuery?: (sql: string) => void;
 }
 
 interface TableNode {
@@ -30,7 +32,7 @@ interface DatabaseNode {
   isLoading: boolean;
 }
 
-export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, driver, onSchemaChanged, onOpenTableData }) => {
+export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, driver, onSchemaChanged, onOpenTableData, onRunQuery }) => {
   const [databases, setDatabases] = useState<DatabaseNode[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -107,6 +109,23 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
     e.preventDefault();
     e.stopPropagation();
     setViewMenu({ x: e.clientX, y: e.clientY, db, view });
+  };
+
+  // One-click "recent rows": order by the primary key descending (newest first)
+  // when there is a single-column PK, otherwise an unordered LIMIT.
+  const runRecentRows = async (dbName: string, table: string) => {
+    setMenu(null);
+    let pk: string | null = null;
+    try {
+      const res = await window.electronAPI.describeTable(profileId, dbName, table);
+      if (res.success && res.data) {
+        const pks = res.data.columns.filter((c) => c.primaryKey);
+        if (pks.length === 1) pk = pks[0].name;
+      }
+    } catch {
+      /* fall back to no ORDER BY */
+    }
+    onRunQuery?.(buildRecentRowsQuery(driver as 'mysql' | 'postgres', table, pk, 500));
   };
 
   const showDDL = async (dbName: string, table: string) => {
@@ -363,6 +382,10 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
 
       {menu && (
         <div className="ctx-menu" style={{ top: menu.y, left: menu.x }} onClick={(e) => e.stopPropagation()}>
+          <button className="ctx-item" onClick={() => runRecentRows(menu.db, menu.table)}>
+            <Table2 size={13} /> 최근 500개 조회
+          </button>
+          <div className="ctx-sep" />
           <button className="ctx-item" onClick={() => showDDL(menu.db, menu.table)}>
             <FileCode size={13} /> Show DDL
           </button>
