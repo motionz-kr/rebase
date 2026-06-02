@@ -50,6 +50,15 @@ export const AgentChat: React.FC<AgentChatProps> = ({ profileId, connectionName,
   const [settings, setSettings] = useState<AgentSettings>(loadSettings);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [proposals, setProposals] = useState<Record<string, Proposal>>({});
+  const [cliStatus, setCliStatus] = useState<
+    { loading: boolean; installed?: boolean; loggedIn?: boolean; email?: string; subscription?: string; detail?: string } | null
+  >(null);
+
+  const refreshCliStatus = async () => {
+    setCliStatus({ loading: true });
+    const res = await window.electronAPI.agentCliStatus();
+    setCliStatus(res.success && res.data ? { loading: false, ...res.data } : { loading: false, detail: res.error || 'status check failed' });
+  };
   const runRef = useRef<string | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const profileRef = useRef(profileId);
@@ -116,6 +125,12 @@ export const AgentChat: React.FC<AgentChatProps> = ({ profileId, connectionName,
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [messages]);
+
+  // Check claude login status whenever the CLI provider is active.
+  useEffect(() => {
+    if (settings.provider === 'cli') void refreshCliStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings.provider]);
 
   const send = async () => {
     const text = input.trim();
@@ -194,10 +209,34 @@ export const AgentChat: React.FC<AgentChatProps> = ({ profileId, connectionName,
             </select>
           </label>
           {settings.provider === 'cli' && (
-            <p className="agent-settings-note">
-              Uses your already-logged-in <code>claude</code> CLI — no API key needed. Requires <code>claude</code> on PATH
-              and signed in (run <code>claude</code> once in a terminal).
-            </p>
+            <div className="agent-cli-status">
+              <p className="agent-settings-note">
+                Uses your logged-in <code>claude</code> CLI — no API key needed.
+              </p>
+              {cliStatus?.loading && <div className="cli-line">Checking claude login…</div>}
+              {cliStatus && !cliStatus.loading && cliStatus.loggedIn && (
+                <div className="cli-line ok">
+                  <Check size={13} /> Logged in{cliStatus.email ? ` as ${cliStatus.email}` : ''}
+                  {cliStatus.subscription ? ` (${cliStatus.subscription})` : ''}
+                </div>
+              )}
+              {cliStatus && !cliStatus.loading && !cliStatus.loggedIn && (
+                <div className="cli-line warn">
+                  <AlertTriangle size={13} />
+                  <span>{cliStatus.installed === false ? 'claude CLI not found on PATH.' : 'Not logged in to claude.'}</span>
+                </div>
+              )}
+              <div className="cli-actions">
+                {cliStatus && !cliStatus.loading && !cliStatus.loggedIn && cliStatus.installed !== false && (
+                  <button className="btn btn-primary btn-sm" onClick={() => window.electronAPI.agentCliLogin()}>
+                    Log in to claude
+                  </button>
+                )}
+                <button className="btn btn-secondary btn-sm" onClick={() => void refreshCliStatus()} disabled={cliStatus?.loading}>
+                  Re-check
+                </button>
+              </div>
+            </div>
           )}
           {settings.provider === 'anthropic' && (
             <>

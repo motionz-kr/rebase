@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as http from 'http';
 import * as crypto from 'crypto';
 import * as readline from 'readline';
+import { execFile, spawn } from 'child_process';
 import { EngineManager } from './engine_manager';
 import isDev from 'electron-is-dev';
 
@@ -571,6 +572,58 @@ app.whenReady().then(() => {
       activeStreams.set(runId, req);
       req.write(postData);
       req.end();
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  // Strip the agent-harness / proxy overrides so a spawned claude uses the
+  // user's own login (mirrors the engine's sanitizeEnv).
+  function sanitizedEnv(): NodeJS.ProcessEnv {
+    const env: NodeJS.ProcessEnv = {};
+    for (const [k, v] of Object.entries(process.env)) {
+      if (k === 'ANTHROPIC_BASE_URL' || k === 'ANTHROPIC_API_KEY' || k.startsWith('CLAUDE_CODE_')) continue;
+      env[k] = v;
+    }
+    return env;
+  }
+
+  ipcMain.handle('agent-cli-status', async () => {
+    return new Promise((resolve) => {
+      execFile('claude', ['auth', 'status'], { env: sanitizedEnv(), timeout: 10000 }, (err, stdout, stderr) => {
+        if (err && !stdout) {
+          const notFound = /ENOENT/.test(String(err));
+          resolve({
+            success: true,
+            data: { installed: !notFound, loggedIn: false, detail: notFound ? 'claude CLI not found on PATH' : (stderr || String(err)).trim() },
+          });
+          return;
+        }
+        try {
+          const j = JSON.parse(stdout);
+          resolve({
+            success: true,
+            data: { installed: true, loggedIn: !!j.loggedIn, email: j.email, subscription: j.subscriptionType, authMethod: j.authMethod },
+          });
+        } catch {
+          resolve({ success: true, data: { installed: true, loggedIn: /logged ?in/i.test(stdout), detail: stdout.trim() } });
+        }
+      });
+    });
+  });
+
+  ipcMain.handle('agent-cli-login', async () => {
+    try {
+      if (process.platform === 'darwin') {
+        // OAuth needs an interactive terminal/browser — open Terminal running the login.
+        spawn('osascript', ['-e', 'tell application "Terminal" to do script "claude auth login"', '-e', 'tell application "Terminal" to activate'], {
+          detached: true,
+          stdio: 'ignore',
+        }).unref();
+      } else {
+        spawn('claude', ['auth', 'login'], { detached: true, stdio: 'ignore', env: sanitizedEnv() }).unref();
+      }
       return { success: true };
     } catch (err: any) {
       return { success: false, error: err.message };
