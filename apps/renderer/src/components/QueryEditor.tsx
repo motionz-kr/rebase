@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import MonacoEditor, { loader } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
-import { Play, Square, Save, Plus, X, Lock, Pencil, AlertTriangle, ShieldAlert, AlignLeft } from 'lucide-react';
+import { Play, Square, Save, Plus, X, Lock, Pencil, AlertTriangle, ShieldAlert, AlignLeft, ListTree } from 'lucide-react';
 import { ResultGrid } from './ResultGrid';
 import { SqlAutocomplete } from './SqlAutocomplete';
 import { formatSql } from '../lib/formatSql';
@@ -189,12 +189,14 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     allowWrite?: boolean;
     confirmDestructive?: boolean;
     fetchAll?: boolean;
+    sqlOverride?: string;
   }) => {
     if (activeTab.loading) return;
 
     const allowWrite = override?.allowWrite ?? writeMode;
     const confirmDestructive = override?.confirmDestructive ?? false;
     const fetchAll = override?.fetchAll ?? false;
+    const sql = override?.sqlOverride ?? activeTab.query;
     const queryId = `query-${crypto.randomUUID()}`;
     const startTime = Date.now();
 
@@ -219,7 +221,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     );
 
     try {
-      const res = await window.electronAPI.executeQueryStream(queryId, profileId, activeTab.query, {
+      const res = await window.electronAPI.executeQueryStream(queryId, profileId, sql, {
         allowWrite,
         confirmDestructive,
         fetchAll,
@@ -416,6 +418,14 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
               <Play size={13} /> Run
             </button>
           )}
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={() => executeQuery({ sqlOverride: `EXPLAIN ${activeTab.query}` })}
+            disabled={!activeTab.query.trim() || activeTab.loading}
+            title="Show query execution plan (EXPLAIN)"
+          >
+            <ListTree size={13} /> EXPLAIN
+          </button>
           <button
             className="btn btn-secondary btn-sm"
             onClick={formatQuery}
