@@ -194,6 +194,7 @@ func main() {
 
 	queryHandler := internalHttp.NewQueryHandler(*token, connectionService)
 	mux.Handle("/query/execute", queryHandler.ExecuteQuery())
+	mux.Handle("/query/execute-batch", queryHandler.ExecuteBatch())
 	mux.Handle("/query/cancel", queryHandler.CancelQuery())
 
 	redisHandler := internalHttp.NewRedisHandler(*token, connectionService)

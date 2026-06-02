@@ -4,7 +4,7 @@ import type { ColumnInfo } from '../global';
 import type { Driver } from '../lib/ddlBuilder';
 import { buildSelectPage, type ColFilter, type OrderBy } from '../lib/tableQuery';
 import { runSelect } from '../lib/runSelect';
-import { runDdl } from '../lib/runDdl';
+import { runBatch } from '../lib/runBatch';
 import { toCsv, toJson, toTsv } from '../lib/gridExport';
 import { cellText, tsTimestamp, download } from '../lib/gridFormat';
 import { buildUpdate, buildInsert, buildDelete, type CellValue } from '../lib/dmlBuilder';
@@ -251,7 +251,7 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
     if (stmts.length === 0) return;
     setSaving(true);
     setError(null);
-    const res = await runDdl(profileId, stmts);
+    const res = await runBatch(profileId, stmts);
     setSaving(false);
     if (res.ok) {
       setPreview(null);
