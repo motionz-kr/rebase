@@ -8,6 +8,7 @@ import { runBatch } from '../lib/runBatch';
 import { toCsv, toJson, toTsv } from '../lib/gridExport';
 import { cellText, tsTimestamp, download } from '../lib/gridFormat';
 import { buildUpdate, buildInsert, buildDelete, type CellValue } from '../lib/dmlBuilder';
+import { classifyColumnType, coerceCellValue } from '../lib/cellTypes';
 
 interface Props {
   profileId: string;
@@ -36,6 +37,7 @@ function asCell(v: unknown): CellValue {
 
 export const TableDataView: React.FC<Props> = ({ profileId, driver, database, table, onClose }) => {
   const [columns, setColumns] = useState<string[]>([]);
+  const [colTypes, setColTypes] = useState<string[]>([]);
   const [pkCols, setPkCols] = useState<string[]>([]);
   const [rows, setRows] = useState<unknown[][]>([]);
   const [page, setPage] = useState(0);
@@ -70,6 +72,7 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
         if (ignore) return;
         const cols: ColumnInfo[] = res.success && res.data ? res.data.columns : [];
         setColumns(cols.map((c) => c.name));
+        setColTypes(cols.map((c) => c.type));
         setPkCols(cols.filter((c) => c.primaryKey).map((c) => c.name));
       } catch (e: any) {
         if (!ignore) setError(e?.message || 'Failed to describe table');
@@ -205,8 +208,17 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
   const commitEdit = () => {
     if (!editing) return;
     const { r, c } = editing;
-    const value: CellValue = editText === '' ? null : editText;
+    // Coerce the typed text to the column's value category (number/boolean →
+    // unquoted literal). Empty text is an empty string, NOT null — use the NULL
+    // button to set null explicitly.
+    const value: CellValue = coerceCellValue(classifyColumnType(colTypes[c] ?? ''), editText);
     setEdits((prev) => ({ ...prev, [r]: { ...(prev[r] ?? {}), [c]: value } }));
+    setEditing(null);
+  };
+  const commitNull = () => {
+    if (!editing) return;
+    const { r, c } = editing;
+    setEdits((prev) => ({ ...prev, [r]: { ...(prev[r] ?? {}), [c]: null } }));
     setEditing(null);
   };
 
@@ -239,7 +251,10 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
     for (const nr of newRows) {
       const cols = Object.keys(nr)
         .filter((cStr) => nr[Number(cStr)] !== '')
-        .map((cStr) => ({ col: columns[Number(cStr)], value: nr[Number(cStr)] as CellValue }));
+        .map((cStr) => {
+          const c = Number(cStr);
+          return { col: columns[c], value: coerceCellValue(classifyColumnType(colTypes[c] ?? ''), nr[c]) };
+        });
       if (cols.length === 0) continue;
       stmts.push(buildInsert(driver, table, cols));
     }
@@ -357,6 +372,16 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
                               }}
                               onBlur={commitEdit}
                             />
+                            <button
+                              className="tdv-null-btn"
+                              title="NULL로 설정"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                commitNull();
+                              }}
+                            >
+                              ∅
+                            </button>
                           </div>
                         );
                       }

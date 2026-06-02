@@ -1671,3 +1671,28 @@
   cursor: pointer;
   color: var(--accent);
 }
+
+/* Cell editor NULL button */
+.grid-cell.editing {
+  display: flex;
+  align-items: stretch;
+}
+.grid-cell.editing .tdv-edit-input {
+  flex: 1;
+  min-width: 0;
+}
+.tdv-null-btn {
+  flex-shrink: 0;
+  width: 24px;
+  border: none;
+  border-left: 1px solid var(--border);
+  background: var(--bg-panel-2);
+  color: var(--text-3);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+}
+.tdv-null-btn:hover {
+  color: var(--accent);
+  background: var(--bg-hover);
+}
