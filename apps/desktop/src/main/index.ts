@@ -51,7 +51,11 @@ process.on('SIGTERM', () => {
 });
 
 const handshakePath = path.join(app.getPath('temp'), `db-handshake-${crypto.randomUUID()}.json`);
-const binaryPath = isDev 
+// ENGINE_BINARY_PATH lets tests (and unusual deploys) point at an explicit
+// engine binary; otherwise resolve relative to the dev tree or packaged resources.
+const binaryPath = process.env.ENGINE_BINARY_PATH
+  ? process.env.ENGINE_BINARY_PATH
+  : isDev
   ? path.join(__dirname, '..', '..', 'bin', 'app-engine')
   : path.join(process.resourcesPath, 'bin', 'app-engine');
 
@@ -103,6 +107,7 @@ async function startEngineAndApp() {
     binaryPath,
     handshakePath,
     token: launchToken,
+    dbPath: process.env.ENGINE_DB_PATH || undefined,
   });
 
   console.log('Starting Go engine at:', binaryPath);

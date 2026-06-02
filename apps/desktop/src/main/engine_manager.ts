@@ -5,6 +5,9 @@ export interface EngineConfig {
   binaryPath: string;
   handshakePath: string;
   token: string;
+  // Optional override for the engine's SQLite metadata path (-db). Used by tests
+  // to isolate the profile store; production leaves it unset (engine default).
+  dbPath?: string;
 }
 
 export class EngineManager {
@@ -18,12 +21,9 @@ export class EngineManager {
   }
 
   async start(): Promise<boolean> {
-    this.process = spawn(this.config.binaryPath, [
-      '-token',
-      this.config.token,
-      '-handshake',
-      this.config.handshakePath,
-    ]);
+    const args = ['-token', this.config.token, '-handshake', this.config.handshakePath];
+    if (this.config.dbPath) args.push('-db', this.config.dbPath);
+    this.process = spawn(this.config.binaryPath, args);
 
     this.process.on('error', (err) => {
       console.error('Failed to start Go engine process:', err);
