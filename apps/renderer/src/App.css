@@ -1704,6 +1704,18 @@
 .grid-export-menu button:hover {
   background: var(--bg-hover);
 }
+.pin-mark {
+  color: var(--accent);
+  margin-right: 4px;
+  flex-shrink: 0;
+}
+.grid-cell.pinned {
+  border-right: 1px solid var(--border-strong);
+}
+.grid-head-cell.pinned {
+  color: var(--text);
+}
+
 .grid-head-cell {
   cursor: pointer;
   user-select: none;
