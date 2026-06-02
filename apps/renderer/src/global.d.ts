@@ -44,6 +44,13 @@ export interface ForeignKeyInfo {
   refColumn: string;
 }
 
+export interface IndexInfo {
+  name: string;
+  columns: string[];
+  unique: boolean;
+  primary: boolean;
+}
+
 export interface RedisKeyspaceInfo {
   keys: string[];
   cursor: number;
@@ -75,6 +82,7 @@ declare global {
       listDatabases: (profileId: string) => Promise<ResultWrapper<DatabaseInfo[]>>;
       listTables: (profileId: string, database: string) => Promise<ResultWrapper<TableInfo[]>>;
       listForeignKeys: (profileId: string, database: string, table: string) => Promise<ResultWrapper<ForeignKeyInfo[]>>;
+      listIndexes: (profileId: string, database: string, table: string) => Promise<ResultWrapper<IndexInfo[]>>;
       describeTable: (profileId: string, database: string, table: string) => Promise<ResultWrapper<TableDescription>>;
       getTableDDL: (profileId: string, database: string, table: string) => Promise<ResultWrapper<{ ddl: string }>>;
       listViews: (profileId: string, database: string) => Promise<ResultWrapper<TableInfo[]>>;

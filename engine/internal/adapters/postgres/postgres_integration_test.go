@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/smlee/database-local-engine/engine/internal/domain"
+	"github.com/smlee/database-local-engine/engine/internal/ports"
 )
 
 func TestPostgreSQLConnector_ExecuteBatch(t *testing.T) {
@@ -80,6 +81,49 @@ func TestPostgreSQLConnector_ForeignKeys(t *testing.T) {
 	if err != nil { t.Fatalf("ListForeignKeys: %v", err) }
 	if len(fks) != 1 || fks[0].Column != "parent_id" || fks[0].RefTable != "fk_parent" || fks[0].RefColumn != "id" {
 		t.Errorf("unexpected fks: %+v", fks)
+	}
+}
+
+func TestPostgreSQLConnector_ListIndexes(t *testing.T) {
+	connector := NewPostgreSQLConnector()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	p := domain.ConnectionProfile{ID: "pg-idx-1", Name: "PG", Driver: "postgres", Host: "127.0.0.1", Port: 5432, Database: "postgres", Username: "postgres", TLSMode: "none"}
+	pw := "postgres"
+	exec := func(q string) error {
+		_, err := connector.ExecuteQueryStream(ctx, p, pw, q, false, func(int64) {}, func([]string) error { return nil }, func([]any) error { return nil })
+		return err
+	}
+	_ = exec("DROP TABLE IF EXISTS idx_test")
+	if err := exec("CREATE TABLE idx_test (id INT PRIMARY KEY, a INT, b INT)"); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	defer exec("DROP TABLE IF EXISTS idx_test")
+	if err := exec("CREATE UNIQUE INDEX ux_ab ON idx_test (a, b)"); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	idx, err := connector.ListIndexes(ctx, p, pw, "postgres", "idx_test")
+	if err != nil {
+		t.Fatalf("ListIndexes: %v", err)
+	}
+	byName := map[string]ports.Index{}
+	for _, i := range idx {
+		byName[i.Name] = i
+	}
+	ux, ok := byName["ux_ab"]
+	if !ok || !ux.Unique || ux.Primary || len(ux.Columns) != 2 || ux.Columns[0] != "a" || ux.Columns[1] != "b" {
+		t.Errorf("unexpected ux_ab: %+v", ux)
+	}
+	// the PK index exists and is flagged primary
+	var foundPK bool
+	for _, i := range idx {
+		if i.Primary && len(i.Columns) == 1 && i.Columns[0] == "id" {
+			foundPK = true
+		}
+	}
+	if !foundPK {
+		t.Errorf("expected a primary index on id, got %+v", idx)
 	}
 }
 

@@ -455,6 +455,52 @@ func (c *PostgreSQLConnector) ListForeignKeys(ctx context.Context, p domain.Conn
 	return list, nil
 }
 
+// ListIndexes returns the table's indexes (schema public), one entry per index
+// with its columns in definition order.
+func (c *PostgreSQLConnector) ListIndexes(ctx context.Context, p domain.ConnectionProfile, password string, database string, table string) ([]ports.Index, error) {
+	db, err := c.connect(p, password, database)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	rows, err := db.QueryContext(ctx, `
+		SELECT i.relname AS index_name, ix.indisunique AS is_unique, ix.indisprimary AS is_primary, a.attname AS column_name
+		FROM pg_class t
+		JOIN pg_namespace ns ON ns.oid = t.relnamespace
+		JOIN pg_index ix ON ix.indrelid = t.oid
+		JOIN pg_class i ON i.oid = ix.indexrelid
+		JOIN LATERAL unnest(ix.indkey) WITH ORDINALITY AS k(attnum, ord) ON true
+		JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum
+		WHERE ns.nspname = 'public' AND t.relname = $1
+		ORDER BY index_name, k.ord`, table)
+	if err != nil {
+		return nil, c.normalizeError(err)
+	}
+	defer rows.Close()
+
+	order := []string{}
+	byName := map[string]*ports.Index{}
+	for rows.Next() {
+		var name, col string
+		var unique, primary bool
+		if err := rows.Scan(&name, &unique, &primary, &col); err != nil {
+			return nil, c.normalizeError(err)
+		}
+		idx, ok := byName[name]
+		if !ok {
+			idx = &ports.Index{Name: name, Unique: unique, Primary: primary}
+			byName[name] = idx
+			order = append(order, name)
+		}
+		idx.Columns = append(idx.Columns, col)
+	}
+	list := make([]ports.Index, 0, len(order))
+	for _, name := range order {
+		list = append(list, *byName[name])
+	}
+	return list, rows.Err()
+}
+
 func (c *PostgreSQLConnector) normalizeError(err error) error {
 	if err == nil {
 		return nil
