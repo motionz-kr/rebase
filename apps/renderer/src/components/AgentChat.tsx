@@ -41,9 +41,17 @@ interface AgentChatProps {
   onClose: () => void;
   popped?: boolean;
   onTogglePopout?: () => void;
+  onSendToEditor?: (sql: string) => void;
 }
 
-export const AgentChat: React.FC<AgentChatProps> = ({ profileId, connectionName, onClose, popped, onTogglePopout }) => {
+export const AgentChat: React.FC<AgentChatProps> = ({
+  profileId,
+  connectionName,
+  onClose,
+  popped,
+  onTogglePopout,
+  onSendToEditor,
+}) => {
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -311,13 +319,18 @@ export const AgentChat: React.FC<AgentChatProps> = ({ profileId, connectionName,
           <div className={`agent-msg ${m.role}`} key={i}>
             <div className="agent-role">{m.role === 'user' ? 'You' : 'Agent'}</div>
             {m.tools.length > 0 && (
-              <div className="agent-tools">
-                {m.tools.map((t, j) => (
-                  <span className="agent-tool" key={j} title={`${t.name} ${JSON.stringify(t.args)}`}>
-                    <Wrench size={11} /> {prettyToolName(t.name)}
-                  </span>
-                ))}
-              </div>
+              <details className="agent-tools-detail">
+                <summary>
+                  <Wrench size={11} /> {m.tools.length} tool {m.tools.length === 1 ? 'call' : 'calls'}
+                </summary>
+                <div className="agent-tools">
+                  {m.tools.map((t, j) => (
+                    <span className="agent-tool" key={j} title={`${t.name} ${JSON.stringify(t.args)}`}>
+                      {prettyToolName(t.name)}
+                    </span>
+                  ))}
+                </div>
+              </details>
             )}
             <div className="agent-text">{m.text || (busy && i === messages.length - 1 ? '…' : '')}</div>
             {m.tools.map((t, j) => {
@@ -339,6 +352,11 @@ export const AgentChat: React.FC<AgentChatProps> = ({ profileId, connectionName,
                       <button className="btn btn-primary btn-sm" onClick={() => runProposal(key, sql)} disabled={!profileId}>
                         <Play size={12} /> Run
                       </button>
+                      {onSendToEditor && (
+                        <button className="btn btn-secondary btn-sm" onClick={() => onSendToEditor(sql)}>
+                          Send to editor
+                        </button>
+                      )}
                       <button
                         className="btn btn-secondary btn-sm"
                         onClick={() => setProposals((prev) => ({ ...prev, [key]: { sql, status: 'dismissed' } }))}

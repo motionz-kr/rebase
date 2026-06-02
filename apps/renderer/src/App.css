@@ -2603,3 +2603,19 @@
   font-size: 12.5px;
 }
 .agent-authfix span { flex: 1; }
+
+.agent-tools-detail { font-size: 11.5px; }
+.agent-tools-detail > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  color: var(--text-3);
+  list-style: none;
+  user-select: none;
+  padding: 2px 0;
+}
+.agent-tools-detail > summary::-webkit-details-marker { display: none; }
+.agent-tools-detail > summary::before { content: '▸'; font-size: 9px; }
+.agent-tools-detail[open] > summary::before { content: '▾'; }
+.agent-tools-detail[open] > summary { margin-bottom: 4px; }

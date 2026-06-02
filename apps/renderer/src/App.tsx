@@ -675,6 +675,10 @@ function App() {
               onClose={() => setShowAgent(false)}
               popped={agentPopped}
               onTogglePopout={() => setAgentPopped((v) => !v)}
+              onSendToEditor={(sql) => {
+                setAgentPopped(false);
+                handleSelectQuery(sql);
+              }}
             />
           </aside>
         )}
