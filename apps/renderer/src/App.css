@@ -2590,3 +2590,16 @@
 .agent-cli-status .cli-line.ok { color: var(--green, #3fb950); }
 .agent-cli-status .cli-line.warn { color: var(--amber); }
 .agent-cli-status .cli-actions { display: flex; gap: 8px; }
+
+.agent-authfix {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 12px;
+  padding: 8px 11px;
+  border-radius: var(--radius);
+  background: var(--amber-soft);
+  color: var(--text-2);
+  font-size: 12.5px;
+}
+.agent-authfix span { flex: 1; }

@@ -226,10 +226,13 @@ export const AgentChat: React.FC<AgentChatProps> = ({ profileId, connectionName,
                   <span>{cliStatus.installed === false ? 'claude CLI not found on PATH.' : 'Not logged in to claude.'}</span>
                 </div>
               )}
+              <p className="agent-settings-note">
+                Already logged in? The stored token can still expire. If a request returns 401, re-authenticate.
+              </p>
               <div className="cli-actions">
-                {cliStatus && !cliStatus.loading && !cliStatus.loggedIn && cliStatus.installed !== false && (
+                {cliStatus?.installed !== false && (
                   <button className="btn btn-primary btn-sm" onClick={() => window.electronAPI.agentCliLogin()}>
-                    Log in to claude
+                    {cliStatus?.loggedIn ? 'Re-authenticate' : 'Log in to claude'}
                   </button>
                 )}
                 <button className="btn btn-secondary btn-sm" onClick={() => void refreshCliStatus()} disabled={cliStatus?.loading}>
@@ -353,6 +356,18 @@ export const AgentChat: React.FC<AgentChatProps> = ({ profileId, connectionName,
           </div>
         ))}
       </div>
+
+      {settings.provider === 'cli' &&
+        messages.length > 0 &&
+        /401|authentication_error|Failed to authenticate/i.test(messages[messages.length - 1].text) && (
+          <div className="agent-authfix">
+            <AlertTriangle size={14} />
+            <span>claude session expired (401). Re-authenticate, then send again.</span>
+            <button className="btn btn-primary btn-sm" onClick={() => window.electronAPI.agentCliLogin()}>
+              Re-authenticate
+            </button>
+          </div>
+        )}
 
       <div className="agent-composer">
         <textarea
