@@ -10,7 +10,7 @@ import { cellText, tsTimestamp, download } from '../lib/gridFormat';
 import { buildUpdate, buildInsert, buildDelete, type CellValue } from '../lib/dmlBuilder';
 import { classifyColumnType, coerceCellValue } from '../lib/cellTypes';
 import { nextCell } from '../lib/gridNav';
-import { pinLayout, PIN_W } from '../lib/pinLayout';
+import { pinLayout, PIN_W, COL_W } from '../lib/pinLayout';
 
 interface Props {
   profileId: string;
@@ -86,12 +86,19 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
   const [pinned, setPinned] = useState<Set<number>>(new Set());
   const [headerMenu, setHeaderMenu] = useState<{ x: number; y: number; col: number } | null>(null);
   const lay = useMemo(() => pinLayout(columns.length, pinned), [columns.length, pinned]);
-  const pinStyle = (origC: number, bg: string, selected = false): React.CSSProperties =>
-    lay.stickyLeft[origC] !== undefined
-      ? { position: 'sticky', left: lay.stickyLeft[origC], zIndex: 2, flex: '0 0 auto', width: PIN_W, minWidth: PIN_W, maxWidth: PIN_W, background: selected ? undefined : bg }
-      : {};
+  // While pinning is active every column gets a fixed width so the (absolute) row
+  // spans the full content width — required for pinned cells to stay sticky across
+  // the whole horizontal scroll.
+  const cellGeom = (origC: number, bg: string, selected = false): React.CSSProperties => {
+    if (lay.stickyLeft[origC] !== undefined) {
+      return { position: 'sticky', left: lay.stickyLeft[origC], zIndex: 2, flex: '0 0 auto', width: PIN_W, minWidth: PIN_W, maxWidth: PIN_W, background: selected ? undefined : bg };
+    }
+    if (lay.active) return { flex: `0 0 ${COL_W}px`, width: COL_W, minWidth: COL_W, maxWidth: COL_W };
+    return {};
+  };
   const idxStyle = (bg: string): React.CSSProperties =>
     lay.active ? { position: 'sticky', left: 0, zIndex: 3, background: bg } : {};
+  const rowSpan: React.CSSProperties = lay.active ? { width: 'max-content', minWidth: '100%' } : { right: 0 };
   const togglePin = (col: number) =>
     setPinned((prev) => {
       const next = new Set(prev);
@@ -447,7 +454,7 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
               <div
                 key={idx}
                 className={`grid-cell grid-head-cell ${pinned.has(idx) ? 'pinned' : ''}`}
-                style={pinStyle(idx, 'var(--bg-panel-2)')}
+                style={cellGeom(idx, 'var(--bg-panel-2)')}
                 title={hasPending ? '저장 또는 되돌리기 후 정렬' : col}
                 onClick={() => toggleSort(col)}
                 onContextMenu={(e) => { e.preventDefault(); setHeaderMenu({ x: e.clientX, y: e.clientY, col: idx }); }}
@@ -465,7 +472,7 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
           {lay.order.map((idx) => {
             const col = columns[idx];
             return (
-              <div key={idx} className={`grid-cell ${pinned.has(idx) ? 'pinned' : ''}`} style={pinStyle(idx, 'var(--bg-panel)')}>
+              <div key={idx} className={`grid-cell ${pinned.has(idx) ? 'pinned' : ''}`} style={cellGeom(idx, 'var(--bg-panel)')}>
                 <input
                   className="input tdv-filter-input"
                   value={filters[col] ?? ''}
@@ -491,13 +498,13 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
                   <div
                     key={r}
                     className={`grid-row ${r % 2 === 0 ? 'even' : 'odd'} ${del ? 'row-del' : ''}`}
-                    style={{ position: 'absolute', top: `${r * ROW_HEIGHT}px`, height: `${ROW_HEIGHT}px`, left: 0, right: 0, display: 'flex' }}
+                    style={{ position: 'absolute', top: `${r * ROW_HEIGHT}px`, height: `${ROW_HEIGHT}px`, left: 0, display: 'flex', ...rowSpan }}
                   >
                     <div className="grid-idx" style={idxStyle('var(--bg)')} onMouseDown={(e) => selectRow(r, e.shiftKey)}>{page * PAGE_SIZE + r + 1}</div>
                     {lay.order.map((c) => {
                       if (editing && editing.r === r && editing.c === c) {
                         return (
-                          <div key={c} className={`grid-cell editing ${pinned.has(c) ? 'pinned' : ''}`} style={pinStyle(c, 'var(--bg)')}>
+                          <div key={c} className={`grid-cell editing ${pinned.has(c) ? 'pinned' : ''}`} style={cellGeom(c, 'var(--bg)')}>
                             <input
                               className="input tdv-edit-input"
                               autoFocus
@@ -531,7 +538,7 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
                         <div
                           key={c}
                           className={`grid-cell ${isNull ? 'null' : ''} ${selected ? 'sel' : ''} ${isDirty(r, c) ? 'dirty' : ''} ${pinned.has(c) ? 'pinned' : ''}`}
-                          style={pinStyle(c, 'var(--bg)', selected)}
+                          style={cellGeom(c, 'var(--bg)', selected)}
                           title={text}
                           onMouseDown={(e) => selectCell(r, c, e.shiftKey)}
                           onDoubleClick={() => startEdit(r, c)}
@@ -559,10 +566,10 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
           {newRows.length > 0 && (
             <div className="tdv-newrows">
               {newRows.map((nr, i) => (
-                <div key={i} className="grid-row new-row" style={{ display: 'flex', height: `${ROW_HEIGHT}px` }}>
+                <div key={i} className="grid-row new-row" style={{ display: 'flex', height: `${ROW_HEIGHT}px`, ...rowSpan }}>
                   <div className="grid-idx" style={idxStyle('var(--bg)')} title="새 행 제거" onClick={() => removeNewRow(i)}><Plus size={12} /></div>
                   {lay.order.map((c) => (
-                    <div key={c} className={`grid-cell ${pinned.has(c) ? 'pinned' : ''}`} style={pinStyle(c, 'var(--bg)')}>
+                    <div key={c} className={`grid-cell ${pinned.has(c) ? 'pinned' : ''}`} style={cellGeom(c, 'var(--bg)')}>
                       <input
                         className="tdv-new-input"
                         value={nr[c] ?? ''}
