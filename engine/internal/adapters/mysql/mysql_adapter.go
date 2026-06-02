@@ -96,7 +96,7 @@ func (c *MySQLConnector) ListTables(ctx context.Context, p domain.ConnectionProf
 	}
 	defer db.Close()
 
-	rows, err := db.QueryContext(ctx, "SELECT table_name FROM information_schema.tables WHERE table_schema = ?", database)
+	rows, err := db.QueryContext(ctx, "SELECT table_name FROM information_schema.tables WHERE table_schema = ? AND table_type <> 'VIEW'", database)
 	if err != nil {
 		return nil, c.normalizeError(err)
 	}
@@ -197,6 +197,42 @@ func (c *MySQLConnector) GetTableDDL(ctx context.Context, p domain.ConnectionPro
 
 func escapeMySQLIdent(s string) string {
 	return strings.ReplaceAll(s, "`", "``")
+}
+
+func (c *MySQLConnector) ListViews(ctx context.Context, p domain.ConnectionProfile, password string, database string) ([]ports.TableInfo, error) {
+	db, err := c.connect(p, password, database)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	rows, err := db.QueryContext(ctx, "SELECT table_name FROM information_schema.views WHERE table_schema = ?", database)
+	if err != nil {
+		return nil, c.normalizeError(err)
+	}
+	defer rows.Close()
+	var list []ports.TableInfo
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, c.normalizeError(err)
+		}
+		list = append(list, ports.TableInfo{Name: name})
+	}
+	return list, nil
+}
+
+func (c *MySQLConnector) GetViewDDL(ctx context.Context, p domain.ConnectionProfile, password string, database string, view string) (string, error) {
+	db, err := c.connect(p, password, database)
+	if err != nil {
+		return "", err
+	}
+	defer db.Close()
+	q := fmt.Sprintf("SHOW CREATE VIEW `%s`.`%s`", escapeMySQLIdent(database), escapeMySQLIdent(view))
+	var name, ddl, cs, col string
+	if err := db.QueryRowContext(ctx, q).Scan(&name, &ddl, &cs, &col); err != nil {
+		return "", c.normalizeError(err)
+	}
+	return ddl, nil
 }
 
 func (c *MySQLConnector) connectForQuery(p domain.ConnectionProfile, password string) (*sql.DB, error) {

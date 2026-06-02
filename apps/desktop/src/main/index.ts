@@ -327,6 +327,23 @@ app.whenReady().then(() => {
     }
   });
 
+  ipcMain.handle('list-views', async (event, profileId, database) => {
+    try {
+      const data = await requestEngine({ method: 'GET', path: `/views?profileId=${encodeURIComponent(profileId)}&database=${encodeURIComponent(database)}` });
+      return { success: true, data };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+  ipcMain.handle('get-view-ddl', async (event, profileId, database, view) => {
+    try {
+      const data = await requestEngine({ method: 'GET', path: `/view-ddl?profileId=${encodeURIComponent(profileId)}&database=${encodeURIComponent(database)}&view=${encodeURIComponent(view)}` });
+      return { success: true, data };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
   ipcMain.handle('get-schema-completion', async (event, profileId, database) => {
     try {
       const data = await requestEngine({

@@ -2,6 +2,7 @@ package mysql
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -175,6 +176,40 @@ func TestMySQLConnector_ExecuteBatch(t *testing.T) {
 	}
 	if affected != 2 {
 		t.Errorf("expected rowsAffected 2, got %d", affected)
+	}
+}
+
+func TestMySQLConnector_Views(t *testing.T) {
+	connector := NewMySQLConnector()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	p := domain.ConnectionProfile{ID: "mysql-views-1", Name: "MySQL", Driver: "mysql", Host: "127.0.0.1", Port: 3306, Database: "devdb", Username: "root", TLSMode: "none"}
+	pw := "password1!"
+	exec := func(q string) error {
+		_, err := connector.ExecuteQueryStream(ctx, p, pw, q, false, func(int64) {}, func([]string) error { return nil }, func([]any) error { return nil })
+		return err
+	}
+	_ = exec("DROP VIEW IF EXISTS devdb.v_test")
+	_ = exec("DROP TABLE IF EXISTS devdb.vt_base")
+	if err := exec("CREATE TABLE devdb.vt_base (id INT)"); err != nil { t.Fatalf("base: %v", err) }
+	defer exec("DROP TABLE IF EXISTS devdb.vt_base")
+	if err := exec("CREATE VIEW devdb.v_test AS SELECT id FROM devdb.vt_base"); err != nil { t.Fatalf("view: %v", err) }
+	defer exec("DROP VIEW IF EXISTS devdb.v_test")
+
+	views, err := connector.ListViews(ctx, p, pw, "devdb")
+	if err != nil { t.Fatalf("ListViews: %v", err) }
+	names := map[string]bool{}
+	for _, v := range views { names[v.Name] = true }
+	if !names["v_test"] { t.Errorf("expected v_test in views, got %v", views) }
+
+	tables, err := connector.ListTables(ctx, p, pw, "devdb")
+	if err != nil { t.Fatalf("ListTables: %v", err) }
+	for _, tb := range tables { if tb.Name == "v_test" { t.Errorf("ListTables must exclude views, but contained v_test") } }
+
+	ddl, err := connector.GetViewDDL(ctx, p, pw, "devdb", "v_test")
+	if err != nil { t.Fatalf("GetViewDDL: %v", err) }
+	if !strings.Contains(ddl, "v_test") || !strings.Contains(strings.ToUpper(ddl), "SELECT") {
+		t.Errorf("unexpected view DDL: %q", ddl)
 	}
 }
 

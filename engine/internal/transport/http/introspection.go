@@ -197,6 +197,71 @@ func (h *IntrospectionHandler) TableDDL() http.Handler {
 	})
 }
 
+func (h *IntrospectionHandler) ListViews() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !h.checkToken(r) {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		profileID := r.URL.Query().Get("profileId")
+		database := r.URL.Query().Get("database")
+		if profileID == "" || database == "" {
+			http.Error(w, "profileId and database parameters are required", http.StatusBadRequest)
+			return
+		}
+		profile, password, err := h.service.GetProfile(r.Context(), profileID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		connector, err := h.getConnector(profile.Driver)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		views, err := connector.ListViews(r.Context(), *profile, password, database)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(views)
+	})
+}
+
+func (h *IntrospectionHandler) ViewDDL() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !h.checkToken(r) {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		profileID := r.URL.Query().Get("profileId")
+		database := r.URL.Query().Get("database")
+		view := r.URL.Query().Get("view")
+		if profileID == "" || database == "" || view == "" {
+			http.Error(w, "profileId, database, and view parameters are required", http.StatusBadRequest)
+			return
+		}
+		profile, password, err := h.service.GetProfile(r.Context(), profileID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		connector, err := h.getConnector(profile.Driver)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		ddl, err := connector.GetViewDDL(r.Context(), *profile, password, database, view)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"ddl": ddl})
+	})
+}
+
 func (h *IntrospectionHandler) SchemaCompletion() http.Handler {
 	type completionColumn struct {
 		Name string `json:"name"`

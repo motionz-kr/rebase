@@ -40,6 +40,8 @@ type SQLConnector interface {
 	DBConnector
 	ListDatabases(ctx context.Context, p domain.ConnectionProfile, password string) ([]DatabaseInfo, error)
 	ListTables(ctx context.Context, p domain.ConnectionProfile, password string, database string) ([]TableInfo, error)
+	ListViews(ctx context.Context, p domain.ConnectionProfile, password string, database string) ([]TableInfo, error)
+	GetViewDDL(ctx context.Context, p domain.ConnectionProfile, password string, database string, view string) (string, error)
 	DescribeTable(ctx context.Context, p domain.ConnectionProfile, password string, database string, table string) (TableDescription, error)
 	GetTableDDL(ctx context.Context, p domain.ConnectionProfile, password string, database string, table string) (string, error)
 	ListColumns(ctx context.Context, p domain.ConnectionProfile, password string, database string) ([]ColumnRef, error)
