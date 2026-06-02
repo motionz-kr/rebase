@@ -608,6 +608,19 @@ app.whenReady().then(() => {
     }
   });
 
+  ipcMain.handle('redis-command', async (event, profileId, args) => {
+    try {
+      const data = await requestEngine({
+        method: 'POST',
+        path: '/redis/command',
+        body: { profileId, args },
+      });
+      return { success: true, data };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
   ipcMain.handle('list-saved-queries', async (event, workspaceId) => {
     try {
       const data = await requestEngine({

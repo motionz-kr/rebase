@@ -15,6 +15,7 @@ import { SchemaExplorer } from './components/SchemaExplorer';
 import { QueryEditor } from './components/QueryEditor';
 import { RedisKeyspaceExplorer } from './components/RedisKeyspaceExplorer';
 import { RedisValueInspector } from './components/RedisValueInspector';
+import { RedisConsole } from './components/RedisConsole';
 import { SavedQueries } from './components/SavedQueries';
 import { QueryHistory } from './components/QueryHistory';
 import { TableDataView } from './components/TableDataView';
@@ -58,6 +59,7 @@ function App() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [redisKeys, setRedisKeys] = useState<Record<string, string | null>>({});
   const [redisRefresh, setRedisRefresh] = useState<Record<string, number>>({});
+  const [redisTab, setRedisTab] = useState<Record<string, 'inspector' | 'console'>>({});
 
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -595,12 +597,32 @@ function App() {
               return (
                 <div key={id} className="conn-panel" style={{ display: focused ? 'flex' : 'none' }}>
                   {profile.driver === 'redis' ? (
-                    <RedisValueInspector
-                      profileId={id}
-                      redisKey={redisKeys[id] ?? null}
-                      onSelectKey={(k) => setRedisKeys((prev) => ({ ...prev, [id]: k }))}
-                      onRefresh={() => setRedisRefresh((prev) => ({ ...prev, [id]: (prev[id] ?? 0) + 1 }))}
-                    />
+                    <div className="redis-pane">
+                      <div className="redis-tabs">
+                        <button
+                          className={`redis-tab${(redisTab[id] ?? 'inspector') === 'inspector' ? ' active' : ''}`}
+                          onClick={() => setRedisTab((prev) => ({ ...prev, [id]: 'inspector' }))}
+                        >
+                          Inspector
+                        </button>
+                        <button
+                          className={`redis-tab${redisTab[id] === 'console' ? ' active' : ''}`}
+                          onClick={() => setRedisTab((prev) => ({ ...prev, [id]: 'console' }))}
+                        >
+                          Console
+                        </button>
+                      </div>
+                      {redisTab[id] === 'console' ? (
+                        <RedisConsole profileId={id} />
+                      ) : (
+                        <RedisValueInspector
+                          profileId={id}
+                          redisKey={redisKeys[id] ?? null}
+                          onSelectKey={(k) => setRedisKeys((prev) => ({ ...prev, [id]: k }))}
+                          onRefresh={() => setRedisRefresh((prev) => ({ ...prev, [id]: (prev[id] ?? 0) + 1 }))}
+                        />
+                      )}
+                    </div>
                   ) : openTable[id] ? (
                     <TableDataView
                       key={`${openTable[id]!.db}.${openTable[id]!.table}.${openTable[id]!.filter?.value ?? ''}`}
