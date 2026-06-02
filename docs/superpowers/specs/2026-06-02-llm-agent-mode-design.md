@@ -80,11 +80,17 @@ type LLMProvider interface {
 ```
 
 - `DirectApiAdapter`: HTTPS to Anthropic/OpenAI; API key stored in the keychain
-  like a connection secret; native tool-calling JSON.
-- `LocalCliAdapter`: spawns the CLI in a non-interactive/print mode and exchanges
-  a structured tool-call protocol over stdout/stdin. **Feasibility and exact
-  protocol are the subject of the P0 spike (#9).** If the spike fails, the port
-  still ships with Direct API and CLI is dropped/redesigned.
+  like a connection secret; native tool-calling JSON. Rebase owns the agent loop.
+- `LocalCliAdapter`: spawns the CLI headless and exchanges **`stream-json` over
+  stdin/stdout**; DB tools are provided to the CLI via an **MCP (stdio) server**,
+  so the CLI runs the loop and calls our tools. (Validated for `claude` in the P0
+  spike — see [ADR 0006](../../adr/0006-llm-agent-cli-driving.md). Supersedes the
+  earlier "text tool-call protocol" idea.)
+
+**Shared tool layer:** the DB tools below are implemented once. The CLI path
+exposes them through the MCP server; the Direct API path exposes them as native
+function-calling tools. The CLI must be spawned with a sanitized environment so
+it reuses the user's existing login.
 
 ## Tool catalog (= capabilities)
 
@@ -193,9 +199,9 @@ on an explicit user message.
 
 ## Open questions / risks
 
-- **CLI headless feasibility** — the central unknown; owned by P0. If no clean
-  non-interactive tool-call channel exists, CLI support is reduced to "open a
-  prepared prompt in the terminal" or dropped.
+- **CLI headless feasibility** — ~~the central unknown~~ **resolved by the P0
+  spike** for `claude` (stream-json + MCP; see ADR 0006). Remaining: confirm
+  auth-reuse + sanitized-env spawn in a real (non-nested) launch before P4.
 - **Per-DB diagnostics sources** — `performance_schema` / `pg_stat_statements`
   may be disabled; tools must detect and degrade.
 - **Token/cost** — mitigated by lazy tool-calling + metadata-only default; surface
