@@ -200,10 +200,11 @@ export const AgentChat: React.FC<AgentChatProps> = ({
   return (
     <div className="agent-chat">
       <div className="agent-head">
-        <span className="tree-icon">
+        <span className="agent-head-icon">
           <Bot size={15} />
         </span>
         <h2>Agent</h2>
+        <span className="agent-head-spacer" />
         {connectionName && <span className="agent-conn">{connectionName}</span>}
         <button
           className={`icon-btn${settingsOpen ? ' active' : ''}`}
@@ -321,15 +322,34 @@ export const AgentChat: React.FC<AgentChatProps> = ({
 
       <div className="agent-log" ref={logRef}>
         {messages.length === 0 && (
-          <div className="agent-hint">
-            Ask about the connected database — e.g. <code>how many tables are there?</code>,{' '}
-            <code>describe the users table</code>. (Offline stub provider; configure a real model in settings.)
+          <div className="agent-empty">
+            <span className="agent-empty-icon">
+              <Bot size={22} />
+            </span>
+            <p className="agent-empty-title">Ask about your database</p>
+            <p className="agent-empty-sub">
+              The agent inspects schema, runs read-only queries, and proposes changes for your approval.
+            </p>
+            <div className="agent-empty-chips">
+              {['How many tables are there?', 'Describe the users table', 'Show 10 recent rows'].map((ex) => (
+                <button key={ex} className="agent-chip" onClick={() => setInput(ex)} disabled={!profileId}>
+                  {ex}
+                </button>
+              ))}
+            </div>
           </div>
         )}
         {!profileId && <div className="alert error">Connect to a database first.</div>}
         {messages.map((m, i) => (
           <div className={`agent-msg ${m.role}`} key={i}>
-            <div className="agent-role">{m.role === 'user' ? 'You' : 'Agent'}</div>
+            {m.role === 'assistant' && (
+              <div className="agent-msg-head">
+                <span className="agent-avatar">
+                  <Bot size={12} />
+                </span>
+                <span className="agent-name">Agent</span>
+              </div>
+            )}
             {m.tools.length > 0 && (
               <details className="agent-tools-detail">
                 <summary>
@@ -447,15 +467,16 @@ export const AgentChat: React.FC<AgentChatProps> = ({
         )}
 
       <div className="agent-composer">
-        <textarea
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={onKeyDown}
-          placeholder={profileId ? 'Ask the agent…' : 'Connect to a database first'}
-          rows={2}
-          disabled={busy || !profileId}
-        />
-        <div className="agent-composer-bar">
+        <div className="agent-composer-box">
+          <textarea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={onKeyDown}
+            placeholder={profileId ? 'Ask the agent…' : 'Connect to a database first'}
+            rows={2}
+            disabled={busy || !profileId}
+          />
+          <div className="agent-composer-bar">
           <select
             className="agent-pick"
             title="Provider"
@@ -486,6 +507,7 @@ export const AgentChat: React.FC<AgentChatProps> = ({
           <button className="btn btn-primary btn-sm" onClick={send} disabled={busy || !profileId || !input.trim()} title="Send (Enter)">
             <CornerDownLeft size={13} /> Send
           </button>
+          </div>
         </div>
       </div>
     </div>
