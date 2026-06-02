@@ -148,7 +148,11 @@ function createWindow() {
       mainWindow?.loadURL('http://localhost:5173');
     });
     mainWindow.webContents.openDevTools();
+  } else if (app.isPackaged) {
+    // Packaged: renderer/dist is shipped via electron-builder extraResources.
+    mainWindow.loadFile(path.join(process.resourcesPath, 'renderer', 'dist', 'index.html'));
   } else {
+    // Unpackaged prod (e.g. E2E with ELECTRON_IS_DEV=0): use the dev tree layout.
     mainWindow.loadFile(path.join(__dirname, '..', '..', '..', 'renderer', 'dist', 'index.html'));
   }
 

@@ -17,6 +17,13 @@
       "filter": [
         "**/*"
       ]
+    },
+    {
+      "from": "../renderer/dist",
+      "to": "renderer/dist",
+      "filter": [
+        "**/*"
+      ]
     }
   ],
   "mac": {
@@ -29,7 +36,7 @@
   },
   "win": {
     "target": ["nsis", "zip"],
-    "publisherName": "Antigravity Dev"
+    "publisherName": "Rebase"
   },
   "nsis": {
     "oneClick": false,
