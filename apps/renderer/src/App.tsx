@@ -57,6 +57,7 @@ function App() {
   const [conns, dispatch] = useReducer(connectionsReducer, initialConnectionsState);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [redisKeys, setRedisKeys] = useState<Record<string, string | null>>({});
+  const [redisRefresh, setRedisRefresh] = useState<Record<string, number>>({});
 
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -480,6 +481,7 @@ function App() {
                           <RedisKeyspaceExplorer
                             profileId={p.id!}
                             selectedKey={redisKeys[p.id!] ?? null}
+                            refreshToken={redisRefresh[p.id!] ?? 0}
                             onSelectKey={(k) => {
                               setRedisKeys((prev) => ({ ...prev, [p.id!]: k }));
                               dispatch({ type: 'focus', profileId: p.id! });
@@ -581,7 +583,12 @@ function App() {
               return (
                 <div key={id} className="conn-panel" style={{ display: focused ? 'flex' : 'none' }}>
                   {profile.driver === 'redis' ? (
-                    <RedisValueInspector profileId={id} redisKey={redisKeys[id] ?? null} />
+                    <RedisValueInspector
+                      profileId={id}
+                      redisKey={redisKeys[id] ?? null}
+                      onSelectKey={(k) => setRedisKeys((prev) => ({ ...prev, [id]: k }))}
+                      onRefresh={() => setRedisRefresh((prev) => ({ ...prev, [id]: (prev[id] ?? 0) + 1 }))}
+                    />
                   ) : openTable[id] ? (
                     <TableDataView
                       key={`${openTable[id]!.db}.${openTable[id]!.table}.${openTable[id]!.filter?.value ?? ''}`}

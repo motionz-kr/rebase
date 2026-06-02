@@ -1299,6 +1299,107 @@
   color: var(--text-2);
 }
 
+/* --- Redis value/key editing --- */
+.value-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.value-editor {
+  width: 100%;
+  min-height: 120px;
+  resize: vertical;
+  padding: 12px 14px;
+  background: var(--bg-panel);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text);
+}
+.value-editor:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.value-edit-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.key-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 14px;
+}
+.key-actions .rename-row,
+.key-actions .confirm-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+.key-actions .confirm-row {
+  color: var(--text-2);
+  font-size: 12.5px;
+}
+.key-actions .confirm-row code {
+  font-family: var(--mono);
+  color: var(--text);
+}
+.rename-input {
+  flex: 1;
+  min-width: 120px;
+  padding: 6px 10px;
+  background: var(--bg-panel);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--text);
+}
+.rename-input:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.btn-danger-ghost {
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--red) 45%, transparent);
+  color: var(--red);
+}
+.btn-danger-ghost:hover {
+  background: color-mix(in srgb, var(--red) 14%, transparent);
+}
+
+.meta-value.ttl-edit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ttl-input {
+  width: 86px;
+  padding: 4px 8px;
+  background: var(--bg-panel);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  font-size: 12px;
+  color: var(--text);
+}
+.ttl-input:focus {
+  outline: none;
+}
+.meta-value .icon-btn {
+  margin-left: 6px;
+  color: var(--text-3);
+}
+.meta-value .icon-btn:hover {
+  color: var(--accent);
+}
+
 /* ============================================================
    Saved queries & history
    ============================================================ */

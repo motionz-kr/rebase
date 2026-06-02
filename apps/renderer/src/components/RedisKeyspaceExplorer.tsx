@@ -6,9 +6,11 @@ interface RedisKeyspaceExplorerProps {
   onSelectKey: (key: string) => void;
   selectedKey: string | null;
   onDisconnect: () => void;
+  /** Bumped by the parent to force a re-scan (e.g. after a key rename/delete). */
+  refreshToken?: number;
 }
 
-export const RedisKeyspaceExplorer: React.FC<RedisKeyspaceExplorerProps> = ({ profileId, onSelectKey, selectedKey }) => {
+export const RedisKeyspaceExplorer: React.FC<RedisKeyspaceExplorerProps> = ({ profileId, onSelectKey, selectedKey, refreshToken = 0 }) => {
   const [keys, setKeys] = useState<string[]>([]);
   const [cursor, setCursor] = useState(0);
   const [pattern, setPattern] = useState('*');
@@ -19,6 +21,13 @@ export const RedisKeyspaceExplorer: React.FC<RedisKeyspaceExplorerProps> = ({ pr
     loadInitialKeys('*');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profileId]);
+
+  // Re-scan with the current filter when the parent bumps the refresh token.
+  useEffect(() => {
+    if (refreshToken === 0) return;
+    loadInitialKeys(pattern);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshToken]);
 
   const loadInitialKeys = async (searchPattern: string) => {
     setLoading(true);
