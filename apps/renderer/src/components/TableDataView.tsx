@@ -488,27 +488,29 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
               })}
             </div>
           )}
-        </div>
 
-        {newRows.length > 0 && (
-          <div className="tdv-newrows">
-            {newRows.map((nr, i) => (
-              <div key={i} className="grid-row new-row" style={{ display: 'flex' }}>
-                <div className="grid-idx" title="새 행" onClick={() => removeNewRow(i)}><Plus size={12} /></div>
-                {columns.map((col, c) => (
-                  <div key={c} className="grid-cell">
-                    <input
-                      className="input tdv-edit-input"
-                      value={nr[c] ?? ''}
-                      placeholder={col}
-                      onChange={(e) => patchNewRow(i, c, e.target.value)}
-                    />
-                  </div>
-                ))}
-              </div>
-            ))}
-          </div>
-        )}
+          {/* New rows flow directly below the data rows (inside the scroll body),
+              flush with the table and styled like grid rows. */}
+          {newRows.length > 0 && (
+            <div className="tdv-newrows">
+              {newRows.map((nr, i) => (
+                <div key={i} className="grid-row new-row" style={{ display: 'flex', height: `${ROW_HEIGHT}px` }}>
+                  <div className="grid-idx" title="새 행 제거" onClick={() => removeNewRow(i)}><Plus size={12} /></div>
+                  {columns.map((col, c) => (
+                    <div key={c} className="grid-cell">
+                      <input
+                        className="tdv-new-input"
+                        value={nr[c] ?? ''}
+                        placeholder={col}
+                        onChange={(e) => patchNewRow(i, c, e.target.value)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         <div className="grid-foot">
           <div className="tdv-pager">
