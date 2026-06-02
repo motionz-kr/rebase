@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Bot, CornerDownLeft, X, Wrench, Settings, AlertTriangle, Play, Check } from 'lucide-react';
+import { Bot, CornerDownLeft, X, Wrench, Settings, AlertTriangle, Play, Check, Maximize2, Minimize2 } from 'lucide-react';
 import { applyAgentChunk, type AgentMessage } from '../lib/agentStream';
 import { classifyStatement } from '../lib/sqlDanger';
 
@@ -39,9 +39,11 @@ interface AgentChatProps {
   profileId: string | null;
   connectionName?: string;
   onClose: () => void;
+  popped?: boolean;
+  onTogglePopout?: () => void;
 }
 
-export const AgentChat: React.FC<AgentChatProps> = ({ profileId, connectionName, onClose }) => {
+export const AgentChat: React.FC<AgentChatProps> = ({ profileId, connectionName, onClose, popped, onTogglePopout }) => {
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -168,6 +170,11 @@ export const AgentChat: React.FC<AgentChatProps> = ({ profileId, connectionName,
         >
           <Settings size={15} />
         </button>
+        {onTogglePopout && (
+          <button className="icon-btn" title={popped ? 'Dock to side' : 'Open as full tab'} onClick={onTogglePopout}>
+            {popped ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+          </button>
+        )}
         <button className="icon-btn" title="Close" onClick={onClose}>
           <X size={15} />
         </button>

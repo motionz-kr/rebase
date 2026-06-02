@@ -2529,3 +2529,9 @@
 }
 .agent-proposal-status.ok { color: var(--green, #3fb950); }
 .agent-proposal-status.err { color: var(--red); }
+
+.agent-dock.popped {
+  width: auto;
+  flex: 1;
+  max-width: none;
+}

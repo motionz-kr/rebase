@@ -63,6 +63,7 @@ function App() {
   const [redisRefresh, setRedisRefresh] = useState<Record<string, number>>({});
   const [redisTab, setRedisTab] = useState<Record<string, 'inspector' | 'console'>>({});
   const [showAgent, setShowAgent] = useState(false);
+  const [agentPopped, setAgentPopped] = useState(false);
 
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -564,7 +565,7 @@ function App() {
         </aside>
 
         {/* Main: keep-mounted panel per connected connection, focused one visible */}
-        <main className="main">
+        <main className="main" style={showAgent && agentPopped ? { display: 'none' } : undefined}>
           {conns.order.length === 0 ? (
             <div className="empty-state full">
               <div className="es-icon">
@@ -667,11 +668,13 @@ function App() {
           )}
         </main>
         {showAgent && (
-          <aside className="agent-dock">
+          <aside className={`agent-dock${agentPopped ? ' popped' : ''}`}>
             <AgentChat
               profileId={conns.focusedId}
               connectionName={focusedProfile?.name}
               onClose={() => setShowAgent(false)}
+              popped={agentPopped}
+              onTogglePopout={() => setAgentPopped((v) => !v)}
             />
           </aside>
         )}
