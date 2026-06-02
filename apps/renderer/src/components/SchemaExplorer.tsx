@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronRight, Database, Table2, KeyRound, AlertTriangle, FileCode, Copy, X, Pencil, PlusSquare, Eraser, Trash2, Type, FilePlus, Upload } from 'lucide-react';
+import { ChevronRight, Database, Table2, KeyRound, AlertTriangle, FileCode, Copy, X, Pencil, PlusSquare, Eraser, Trash2, Type, FilePlus, Upload, Eye } from 'lucide-react';
 import { TableEditDialog } from './TableEditDialog';
 import { TableActionDialog, type TableAction } from './TableActionDialog';
 import { CreateTableDialog } from './CreateTableDialog';
@@ -24,6 +24,7 @@ interface TableNode {
 interface DatabaseNode {
   name: string;
   tables?: TableNode[];
+  views?: string[];
   isOpen: boolean;
   isLoading: boolean;
 }
@@ -41,6 +42,7 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
   const [csvImport, setCsvImport] = useState<{ db: string; table: string } | null>(null);
   const [dbMenu, setDbMenu] = useState<{ x: number; y: number; db: string } | null>(null);
   const [create, setCreate] = useState<{ db: string } | null>(null);
+  const [viewMenu, setViewMenu] = useState<{ x: number; y: number; db: string; view: string } | null>(null);
 
   // Close the context menu on any outside click or Escape.
   useEffect(() => {
@@ -84,6 +86,27 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
     setDbMenu({ x: e.clientX, y: e.clientY, db: dbName });
   };
 
+  // Close the view context menu on any outside click or Escape.
+  useEffect(() => {
+    if (!viewMenu) return;
+    const close = () => setViewMenu(null);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setViewMenu(null);
+    };
+    window.addEventListener('click', close);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [viewMenu]);
+
+  const openViewMenu = (e: React.MouseEvent, db: string, view: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setViewMenu({ x: e.clientX, y: e.clientY, db, view });
+  };
+
   const showDDL = async (dbName: string, table: string) => {
     setMenu(null);
     setDdl({ table, text: '', loading: true, error: null });
@@ -96,6 +119,18 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
       }
     } catch (e: any) {
       setDdl({ table, text: '', loading: false, error: e.message || 'Error loading DDL' });
+    }
+  };
+
+  const showViewDDL = async (dbName: string, view: string) => {
+    setViewMenu(null);
+    setDdl({ table: view, text: '', loading: true, error: null });
+    try {
+      const res = await window.electronAPI.getViewDDL(profileId, dbName, view);
+      if (res.success && res.data) setDdl({ table: view, text: res.data.ddl, loading: false, error: null });
+      else setDdl({ table: view, text: '', loading: false, error: res.error || 'Failed to load view DDL' });
+    } catch (e: any) {
+      setDdl({ table: view, text: '', loading: false, error: e.message || 'Error loading view DDL' });
     }
   };
 
@@ -153,10 +188,17 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
       );
 
       let tables: TableNode[] | undefined;
+      let views: string[] = [];
       try {
-        const res = await window.electronAPI.listTables(profileId, dbName);
-        if (res.success && res.data) {
-          tables = res.data.map((t) => ({ name: t.name, isOpen: false, isLoading: false }));
+        const [tRes, vRes] = await Promise.all([
+          window.electronAPI.listTables(profileId, dbName),
+          window.electronAPI.listViews(profileId, dbName),
+        ]);
+        if (tRes.success && tRes.data) {
+          tables = tRes.data.map((t) => ({ name: t.name, isOpen: false, isLoading: false }));
+        }
+        if (vRes.success && vRes.data) {
+          views = vRes.data.map((v) => v.name);
         }
       } catch (err) {
         console.error(err);
@@ -164,7 +206,7 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
 
       setDatabases((prev) =>
         prev.map((db) =>
-          db.name === dbName ? { ...db, isOpen: true, isLoading: false, tables: tables ?? db.tables } : db
+          db.name === dbName ? { ...db, isOpen: true, isLoading: false, tables: tables ?? db.tables, views } : db
         )
       );
       return;
@@ -293,6 +335,24 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
                   </div>
                 ))
               )}
+              {db.views && db.views.length > 0 && (
+                <>
+                  <div className="tree-subheader">뷰</div>
+                  {db.views.map((vname) => (
+                    <div key={`v-${vname}`} className="tree-node">
+                      <div
+                        className="tree-row"
+                        onDoubleClick={() => onOpenTableData?.(db.name, vname)}
+                        onContextMenu={(e) => openViewMenu(e, db.name, vname)}
+                      >
+                        <span className="tree-chevron" />
+                        <span className="tree-icon"><Eye size={14} /></span>
+                        <span className="tree-label">{vname}</span>
+                      </div>
+                    </div>
+                  ))}
+                </>
+              )}
             </div>
           )}
         </div>
@@ -368,6 +428,14 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
         <div className="ctx-menu" style={{ top: dbMenu.y, left: dbMenu.x }} onClick={(e) => e.stopPropagation()}>
           <button className="ctx-item" onClick={() => { setCreate({ db: dbMenu.db }); setDbMenu(null); }}>
             <FilePlus size={13} /> 테이블 추가…
+          </button>
+        </div>
+      )}
+
+      {viewMenu && (
+        <div className="ctx-menu" style={{ top: viewMenu.y, left: viewMenu.x }} onClick={(e) => e.stopPropagation()}>
+          <button className="ctx-item" onClick={() => showViewDDL(viewMenu.db, viewMenu.view)}>
+            <FileCode size={13} /> 뷰 DDL 보기
           </button>
         </div>
       )}
