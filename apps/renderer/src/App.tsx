@@ -64,6 +64,8 @@ function App() {
   // Focused connection's secondary sidebar panel (saved/history)
   const [sideTab, setSideTab] = useState<'saved' | 'history'>('saved');
   const [selectedQueryText, setSelectedQueryText] = useState<string>('');
+  // One-click "load + run this SQL" request, targeted at a connection's editor.
+  const [runReq, setRunReq] = useState<{ profileId: string; sql: string; nonce: number } | null>(null);
   const [historyTrigger, setHistoryTrigger] = useState(0);
   const [savedTrigger, setSavedTrigger] = useState(0);
   const [schemaVersion, setSchemaVersion] = useState(0);
@@ -479,7 +481,7 @@ function App() {
                             onDisconnect={() => disconnect(p.id!)}
                           />
                         ) : (
-                          <SchemaExplorer profileId={p.id!} driver={p.driver} onDisconnect={() => disconnect(p.id!)} onSchemaChanged={() => setSchemaVersion((n) => n + 1)} onOpenTableData={(db, table) => setOpenTable((prev) => ({ ...prev, [p.id!]: { db, table } }))} />
+                          <SchemaExplorer profileId={p.id!} driver={p.driver} onDisconnect={() => disconnect(p.id!)} onSchemaChanged={() => setSchemaVersion((n) => n + 1)} onOpenTableData={(db, table) => setOpenTable((prev) => ({ ...prev, [p.id!]: { db, table } }))} onRunQuery={(sql) => { setOpenTable((prev) => ({ ...prev, [p.id!]: null })); setRunReq({ profileId: p.id!, sql, nonce: Date.now() }); }} />
                         )}
                       </div>
                     )}
@@ -593,6 +595,7 @@ function App() {
                       connectionName={profile.name}
                       onQueryExecuted={() => setHistoryTrigger((n) => n + 1)}
                       loadTriggerQuery={focused ? selectedQueryText : ''}
+                      runQueryRequest={focused && runReq?.profileId === id ? { sql: runReq.sql, nonce: runReq.nonce } : undefined}
                       schemaVersion={schemaVersion}
                     />
                   )}

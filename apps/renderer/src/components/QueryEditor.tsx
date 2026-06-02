@@ -56,6 +56,9 @@ interface QueryEditorProps {
   connectionName: string;
   onQueryExecuted?: () => void;
   loadTriggerQuery?: string;
+  // A request to load a SQL into the active tab AND run it immediately (one-click
+  // actions like "recent rows"). The nonce makes repeat requests of the same SQL fire.
+  runQueryRequest?: { sql: string; nonce: number };
   schemaVersion?: number;
 }
 
@@ -80,7 +83,7 @@ const newTab = (id: string, name: string, query: string): QueryTab => ({
   activeResultIndex: 0,
 });
 
-export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, database, connectionName, onQueryExecuted, loadTriggerQuery, schemaVersion }) => {
+export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, database, connectionName, onQueryExecuted, loadTriggerQuery, runQueryRequest, schemaVersion }) => {
   const [tabs, setTabs] = useState<QueryTab[]>([
     newTab(
       'tab-1',
@@ -407,6 +410,15 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
       );
     }
   };
+
+  // One-click "load this SQL and run it" requests (e.g. table → recent rows).
+  useEffect(() => {
+    if (!runQueryRequest) return;
+    const sql = runQueryRequest.sql;
+    setTabs((prev) => prev.map((t) => (t.id === activeTabId ? { ...t, query: sql } : t)));
+    void executeQuery({ sqlOverride: sql });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runQueryRequest?.nonce]);
 
   const formatQuery = () => {
     const formatted = formatSql(activeTab.query, driver);
