@@ -295,6 +295,39 @@ func (h *IntrospectionHandler) ForeignKeys() http.Handler {
 	})
 }
 
+func (h *IntrospectionHandler) Indexes() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !h.checkToken(r) {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		profileID := r.URL.Query().Get("profileId")
+		database := r.URL.Query().Get("database")
+		table := r.URL.Query().Get("table")
+		if profileID == "" || database == "" || table == "" {
+			http.Error(w, "profileId, database, and table parameters are required", http.StatusBadRequest)
+			return
+		}
+		profile, password, err := h.service.GetProfile(r.Context(), profileID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		connector, err := h.getConnector(profile.Driver)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		indexes, err := connector.ListIndexes(r.Context(), *profile, password, database, table)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(indexes)
+	})
+}
+
 func (h *IntrospectionHandler) SchemaCompletion() http.Handler {
 	type completionColumn struct {
 		Name string `json:"name"`

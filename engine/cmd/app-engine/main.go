@@ -195,6 +195,7 @@ func main() {
 	mux.Handle("/views", introHandler.ListViews())
 	mux.Handle("/view-ddl", introHandler.ViewDDL())
 	mux.Handle("/foreign-keys", introHandler.ForeignKeys())
+	mux.Handle("/indexes", introHandler.Indexes())
 	mux.Handle("/schema-completion", introHandler.SchemaCompletion())
 
 	queryHandler := internalHttp.NewQueryHandler(*token, connectionService)

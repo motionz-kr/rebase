@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/smlee/database-local-engine/engine/internal/domain"
+	"github.com/smlee/database-local-engine/engine/internal/ports"
 )
 
 func TestMySQLConnector_Integration(t *testing.T) {
@@ -200,6 +201,43 @@ func TestMySQLConnector_ForeignKeys(t *testing.T) {
 	if err != nil { t.Fatalf("ListForeignKeys: %v", err) }
 	if len(fks) != 1 || fks[0].Column != "parent_id" || fks[0].RefTable != "fk_parent" || fks[0].RefColumn != "id" {
 		t.Errorf("unexpected fks: %+v", fks)
+	}
+}
+
+func TestMySQLConnector_ListIndexes(t *testing.T) {
+	connector := NewMySQLConnector()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	p := domain.ConnectionProfile{ID: "mysql-idx-1", Name: "MySQL", Driver: "mysql", Host: "127.0.0.1", Port: 3306, Database: "devdb", Username: "root", TLSMode: "none"}
+	pw := "password1!"
+	exec := func(q string) error {
+		_, err := connector.ExecuteQueryStream(ctx, p, pw, q, false, func(int64) {}, func([]string) error { return nil }, func([]any) error { return nil })
+		return err
+	}
+	_ = exec("DROP TABLE IF EXISTS devdb.idx_test")
+	if err := exec("CREATE TABLE devdb.idx_test (id INT PRIMARY KEY, a INT, b INT)"); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	defer exec("DROP TABLE IF EXISTS devdb.idx_test")
+	if err := exec("CREATE UNIQUE INDEX ux_ab ON devdb.idx_test (a, b)"); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	idx, err := connector.ListIndexes(ctx, p, pw, "devdb", "idx_test")
+	if err != nil {
+		t.Fatalf("ListIndexes: %v", err)
+	}
+	byName := map[string]ports.Index{}
+	for _, i := range idx {
+		byName[i.Name] = i
+	}
+	pk, ok := byName["PRIMARY"]
+	if !ok || !pk.Primary || len(pk.Columns) != 1 || pk.Columns[0] != "id" {
+		t.Errorf("unexpected PRIMARY: %+v", pk)
+	}
+	ux, ok := byName["ux_ab"]
+	if !ok || !ux.Unique || ux.Primary || len(ux.Columns) != 2 || ux.Columns[0] != "a" || ux.Columns[1] != "b" {
+		t.Errorf("unexpected ux_ab: %+v", ux)
 	}
 }
 

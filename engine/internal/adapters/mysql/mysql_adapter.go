@@ -430,6 +430,47 @@ func (c *MySQLConnector) ListForeignKeys(ctx context.Context, p domain.Connectio
 	return list, nil
 }
 
+// ListIndexes returns the table's indexes, one entry per index with its columns
+// in order. PRIMARY is reported with Primary=true.
+func (c *MySQLConnector) ListIndexes(ctx context.Context, p domain.ConnectionProfile, password string, database string, table string) ([]ports.Index, error) {
+	db, err := c.connect(p, password, database)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	rows, err := db.QueryContext(ctx, `
+		SELECT index_name, column_name, non_unique
+		FROM information_schema.statistics
+		WHERE table_schema = ? AND table_name = ?
+		ORDER BY index_name, seq_in_index`, database, table)
+	if err != nil {
+		return nil, c.normalizeError(err)
+	}
+	defer rows.Close()
+
+	order := []string{}
+	byName := map[string]*ports.Index{}
+	for rows.Next() {
+		var name, col string
+		var nonUnique int
+		if err := rows.Scan(&name, &col, &nonUnique); err != nil {
+			return nil, c.normalizeError(err)
+		}
+		idx, ok := byName[name]
+		if !ok {
+			idx = &ports.Index{Name: name, Unique: nonUnique == 0, Primary: name == "PRIMARY"}
+			byName[name] = idx
+			order = append(order, name)
+		}
+		idx.Columns = append(idx.Columns, col)
+	}
+	list := make([]ports.Index, 0, len(order))
+	for _, name := range order {
+		list = append(list, *byName[name])
+	}
+	return list, rows.Err()
+}
+
 func (c *MySQLConnector) normalizeError(err error) error {
 	if err == nil {
 		return nil
