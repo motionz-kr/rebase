@@ -1,0 +1,53 @@
+name: CI
+
+# Fast checks on every PR and on pushes to main: lint, unit tests, and
+# compile/type checks across the renderer, desktop shell, and Go engine.
+# (Integration + E2E tests need live databases, so they run locally — see AGENTS.md.)
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 8.15.9 # matches pnpm-lock.yaml (lockfile v6)
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint (renderer)
+        run: pnpm --filter renderer lint
+
+      - name: Unit tests (renderer)
+        run: pnpm --filter renderer test
+
+      - name: Vet + compile the Go engine
+        run: |
+          go vet ./...
+          go build ./...
+
+      - name: Type-check / build renderer + desktop
+        run: |
+          pnpm --filter renderer build
+          pnpm --filter desktop build
