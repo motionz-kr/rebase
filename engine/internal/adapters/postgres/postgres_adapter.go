@@ -426,6 +426,35 @@ func quoteViewIdent(s string) string {
 	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
 }
 
+func (c *PostgreSQLConnector) ListForeignKeys(ctx context.Context, p domain.ConnectionProfile, password string, database string, table string) ([]ports.ForeignKey, error) {
+	db, err := c.connect(p, password, database)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	rows, err := db.QueryContext(ctx, `
+		SELECT kcu.column_name, ccu.table_name AS ref_table, ccu.column_name AS ref_column
+		FROM information_schema.table_constraints tc
+		JOIN information_schema.key_column_usage kcu
+		  ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+		JOIN information_schema.constraint_column_usage ccu
+		  ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema
+		WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = 'public' AND tc.table_name = $1`, table)
+	if err != nil {
+		return nil, c.normalizeError(err)
+	}
+	defer rows.Close()
+	var list []ports.ForeignKey
+	for rows.Next() {
+		var fk ports.ForeignKey
+		if err := rows.Scan(&fk.Column, &fk.RefTable, &fk.RefColumn); err != nil {
+			return nil, c.normalizeError(err)
+		}
+		list = append(list, fk)
+	}
+	return list, nil
+}
+
 func (c *PostgreSQLConnector) normalizeError(err error) error {
 	if err == nil {
 		return nil

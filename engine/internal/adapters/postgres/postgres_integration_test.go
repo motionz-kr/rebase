@@ -59,6 +59,30 @@ func TestPostgreSQLConnector_ExecuteBatch(t *testing.T) {
 	}
 }
 
+func TestPostgreSQLConnector_ForeignKeys(t *testing.T) {
+	connector := NewPostgreSQLConnector()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	p := domain.ConnectionProfile{ID: "pg-fk-1", Name: "PG", Driver: "postgres", Host: "127.0.0.1", Port: 5432, Database: "postgres", Username: "postgres", TLSMode: "none"}
+	pw := "postgres"
+	exec := func(q string) error {
+		_, err := connector.ExecuteQueryStream(ctx, p, pw, q, false, func(int64) {}, func([]string) error { return nil }, func([]any) error { return nil })
+		return err
+	}
+	_ = exec("DROP TABLE IF EXISTS fk_child")
+	_ = exec("DROP TABLE IF EXISTS fk_parent")
+	if err := exec("CREATE TABLE fk_parent (id INT PRIMARY KEY)"); err != nil { t.Fatalf("parent: %v", err) }
+	defer exec("DROP TABLE IF EXISTS fk_parent")
+	if err := exec("CREATE TABLE fk_child (id INT, parent_id INT REFERENCES fk_parent(id))"); err != nil { t.Fatalf("child: %v", err) }
+	defer exec("DROP TABLE IF EXISTS fk_child")
+
+	fks, err := connector.ListForeignKeys(ctx, p, pw, "postgres", "fk_child")
+	if err != nil { t.Fatalf("ListForeignKeys: %v", err) }
+	if len(fks) != 1 || fks[0].Column != "parent_id" || fks[0].RefTable != "fk_parent" || fks[0].RefColumn != "id" {
+		t.Errorf("unexpected fks: %+v", fks)
+	}
+}
+
 func TestPostgreSQLConnector_Views(t *testing.T) {
 	connector := NewPostgreSQLConnector()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
