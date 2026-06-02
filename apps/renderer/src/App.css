@@ -904,6 +904,103 @@
   color: var(--amber);
 }
 
+/* Index manager dialog */
+.idx-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 220px;
+  overflow: auto;
+  margin: 8px 0;
+}
+.idx-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.idx-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 12.5px;
+}
+.idx-name {
+  font-weight: 600;
+}
+.idx-cols {
+  color: var(--text-muted);
+}
+.idx-spacer {
+  flex: 1;
+}
+.idx-badge {
+  font-size: 10.5px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+.idx-badge.pk {
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+.idx-badge.uq {
+  background: var(--accent-soft, color-mix(in srgb, var(--accent) 15%, transparent));
+  color: var(--accent);
+}
+.idx-add {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+.idx-add-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+.idx-add-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.idx-add-row .input {
+  flex: 1;
+}
+.idx-unique {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.idx-cols-pick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.idx-col-chip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+.idx-col-chip.on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--text);
+}
+
 /* Multi-statement result-set strip */
 .result-strip {
   display: flex;

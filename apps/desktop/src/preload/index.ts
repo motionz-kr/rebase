@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   describeTable: (profileId: string, database: string, table: string) => ipcRenderer.invoke('describe-table', profileId, database, table),
   getTableDDL: (profileId: string, database: string, table: string) => ipcRenderer.invoke('get-table-ddl', profileId, database, table),
   listForeignKeys: (profileId: string, database: string, table: string) => ipcRenderer.invoke('list-foreign-keys', profileId, database, table),
+  listIndexes: (profileId: string, database: string, table: string) => ipcRenderer.invoke('list-indexes', profileId, database, table),
   listViews: (profileId: string, database: string) => ipcRenderer.invoke('list-views', profileId, database),
   getViewDDL: (profileId: string, database: string, view: string) => ipcRenderer.invoke('get-view-ddl', profileId, database, view),
   getSchemaCompletion: (profileId: string, database: string) => ipcRenderer.invoke('get-schema-completion', profileId, database),
