@@ -72,6 +72,10 @@ declare global {
       getSchemaCompletion: (profileId: string, database: string) => Promise<ResultWrapper<{ tables: { name: string; columns: { name: string; type: string }[] }[] }>>;
       executeQueryStream: (queryId: string, profileId: string, query: string, options?: { allowWrite?: boolean; confirmDestructive?: boolean; maxRows?: number; fetchAll?: boolean }) => Promise<ResultWrapper<{ success: boolean }>>;
       cancelQuery: (queryId: string) => Promise<ResultWrapper<{ success: boolean }>>;
+      executeBatch: (
+        profileId: string,
+        statements: string[]
+      ) => Promise<ResultWrapper<{ ok: boolean; rowsAffected: number; failedIndex: number; error?: string }>>;
       onQueryStreamChunk: (callback: (queryId: string, chunk: any) => void) => () => void;
       redisScan: (profileId: string, pattern: string, cursor: number, count: number) => Promise<ResultWrapper<RedisKeyspaceInfo>>;
       redisValue: (profileId: string, key: string) => Promise<ResultWrapper<RedisValueInfo>>;

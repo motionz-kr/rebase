@@ -441,6 +441,19 @@ app.whenReady().then(() => {
     }
   });
 
+  ipcMain.handle('execute-batch', async (event, profileId, statements) => {
+    try {
+      const data = await requestEngine({
+        method: 'POST',
+        path: '/query/execute-batch',
+        body: { profileId, statements, allowWrite: true, confirmDestructive: true },
+      });
+      return { success: true, data };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
   ipcMain.handle('cancel-query', async (event, queryId) => {
     try {
       // Tell the engine to cancel server-side, then tear down the local stream

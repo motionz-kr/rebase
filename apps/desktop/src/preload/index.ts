@@ -18,6 +18,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     options?: { allowWrite?: boolean; confirmDestructive?: boolean; maxRows?: number; fetchAll?: boolean }
   ) => ipcRenderer.invoke('execute-query-stream', queryId, profileId, query, options),
   cancelQuery: (queryId: string) => ipcRenderer.invoke('cancel-query', queryId),
+  executeBatch: (profileId: string, statements: string[]) =>
+    ipcRenderer.invoke('execute-batch', profileId, statements),
   onQueryStreamChunk: (callback: (queryId: string, chunk: any) => void) => {
     const listener = (_event: any, qId: string, chunk: any) => callback(qId, chunk);
     ipcRenderer.on('query-stream-chunk', listener);
