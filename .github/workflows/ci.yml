@@ -1,12 +1,13 @@
 name: CI
 
-# Fast checks on every PR and on pushes to main: lint, unit tests, and
-# compile/type checks across the renderer, desktop shell, and Go engine.
+# Fast checks on every PR: lint, unit tests, and compile/type checks across the
+# renderer, desktop shell, and Go engine. Runs on PRs only — pushes to main are
+# handled by the Release workflow (release-please + build), and every change
+# reaches main through a PR that already passed these checks, so re-running on
+# the merge commit would just duplicate work (and run alongside Release).
 # (Integration + E2E tests need live databases, so they run locally — see AGENTS.md.)
 on:
   pull_request:
-  push:
-    branches: [main]
 
 permissions:
   contents: read

@@ -5,7 +5,8 @@
     {
       "provider": "github",
       "owner": "motionz-kr",
-      "repo": "rebase"
+      "repo": "rebase",
+      "releaseType": "release"
     }
   ],
   "directories": {
