@@ -1,0 +1,15 @@
+name: Labeler
+
+# Auto-label PRs by which paths they touch (config: .github/labeler.yml).
+on:
+  - pull_request_target
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/labeler@v5

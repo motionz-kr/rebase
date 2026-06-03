@@ -1,0 +1,9 @@
+# Default owner for everything — auto-requested as reviewer on PRs.
+* @lyasee
+
+# Area owners (extend as the team grows)
+/engine/        @lyasee
+/apps/desktop/  @lyasee
+/apps/renderer/ @lyasee
+/.github/       @lyasee
+/docs/          @lyasee

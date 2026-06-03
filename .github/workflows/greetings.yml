@@ -1,0 +1,23 @@
+name: Greetings
+
+# Welcome first-time contributors on their first issue / PR.
+on: [pull_request_target, issues]
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  greeting:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/first-interaction@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          issue-message: |
+            👋 Thanks for opening your first issue! A maintainer will take a look soon.
+            Please make sure you've included reproduction steps, your app version, and your OS.
+          pr-message: |
+            🎉 Thanks for your first pull request! Please make sure the title is a
+            [Conventional Commit](https://www.conventionalcommits.org/) and that the checks pass.
+            See `CONTRIBUTING.md` if you haven't yet. A maintainer will review shortly.
