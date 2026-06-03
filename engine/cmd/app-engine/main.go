@@ -152,6 +152,15 @@ func main() {
 			`,
 			Checksum: "workspace-queries-v1",
 		},
+		{
+			Version: 3,
+			Name:    "add_profile_mcp_settings",
+			SQL: `
+				ALTER TABLE connection_profiles ADD COLUMN mcp_enabled INTEGER NOT NULL DEFAULT 0;
+				ALTER TABLE connection_profiles ADD COLUMN mcp_data_exposure TEXT NOT NULL DEFAULT 'metadata';
+			`,
+			Checksum: "profile-mcp-settings-v1",
+		},
 	}
 	if err := migrationRunner.Run(migrations); err != nil {
 		log.Fatalf("failed to run migrations: %v", err)
@@ -228,6 +237,7 @@ func main() {
 	agentHandler := internalHttp.NewAgentHandler(*token, connectionService)
 	mux.Handle("/agent/run", agentHandler.Run())
 	mux.Handle("/agent/key", agentHandler.Key())
+	mux.Handle("/mcp/connection", agentHandler.SetMCPConnection())
 
 	workspaceHandler := internalHttp.NewWorkspaceHandler(*token, workspaceService)
 	mux.Handle("/workspaces", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -342,8 +352,17 @@ func runMCPServer(svc *application.ConnectionService, profileID string) {
 	default:
 		log.Fatalf("mcp: unsupported driver %q (SQL drivers only)", profile.Driver)
 	}
+	if !profile.McpEnabled {
+		log.Fatalf("mcp: connection %q is not enabled for MCP (enable it in Rebase → connection settings)", profileID)
+	}
 	registry := agent.NewSQLRegistry(conn, *profile, password, profile.Database)
-	if err := mcp.NewServer(registry).Serve(ctx, os.Stdin, os.Stdout); err != nil {
+	exposure := profile.McpDataExposure
+	if exposure == "" {
+		exposure = "metadata"
+	}
+	srv := mcp.NewServer(registry)
+	srv.SetPolicy(agent.Policy{DataExposure: exposure}, []string{password, profile.SecretRef})
+	if err := srv.Serve(ctx, os.Stdin, os.Stdout); err != nil {
 		log.Fatalf("mcp: server error: %v", err)
 	}
 }
