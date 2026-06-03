@@ -127,3 +127,23 @@ The unsigned build runs locally (ad-hoc signed). To distribute to other Macs eit
 | [`docs/testing-strategy.md`](docs/testing-strategy.md) | Test layers (unit → E2E) |
 | [`docs/security.md`](docs/security.md) | Secret handling & query policy |
 | [`docs/adr/`](docs/adr/) | Architecture decision records |
+
+## 🤝 Contributing
+
+Contributions are welcome! Please read [`CONTRIBUTING.md`](CONTRIBUTING.md) for
+the dev setup, test commands, and our **Conventional Commits** requirement
+(releases are generated from commit history). By participating you agree to the
+[Code of Conduct](CODE_OF_CONDUCT.md). To report a vulnerability, see
+[`SECURITY.md`](SECURITY.md).
+
+## 📦 Releases
+
+Versioning and installers are fully automated via [release-please]: merging the
+auto-generated **Release PR** cuts the version, tag, GitHub Release, and the
+macOS/Windows installers. See [`docs/auto-update.md`](docs/auto-update.md).
+
+[release-please]: https://github.com/googleapis/release-please
+
+## 📄 License
+
+[MIT](LICENSE) © motionz-kr

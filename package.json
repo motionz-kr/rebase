@@ -2,6 +2,7 @@
   "name": "database-desktop-tool",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "scripts": {
     "dev": "pnpm --filter renderer dev & (sleep 2 && pnpm --filter desktop dev)",
     "test": "pnpm --filter desktop test",

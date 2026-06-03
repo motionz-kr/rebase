@@ -1,0 +1,41 @@
+name: PR Title
+
+# Enforce Conventional Commit PR titles (release-please derives versions from
+# them). Comments on the PR when the title is invalid, and clears the comment
+# once it's fixed.
+on:
+  pull_request_target:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate PR title
+        id: lint
+        uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Comment on invalid title
+        if: always() && steps.lint.outputs.error_message != null
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: pr-title-lint
+          message: |
+            ⚠️ **The PR title isn't a valid [Conventional Commit](https://www.conventionalcommits.org/).**
+
+            > ${{ steps.lint.outputs.error_message }}
+
+            Use `type(scope): summary`, e.g. `feat(agent): add OpenAI provider` or
+            `fix(grid): keep NULL cells editable`. Releases are generated from these.
+
+      - name: Clear comment when fixed
+        if: steps.lint.outputs.error_message == null
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: pr-title-lint
+          delete: true

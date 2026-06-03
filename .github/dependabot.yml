@@ -1,0 +1,48 @@
+version: 2
+updates:
+  # JavaScript/TypeScript (pnpm workspaces). One entry per package.json dir.
+  - package-ecosystem: npm
+    directory: '/'
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      js-root:
+        patterns: ['*']
+
+  - package-ecosystem: npm
+    directory: '/apps/desktop'
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      desktop-deps:
+        patterns: ['*']
+
+  - package-ecosystem: npm
+    directory: '/apps/renderer'
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      renderer-deps:
+        patterns: ['*']
+
+  # Go engine
+  - package-ecosystem: gomod
+    directory: '/'
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      go-deps:
+        patterns: ['*']
+
+  # GitHub Actions used by our workflows
+  - package-ecosystem: github-actions
+    directory: '/'
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']

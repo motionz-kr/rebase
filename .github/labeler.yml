@@ -1,0 +1,23 @@
+engine:
+  - changed-files:
+      - any-glob-to-any-file: 'engine/**'
+
+desktop:
+  - changed-files:
+      - any-glob-to-any-file: 'apps/desktop/**'
+
+renderer:
+  - changed-files:
+      - any-glob-to-any-file: 'apps/renderer/**'
+
+ci:
+  - changed-files:
+      - any-glob-to-any-file: ['.github/**', 'release-please-config.json', '.release-please-manifest.json']
+
+docs:
+  - changed-files:
+      - any-glob-to-any-file: ['docs/**', '**/*.md']
+
+dependencies:
+  - changed-files:
+      - any-glob-to-any-file: ['**/package.json', 'pnpm-lock.yaml', 'go.mod', 'go.sum']
