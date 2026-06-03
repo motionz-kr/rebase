@@ -5,24 +5,39 @@ GitHub Releases feed of this (public) repo; when a newer version exists a
 top-right **업데이트** button appears, and clicking it opens a modal that drives
 the update.
 
-## Releasing
+## Releasing (automatic, content-driven)
 
-1. Bump `version` in `apps/desktop/package.json`.
-2. Commit, then push a tag:
+Releases are driven by [release-please] from the conventional-commit history —
+**you never bump the version or tag by hand**.
 
-   ```bash
-   git tag v0.2.0 && git push origin v0.2.0
-   ```
+1. Merge feature PRs to `main` using conventional-commit messages
+   (`feat:` → minor, `fix:` → patch, `feat!:` / `BREAKING CHANGE` → major).
+2. `release-please` (in `.github/workflows/release.yml`) opens/updates a
+   **Release PR** titled like `chore(main): release rebase 0.2.0`, containing the
+   version bump (`apps/desktop/package.json`) + `CHANGELOG.md`.
+3. **Merge that Release PR.** release-please creates the `vX.Y.Z` tag + GitHub
+   Release, and the same workflow run then builds **macOS (arm64)** and
+   **Windows (x64)** (cross-building the Go engine per OS) and
+   `electron-builder --publish always` attaches the installers + update metadata
+   (`latest.yml` / `latest-mac.yml`) to that Release.
 
-3. CI (`.github/workflows/release.yml`) builds **macOS (arm64)** and **Windows
-   (x64)** — cross-building the Go engine per OS — and runs
-   `electron-builder --publish always`, which uploads the installers **and** the
-   update metadata (`latest.yml` / `latest-mac.yml`) to a GitHub Release in this
-   repo (`motionz-kr/rebase`). Clients read that feed directly.
+So "merge the Release PR" **is** the release action. Because the repo is
+**public**, the built-in `secrets.GITHUB_TOKEN` can create the release and
+publish assets — **no extra PAT/secret is required**.
 
-Because the repo is **public**, the workflow's built-in `secrets.GITHUB_TOKEN`
-already has the permission to create the release — **no extra PAT/secret is
-required**.
+Config: `release-please-config.json` + `.release-please-manifest.json`
+(tracks `apps/desktop` with `include-component-in-tag: false`, so tags are
+`vX.Y.Z`).
+
+[release-please]: https://github.com/googleapis/release-please
+
+### Notes for a clean release feed
+
+- release-please publishes the Release immediately; the installers appear a few
+  minutes later once the build job finishes. Brief window where the Release has
+  notes but no binaries yet.
+- Manual fallback: `workflow_dispatch` on the Release workflow re-runs
+  release-please (it only creates a release if there are releasable commits).
 
 ## Platform behavior
 
