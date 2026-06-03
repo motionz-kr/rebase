@@ -1,19 +1,36 @@
 name: Release
 
-# Build macOS + Windows and publish installers + update metadata
-# (latest*.yml) to this public repo's GitHub Releases.
-# Triggers on a version tag push (e.g. `v0.1.0`); also runnable manually.
+# Content-driven auto-release. On every push to main, release-please reads the
+# conventional-commit history and maintains a "Release PR" (version bump +
+# CHANGELOG). Merging that Release PR creates the tag + GitHub Release, which in
+# the SAME run triggers the macOS + Windows build that attaches the installers
+# and update metadata (latest*.yml). Doing both in one workflow avoids the
+# GITHUB_TOKEN "no recursive workflow trigger" limitation.
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.rp.outputs.releases_created }}
+      tag_name: ${{ steps.rp.outputs['apps/desktop--tag_name'] }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: rp
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
   build:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -29,6 +46,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
