@@ -3002,3 +3002,5 @@
   flex-wrap: wrap;
   gap: 8px;
 }
+.mcp-note.ok { color: var(--green); }
+.mcp-note.err { color: var(--red); }

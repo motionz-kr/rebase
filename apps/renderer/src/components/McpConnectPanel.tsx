@@ -17,10 +17,23 @@ export const McpConnectPanel: React.FC<Props> = ({ connId, connName, initialEnab
   const [enginePath, setEnginePath] = useState('');
   const [copied, setCopied] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [clients, setClients] = useState<Array<{ id: string; label: string; present: boolean }>>([]);
+  const [connectMsg, setConnectMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
   useEffect(() => {
     void window.electronAPI.mcpEnginePath().then(setEnginePath);
+    void window.electronAPI.mcpDetectClients().then(setClients);
   }, []);
+
+  const autoconnect = async (clientId: string, label: string) => {
+    setConnectMsg(null);
+    const res = await window.electronAPI.mcpAutoconnect(clientId, connId);
+    if (res.success) {
+      setConnectMsg({ kind: 'ok', text: `${label}에 연결됨${res.data?.backup ? ' (기존 설정 백업함)' : ''}. 클라이언트를 재시작하세요.` });
+    } else {
+      setConnectMsg({ kind: 'err', text: res.error || '연결 실패' });
+    }
+  };
 
   const save = async (nextEnabled: boolean, nextExposure: string) => {
     setSaving(true);
@@ -74,6 +87,28 @@ export const McpConnectPanel: React.FC<Props> = ({ connId, connName, initialEnab
             </button>
           </div>
           <pre className="mcp-snippet">{snippet || '엔진 경로 로딩 중…'}</pre>
+
+          <div className="mcp-snippet-head">
+            <span>또는 자동 연결</span>
+          </div>
+          <div className="mcp-clients">
+            {clients.map((c) => (
+              <button
+                key={c.id}
+                className="btn btn-secondary btn-sm"
+                disabled={!c.present || !snippet}
+                title={c.present ? '' : '설치 감지 안 됨'}
+                onClick={() => void autoconnect(c.id, c.label)}
+              >
+                {c.label}
+                {!c.present ? ' (미감지)' : ''}
+              </button>
+            ))}
+          </div>
+          {connectMsg && (
+            <p className={`mcp-note ${connectMsg.kind === 'err' ? 'err' : 'ok'}`}>{connectMsg.text}</p>
+          )}
+
           <p className="mcp-note">
             노출하면 로컬 AI 클라이언트가 선택한 노출 수준으로 이 DB를 읽을 수 있습니다. 쓰기 실행 도구는 노출되지 않습니다.
           </p>
