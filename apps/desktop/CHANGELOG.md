@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/motionz-kr/rebase/compare/v0.3.0...v0.4.0) (2026-06-03)
+
+
+### Features
+
+* **mcp:** expose Rebase to external AI clients ([#37](https://github.com/motionz-kr/rebase/issues/37)) ([c4a5f78](https://github.com/motionz-kr/rebase/commit/c4a5f7836687fd31d547efbf3d23a3cb1aef0748))
+
 ## [0.3.0](https://github.com/motionz-kr/rebase/compare/v0.2.0...v0.3.0) (2026-06-03)
 
 
