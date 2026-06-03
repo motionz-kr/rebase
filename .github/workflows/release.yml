@@ -1,7 +1,7 @@
 name: Release
 
 # Build macOS + Windows and publish installers + update metadata
-# (latest*.yml) to the public motionz-kr/rebase-releases repo.
+# (latest*.yml) to this public repo's GitHub Releases.
 # Triggers on a version tag push (e.g. `v0.1.0`); also runnable manually.
 on:
   push:
@@ -69,7 +69,8 @@ jobs:
       - name: Package + publish (${{ matrix.platform }})
         working-directory: apps/desktop
         env:
-          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          # The repo is public, so the built-in token can publish releases to it.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         shell: bash
         run: pnpm exec electron-builder --${{ matrix.platform }} --publish always

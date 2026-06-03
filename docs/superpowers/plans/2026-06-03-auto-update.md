@@ -4,7 +4,7 @@
 
 **Goal:** Ship in-app auto-update — on launch the app checks a public feed and, when a newer version exists, shows a top-right **Update** button that opens a modal driving the update (Windows self-installs; unsigned macOS opens the Releases page).
 
-**Architecture:** A main-process `UpdateService` wraps `electron-updater`, gated by a pure `resolveUpdateAction(platform, signed, packaged)` policy. It forwards a neutral `update-status` event stream over IPC. The renderer folds that stream with a pure reducer into a top-right `UpdateButton` + `UpdateModal`. Releases (installers + `latest*.yml`) are published by CI to a dedicated **public** `motionz-kr/rebase-releases` repo so the private source stays private and clients read the feed tokenlessly.
+**Architecture:** A main-process `UpdateService` wraps `electron-updater`, gated by a pure `resolveUpdateAction(platform, signed, packaged)` policy. It forwards a neutral `update-status` event stream over IPC. The renderer folds that stream with a pure reducer into a top-right `UpdateButton` + `UpdateModal`. Releases (installers + `latest*.yml`) are published by CI to a dedicated **public** `motionz-kr/rebase` repo so the private source stays private and clients read the feed tokenlessly.
 
 **Tech Stack:** Electron 28, `electron-updater`, electron-builder (github publish provider), Vite/React 19 renderer, Go engine (bundled, cross-built per-OS), vitest (unit), Playwright/CDP (live).
 
@@ -55,18 +55,18 @@ git commit -m "build(desktop): add electron-updater dependency"
 
 **Files:** none (GitHub infra).
 
-- [ ] **Step 1: Create `motionz-kr/rebase-releases` (public)**
+- [ ] **Step 1: Create `motionz-kr/rebase` (public)**
 
 Try the API (needs an org-write token; `$GH_PAT` = a token with `repo` scope on the org):
 
 ```bash
 curl -s -X POST -H "Authorization: token $GH_PAT" \
   https://api.github.com/orgs/motionz-kr/repos \
-  -d '{"name":"rebase-releases","private":false,"description":"Public update feed + installers for Rebase (source is private)."}' \
+  -d '{"name":"rebase","private":false,"description":"Public update feed + installers for Rebase (source is private)."}' \
   | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('full_name'), d.get('private'))"
 ```
 
-Expected: `motionz-kr/rebase-releases False`. If the API returns a permissions error, create it manually in the GitHub UI (New repo → Public → name `rebase-releases`) and continue.
+Expected: `motionz-kr/rebase False`. If the API returns a permissions error, create it manually in the GitHub UI (New repo → Public → name `rebase`) and continue.
 
 - [ ] **Step 2: Seed an initial empty release tag holder**
 
@@ -86,7 +86,7 @@ Add this top-level key to `apps/desktop/electron-builder.json` (sibling of `"mac
     {
       "provider": "github",
       "owner": "motionz-kr",
-      "repo": "rebase-releases"
+      "repo": "rebase"
     }
   ],
 ```
@@ -100,7 +100,7 @@ Expected: `valid`.
 
 ```bash
 git add apps/desktop/electron-builder.json
-git commit -m "build(desktop): publish updates to public rebase-releases repo"
+git commit -m "build(desktop): publish updates to public rebase repo"
 ```
 
 ### Task 4: Extend the release workflow to mac + win and publish the feed
@@ -116,7 +116,7 @@ Replace the entire contents of `.github/workflows/release.yml` with:
 name: Release
 
 # Build macOS + Windows and publish installers + update metadata
-# (latest*.yml) to the public motionz-kr/rebase-releases repo.
+# (latest*.yml) to the public motionz-kr/rebase repo.
 # Triggers on a version tag push (e.g. `v0.1.0`); also runnable manually.
 on:
   push:
@@ -192,7 +192,7 @@ jobs:
 
 - [ ] **Step 2: Document the required secret**
 
-The workflow needs a repo secret `RELEASES_TOKEN` — a PAT (classic, `repo` scope, or fine-grained with Contents:write on `rebase-releases`) so electron-builder can create releases in the public repo. Add it under the **private** repo's Settings → Secrets → Actions. (This is a manual GitHub step; note it in the PR description.)
+The workflow needs a repo secret `RELEASES_TOKEN` — a PAT (classic, `repo` scope, or fine-grained with Contents:write on `rebase`) so electron-builder can create releases in the public repo. Add it under the **private** repo's Settings → Secrets → Actions. (This is a manual GitHub step; note it in the PR description.)
 
 - [ ] **Step 3: Validate the YAML**
 
@@ -257,7 +257,7 @@ export type UpdateAction = 'self-update' | 'open-download-page' | 'disabled';
 export const MAC_SELF_UPDATE = false;
 
 // Where the unsigned-macOS fallback sends users to download the new build.
-export const RELEASES_PAGE_URL = 'https://github.com/motionz-kr/rebase-releases/releases/latest';
+export const RELEASES_PAGE_URL = 'https://github.com/motionz-kr/rebase/releases/latest';
 
 export function resolveUpdateAction(
   platform: NodeJS.Platform,
@@ -940,7 +940,7 @@ Expected: each assertion passes (capture a screenshot of the progress modal).
 
 - [ ] **Step 1: Write the operator/release doc**
 
-Create `docs/auto-update.md` with: how releases work (bump version → tag `vX.Y.Z` → CI publishes to `rebase-releases`), the `RELEASES_TOKEN` secret requirement, the unsigned-macOS behavior (Update opens the Releases page; flip `MAC_SELF_UPDATE` + add Apple Developer ID cert/notarization to enable self-update), and the Windows SmartScreen note.
+Create `docs/auto-update.md` with: how releases work (bump version → tag `vX.Y.Z` → CI publishes to `rebase`), the `RELEASES_TOKEN` secret requirement, the unsigned-macOS behavior (Update opens the Releases page; flip `MAC_SELF_UPDATE` + add Apple Developer ID cert/notarization to enable self-update), and the Windows SmartScreen note.
 
 ```md
 # Auto-Update — operating notes
@@ -949,10 +949,10 @@ Create `docs/auto-update.md` with: how releases work (bump version → tag `vX.Y
 1. Bump `version` in `apps/desktop/package.json`.
 2. Commit, then push a tag: `git tag v0.2.0 && git push origin v0.2.0`.
 3. CI (`release.yml`) builds macOS + Windows and publishes installers +
-   `latest*.yml` to the public `motionz-kr/rebase-releases` repo.
+   `latest*.yml` to the public `motionz-kr/rebase` repo.
 
 ## Required secret
-`RELEASES_TOKEN` — a PAT with Contents:write on `motionz-kr/rebase-releases`
+`RELEASES_TOKEN` — a PAT with Contents:write on `motionz-kr/rebase`
 (electron-builder uses it to create the release in that repo).
 
 ## Platform behavior

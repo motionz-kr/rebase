@@ -1,8 +1,9 @@
 # Auto-Update — operating notes
 
-In-app auto-update is built on `electron-updater`. On launch the app checks a
-public feed; when a newer version exists a top-right **업데이트** button appears,
-and clicking it opens a modal that drives the update.
+In-app auto-update is built on `electron-updater`. On launch the app checks the
+GitHub Releases feed of this (public) repo; when a newer version exists a
+top-right **업데이트** button appears, and clicking it opens a modal that drives
+the update.
 
 ## Releasing
 
@@ -16,16 +17,12 @@ and clicking it opens a modal that drives the update.
 3. CI (`.github/workflows/release.yml`) builds **macOS (arm64)** and **Windows
    (x64)** — cross-building the Go engine per OS — and runs
    `electron-builder --publish always`, which uploads the installers **and** the
-   update metadata (`latest.yml` / `latest-mac.yml`) to a GitHub Release in the
-   public **`motionz-kr/rebase-releases`** repo. Clients read that feed; the
-   private source repo is never exposed.
+   update metadata (`latest.yml` / `latest-mac.yml`) to a GitHub Release in this
+   repo (`motionz-kr/rebase`). Clients read that feed directly.
 
-## Required secret
-
-`RELEASES_TOKEN` — a PAT with **Contents: write** on
-`motionz-kr/rebase-releases` (the default `GITHUB_TOKEN` is scoped to the source
-repo only). Add it under the source repo's **Settings → Secrets and variables →
-Actions**. electron-builder reads it as `GH_TOKEN`.
+Because the repo is **public**, the workflow's built-in `secrets.GITHUB_TOKEN`
+already has the permission to create the release — **no extra PAT/secret is
+required**.
 
 ## Platform behavior
 

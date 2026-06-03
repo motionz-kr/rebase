@@ -5,7 +5,7 @@ export type UpdateAction = 'self-update' | 'open-download-page' | 'disabled';
 export const MAC_SELF_UPDATE = false;
 
 // Where the unsigned-macOS fallback sends users to download the new build.
-export const RELEASES_PAGE_URL = 'https://github.com/motionz-kr/rebase-releases/releases/latest';
+export const RELEASES_PAGE_URL = 'https://github.com/motionz-kr/rebase/releases/latest';
 
 export function resolveUpdateAction(
   platform: NodeJS.Platform,

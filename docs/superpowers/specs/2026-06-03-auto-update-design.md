@@ -29,10 +29,12 @@ unsigned macOS build opens the Releases download page).
      updates), so its Update button **opens the Releases download page**.
    - The main-process gate and CI are written so that adding signing secrets
      later flips macOS to true self-update with no UI change.
-3. **Update feed:** a dedicated **public** repo `motionz-kr/rebase-releases`
-   holds only the installers + `latest.yml` / `latest-mac.yml`. The private
-   source stays private; end-users read the feed tokenlessly via the
-   `electron-updater` github provider.
+3. **Update feed:** the **main repo `motionz-kr/rebase` is public**, and releases
+   (installers + `latest.yml` / `latest-mac.yml`) are published to its GitHub
+   Releases. End-users read the feed tokenlessly via the `electron-updater`
+   github provider; CI publishes with the built-in `GITHUB_TOKEN` (no extra
+   secret). *(Earlier draft used a separate public `rebase-releases` repo; we
+   chose to make the source public instead since it holds no real secrets.)*
 4. **UX:** a **top-right Update button**, shown only when an update is available,
    opens a **modal popup** that shows loading/progress and drives the update. A
    **"Check for updates"** action in settings performs an on-demand check.
@@ -47,7 +49,7 @@ Three isolated units plus the release pipeline.
 
 Wraps `electron-updater`'s `autoUpdater`:
 
-- Configure the github provider for `motionz-kr/rebase-releases`; set
+- Configure the github provider for `motionz-kr/rebase`; set
   `autoDownload = false` and `autoInstallOnAppQuit = false` (the user drives it).
 - Public methods: `check()`, `download()`, `installAndRestart()`.
 - Subscribes to autoUpdater events and forwards a single neutral stream to the
@@ -106,16 +108,16 @@ the feed's version using semver.
 ## Release & feed pipeline
 
 - **`electron-builder.json`:** add
-  `"publish": [{ "provider": "github", "owner": "motionz-kr", "repo": "rebase-releases" }]`.
+  `"publish": [{ "provider": "github", "owner": "motionz-kr", "repo": "rebase" }]`.
 - **`release.yml`:** on a `vX.Y.Z` tag, a 2-job matrix:
   - **macOS** (`macos-14`, arm64): cross-build engine for darwin/arm64, build
     renderer+desktop, `electron-builder --mac --publish always`.
   - **Windows** (`windows-latest`, x64): cross-build the Go engine with
     `GOOS=windows GOARCH=amd64`, build renderer+desktop,
     `electron-builder --win --publish always`.
-  - Both jobs use a `GH_TOKEN` with write access to `motionz-kr/rebase-releases`
-    so installers + `latest*.yml` land in a release **there**, not in the
-    private source repo.
+  - Both jobs publish with `GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}` — the public
+    repo's built-in token can create its own releases, so no extra PAT/secret is
+    needed.
 - **Versioning:** bump `version` in the desktop `package.json`, tag `vX.Y.Z`,
   push the tag → release. (The app reads its own version for the comparison.)
 
@@ -161,7 +163,7 @@ the feed's version using semver.
 
 | Phase | Deliverable |
 | --- | --- |
-| **P1** | Feed & release pipeline: create public `rebase-releases` repo, add electron-builder `publish`, extend `release.yml` to build+publish macOS **and** Windows with `latest*.yml` metadata. |
+| **P1** | Feed & release pipeline: create public `rebase` repo, add electron-builder `publish`, extend `release.yml` to build+publish macOS **and** Windows with `latest*.yml` metadata. |
 | **P2** | Main `UpdateService` + `updatePolicy` gate + IPC/preload/types (TDD on the pure gate). |
 | **P3** | Renderer: `useUpdater` reducer (TDD), top-right `UpdateButton`, `UpdateModal`, settings "Check for updates". |
 | **P4** | macOS download-page fallback, signing-ready hooks (`MAC_SELF_UPDATE` flag + entitlements notes), and user/release docs. |
@@ -175,9 +177,9 @@ previous version.
 
 ## Open questions / risks
 
-- **Cross-repo publish token:** the release workflow needs a `GH_TOKEN`
-  (fine-grained PAT or app token) with write access to `rebase-releases`. The
-  default `GITHUB_TOKEN` is scoped to the source repo only.
+- **Source is now public:** making `motionz-kr/rebase` public exposes the full
+  source + history. A scan found no real secrets — only a local-only dev DB
+  password (`password1!`, 127.0.0.1 Docker) and some local paths in docs.
 - **macOS self-update is blocked until signing** — the fallback ships now;
   flipping `MAC_SELF_UPDATE` requires an Apple Developer ID cert + notarization.
 - **Windows SmartScreen** warns on unsigned installers until a Windows
