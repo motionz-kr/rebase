@@ -69,6 +69,8 @@ export interface ConnectionProfile {
   username: string;
   secretRef?: string;
   tlsMode: 'none' | 'prefer' | 'require';
+  mcpEnabled?: boolean;
+  mcpDataExposure?: string;
   createdAt?: string;
   updatedAt?: string;
 }
