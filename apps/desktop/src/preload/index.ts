@@ -32,6 +32,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   agentCancel: (runId: string) => ipcRenderer.invoke('agent-cancel', runId),
   agentCliStatus: (tool: string) => ipcRenderer.invoke('agent-cli-status', tool),
   agentCliLogin: (tool: string) => ipcRenderer.invoke('agent-cli-login', tool),
+  updateCheck: () => ipcRenderer.invoke('update-check'),
+  updateDownload: () => ipcRenderer.invoke('update-download'),
+  updateInstall: () => ipcRenderer.invoke('update-install'),
+  updateSimulate: (status: any) => ipcRenderer.invoke('update-simulate', status),
+  onUpdateStatus: (callback: (status: any) => void) => {
+    const listener = (_event: any, status: any) => callback(status);
+    ipcRenderer.on('update-status', listener);
+    return () => {
+      ipcRenderer.removeListener('update-status', listener);
+    };
+  },
   agentKeyStatus: (provider: string) => ipcRenderer.invoke('agent-key-status', provider),
   agentKeySet: (provider: string, key: string) => ipcRenderer.invoke('agent-key-set', provider, key),
   agentKeyClear: (provider: string) => ipcRenderer.invoke('agent-key-clear', provider),

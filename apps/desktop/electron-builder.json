@@ -1,6 +1,13 @@
 {
   "appId": "com.rebase.app",
   "productName": "Rebase",
+  "publish": [
+    {
+      "provider": "github",
+      "owner": "motionz-kr",
+      "repo": "rebase"
+    }
+  ],
   "directories": {
     "output": "dist/installers",
     "buildResources": "build"

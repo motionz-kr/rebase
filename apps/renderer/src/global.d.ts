@@ -29,6 +29,14 @@ export interface AgentStreamChunk {
   err?: string;
 }
 
+export type UpdateStatus =
+  | { kind: 'checking' }
+  | { kind: 'available'; version: string; notes?: string }
+  | { kind: 'not-available' }
+  | { kind: 'progress'; percent: number }
+  | { kind: 'downloaded'; version: string }
+  | { kind: 'error'; message: string };
+
 export interface SavedQuery {
   id: string;
   workspaceId: string;
@@ -154,6 +162,11 @@ declare global {
         ResultWrapper<{ installed: boolean; loggedIn: boolean; email?: string; subscription?: string; authMethod?: string; detail?: string }>
       >;
       agentCliLogin: (tool: string) => Promise<ResultWrapper<{ success: boolean }>>;
+      updateCheck: () => Promise<void>;
+      updateDownload: () => Promise<void>;
+      updateInstall: () => Promise<void>;
+      updateSimulate: (status: UpdateStatus) => Promise<void>;
+      onUpdateStatus: (callback: (status: UpdateStatus) => void) => () => void;
       agentKeyStatus: (provider: string) => Promise<ResultWrapper<{ present: boolean }>>;
       agentKeySet: (provider: string, key: string) => Promise<ResultWrapper<{ ok: boolean }>>;
       agentKeyClear: (provider: string) => Promise<ResultWrapper<{ ok: boolean }>>;

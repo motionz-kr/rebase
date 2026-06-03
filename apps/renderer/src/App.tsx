@@ -11,8 +11,10 @@ import {
   Server,
   ChevronRight,
   Bot,
+  DownloadCloud,
 } from 'lucide-react';
 import { SchemaExplorer } from './components/SchemaExplorer';
+import { UpdateButton } from './components/UpdateButton';
 import { QueryEditor } from './components/QueryEditor';
 import { RedisKeyspaceExplorer } from './components/RedisKeyspaceExplorer';
 import { RedisValueInspector } from './components/RedisValueInspector';
@@ -336,6 +338,7 @@ function App() {
           </span>
         </div>
         <div className="topbar-status">
+          <UpdateButton />
           <button
             className={`btn btn-secondary btn-sm agent-toggle${showAgent ? ' active' : ''}`}
             onClick={() => setShowAgent((v) => !v)}
@@ -350,6 +353,9 @@ function App() {
           </span>
           <button className="icon-btn" onClick={() => checkHealth(true)} title="Refresh engine health" disabled={isRefreshing}>
             <RefreshCw size={14} className={isRefreshing ? 'spin' : ''} />
+          </button>
+          <button className="icon-btn" onClick={() => window.electronAPI.updateCheck()} title="업데이트 확인">
+            <DownloadCloud size={14} />
           </button>
         </div>
       </header>

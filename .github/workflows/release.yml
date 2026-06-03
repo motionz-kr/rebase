@@ -1,6 +1,7 @@
 name: Release
 
-# Build the macOS app and attach the installers to a GitHub Release.
+# Build macOS + Windows and publish installers + update metadata
+# (latest*.yml) to this public repo's GitHub Releases.
 # Triggers on a version tag push (e.g. `v0.1.0`); also runnable manually.
 on:
   push:
@@ -9,18 +10,30 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write # needed to create the GitHub Release
+  contents: write
 
 jobs:
-  macos:
-    runs-on: macos-14 # Apple Silicon → builds an arm64 .dmg
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            platform: mac
+            goos: darwin
+            goarch: arm64
+          - os: windows-latest
+            platform: win
+            goos: windows
+            goarch: amd64
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 8.15.9 # matches pnpm-lock.yaml (lockfile v6)
+          version: 8.15.9
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -36,39 +49,28 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Unit tests (renderer)
-        run: pnpm --filter renderer test
+      - name: Unit tests (renderer + desktop)
+        run: |
+          pnpm --filter renderer test
+          pnpm --filter desktop test
 
       - name: Build the Go engine
-        run: go build -o apps/desktop/bin/app-engine ./engine/cmd/app-engine
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        shell: bash
+        run: go build -o apps/desktop/bin/app-engine${{ matrix.platform == 'win' && '.exe' || '' }} ./engine/cmd/app-engine
 
       - name: Build renderer + desktop
         run: |
           pnpm --filter renderer build
           pnpm --filter desktop build
 
-      - name: Package with electron-builder (unsigned)
+      - name: Package + publish (${{ matrix.platform }})
         working-directory: apps/desktop
         env:
-          # No Apple Developer cert in CI → ad-hoc signed (runs locally; recipients
-          # clear quarantine, or add signing secrets later to notarize).
+          # The repo is public, so the built-in token can publish releases to it.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-        run: pnpm exec electron-builder --mac --publish never
-
-      - name: Upload installers as build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: rebase-macos-arm64
-          path: |
-            apps/desktop/dist/installers/*.dmg
-            apps/desktop/dist/installers/*.zip
-          if-no-files-found: error
-
-      - name: Publish GitHub Release (on tag)
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            apps/desktop/dist/installers/*.dmg
-            apps/desktop/dist/installers/*.zip
-          generate_release_notes: true
+        shell: bash
+        run: pnpm exec electron-builder --${{ matrix.platform }} --publish always

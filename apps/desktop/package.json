@@ -10,7 +10,8 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "electron-is-dev": "^2.0.0"
+    "electron-is-dev": "^2.0.0",
+    "electron-updater": "6.3.9"
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0",
