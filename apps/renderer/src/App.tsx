@@ -13,6 +13,7 @@ import {
   Bot,
 } from 'lucide-react';
 import { SchemaExplorer } from './components/SchemaExplorer';
+import { UpdateButton } from './components/UpdateButton';
 import { QueryEditor } from './components/QueryEditor';
 import { RedisKeyspaceExplorer } from './components/RedisKeyspaceExplorer';
 import { RedisValueInspector } from './components/RedisValueInspector';
@@ -336,6 +337,7 @@ function App() {
           </span>
         </div>
         <div className="topbar-status">
+          <UpdateButton />
           <button
             className={`btn btn-secondary btn-sm agent-toggle${showAgent ? ' active' : ''}`}
             onClick={() => setShowAgent((v) => !v)}
