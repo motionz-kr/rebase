@@ -126,6 +126,8 @@ The unsigned build runs locally (ad-hoc signed). To distribute to other Macs eit
 | [`docs/development-principles.md`](docs/development-principles.md) | Layer rules & conventions |
 | [`docs/testing-strategy.md`](docs/testing-strategy.md) | Test layers (unit → E2E) |
 | [`docs/security.md`](docs/security.md) | Secret handling & query policy |
+| [`docs/mcp-server.md`](docs/mcp-server.md) | Expose your DB to external AI clients over MCP |
+| [`docs/auto-update.md`](docs/auto-update.md) | Releases & in-app auto-update |
 | [`docs/adr/`](docs/adr/) | Architecture decision records |
 
 ## 🤝 Contributing
