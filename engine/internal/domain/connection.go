@@ -15,8 +15,11 @@ type ConnectionProfile struct {
 	Username  string    `json:"username"`
 	SecretRef string    `json:"secretRef"`
 	TLSMode   string    `json:"tlsMode"` // none, prefer, require
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	// MCP exposure for external AI clients (off by default).
+	McpEnabled      bool      `json:"mcpEnabled"`
+	McpDataExposure string    `json:"mcpDataExposure"` // metadata|on_request|unrestricted (default metadata)
+	CreatedAt       time.Time `json:"createdAt"`
+	UpdatedAt       time.Time `json:"updatedAt"`
 }
 
 func (p ConnectionProfile) Validate() error {
