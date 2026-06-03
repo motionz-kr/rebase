@@ -59,6 +59,32 @@ func (h *AgentHandler) getConnector(driver string) (ports.SQLConnector, error) {
 	}
 }
 
+// SetMCPConnection toggles per-connection MCP exposure + data-exposure.
+// POST /mcp/connection {profileId, enabled, dataExposure}
+func (h *AgentHandler) SetMCPConnection() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !h.checkToken(r) {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		var b struct {
+			ProfileID    string `json:"profileId"`
+			Enabled      bool   `json:"enabled"`
+			DataExposure string `json:"dataExposure"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+		if err := h.service.SetMCPConnectionSettings(r.Context(), b.ProfileID, b.Enabled, b.DataExposure); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+	})
+}
+
 // Key manages stored agent API keys in the OS keychain (issue #10) so the
 // renderer never persists a raw key.
 //   - GET    /agent/key?provider=anthropic  -> {"present": bool}

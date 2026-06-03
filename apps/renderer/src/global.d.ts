@@ -69,6 +69,8 @@ export interface ConnectionProfile {
   username: string;
   secretRef?: string;
   tlsMode: 'none' | 'prefer' | 'require';
+  mcpEnabled?: boolean;
+  mcpDataExposure?: string;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -162,6 +164,10 @@ declare global {
         ResultWrapper<{ installed: boolean; loggedIn: boolean; email?: string; subscription?: string; authMethod?: string; detail?: string }>
       >;
       agentCliLogin: (tool: string) => Promise<ResultWrapper<{ success: boolean }>>;
+      mcpEnginePath: () => Promise<string>;
+      mcpSetSettings: (profileId: string, enabled: boolean, dataExposure: string) => Promise<ResultWrapper<unknown>>;
+      mcpDetectClients: () => Promise<Array<{ id: string; label: string; present: boolean }>>;
+      mcpAutoconnect: (clientId: string, profileId: string) => Promise<ResultWrapper<{ path?: string; backup?: string }>>;
       updateCheck: () => Promise<void>;
       updateDownload: () => Promise<void>;
       updateInstall: () => Promise<void>;

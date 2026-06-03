@@ -6,6 +6,7 @@ import * as readline from 'readline';
 import { execFile, spawn } from 'child_process';
 import { EngineManager } from './engine_manager';
 import { UpdateService } from './updateService';
+import { detectClients, applyClient } from './mcpClients';
 import isDev from 'electron-is-dev';
 
 let mainWindow: BrowserWindow | null = null;
@@ -638,6 +639,47 @@ app.whenReady().then(() => {
     engineKeyRequest('POST', provider, { provider, key })
   );
   ipcMain.handle('agent-key-clear', (_event, provider: string) => engineKeyRequest('DELETE', provider));
+
+  // --- MCP server (expose connections to external AI clients) ---
+  ipcMain.handle('mcp-engine-path', () => binaryPath);
+  ipcMain.handle('mcp-detect-clients', () => detectClients());
+  ipcMain.handle('mcp-autoconnect', (_event, clientId: string, profileId: string) => {
+    const entry = { command: binaryPath, args: ['-mcp', profileId, '-token', 'mcp', '-handshake', '/dev/null'] };
+    const res = applyClient(clientId, `rebase-${profileId}`, entry);
+    return res.ok ? { success: true, data: { path: res.path, backup: res.backup } } : { success: false, error: res.error };
+  });
+  ipcMain.handle('mcp-set-settings', (_event, profileId: string, enabled: boolean, dataExposure: string) => {
+    return new Promise((resolve) => {
+      if (!engineManager || engineManager.getPort() === null) {
+        resolve({ success: false, error: 'Engine not started' });
+        return;
+      }
+      const payload = JSON.stringify({ profileId, enabled, dataExposure });
+      const req = http.request(
+        {
+          host: '127.0.0.1',
+          port: engineManager.getPort()!,
+          path: '/mcp/connection',
+          method: 'POST',
+          headers: {
+            'X-App-Engine-Token': launchToken,
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(payload).toString(),
+          },
+        },
+        (res) => {
+          let d = '';
+          res.on('data', (c) => (d += c));
+          res.on('end', () =>
+            resolve(res.statusCode && res.statusCode < 400 ? { success: true } : { success: false, error: d || `status ${res.statusCode}` })
+          );
+        }
+      );
+      req.on('error', (e) => resolve({ success: false, error: e.message }));
+      req.write(payload);
+      req.end();
+    });
+  });
 
   // Strip the agent-harness / proxy overrides so a spawned claude uses the
   // user's own login (mirrors the engine's sanitizeEnv).

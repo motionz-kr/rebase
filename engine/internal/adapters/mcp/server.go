@@ -17,9 +17,19 @@ const protocolVersion = "2024-11-05"
 
 type Server struct {
 	registry *agent.Registry
+	policy   agent.Policy
+	secrets  []string
 }
 
 func NewServer(reg *agent.Registry) *Server { return &Server{registry: reg} }
+
+// SetPolicy configures the data-exposure gate + secret redaction applied to
+// tool results before they leave the server (so external clients are governed
+// by the same policy as the in-app agent).
+func (s *Server) SetPolicy(p agent.Policy, secrets []string) {
+	s.policy = p
+	s.secrets = secrets
+}
 
 type rpcRequest struct {
 	Jsonrpc string           `json:"jsonrpc"`
@@ -112,9 +122,10 @@ func (s *Server) Handle(ctx context.Context, raw []byte) *rpcResponse {
 				"isError": true,
 			})
 		}
-		b, _ := json.Marshal(result)
+		b, _ := json.Marshal(agent.SanitizeForPolicy(p.Name, result, s.policy))
+		text := agent.Redact(string(b), s.secrets)
 		return reply(map[string]any{
-			"content": []map[string]any{{"type": "text", "text": string(b)}},
+			"content": []map[string]any{{"type": "text", "text": text}},
 		})
 
 	default:

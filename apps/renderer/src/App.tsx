@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { SchemaExplorer } from './components/SchemaExplorer';
 import { UpdateButton } from './components/UpdateButton';
+import { McpConnectPanel } from './components/McpConnectPanel';
 import { QueryEditor } from './components/QueryEditor';
 import { RedisKeyspaceExplorer } from './components/RedisKeyspaceExplorer';
 import { RedisValueInspector } from './components/RedisValueInspector';
@@ -36,6 +37,8 @@ export interface ConnectionProfile {
   username: string;
   secretRef?: string;
   tlsMode: 'none' | 'prefer' | 'require';
+  mcpEnabled?: boolean;
+  mcpDataExposure?: string;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -457,7 +460,18 @@ function App() {
                 </div>
               )}
             </form>
-          ) : (
+          ) : null}
+
+          {showCreateForm && editingId && (formDriver === 'mysql' || formDriver === 'postgres') && (
+            <McpConnectPanel
+              connId={editingId}
+              connName={formName}
+              initialEnabled={profiles.find((p) => p.id === editingId)?.mcpEnabled ?? false}
+              initialExposure={profiles.find((p) => p.id === editingId)?.mcpDataExposure ?? 'metadata'}
+            />
+          )}
+
+          {!showCreateForm && (
             <div className="conn-list">
               {profiles.length === 0 && (
                 <div className="empty-state">

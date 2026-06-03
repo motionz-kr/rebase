@@ -138,4 +138,18 @@ func (s *ConnectionService) HasAgentKey(ctx context.Context, provider string) bo
 	return err == nil && v != ""
 }
 
+// SetMCPConnectionSettings toggles MCP exposure + data-exposure for a profile.
+func (s *ConnectionService) SetMCPConnectionSettings(ctx context.Context, id string, enabled bool, dataExposure string) error {
+	p, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if dataExposure == "" {
+		dataExposure = "metadata"
+	}
+	p.McpEnabled = enabled
+	p.McpDataExposure = dataExposure
+	return s.repo.Update(ctx, p)
+}
+
 type ConnectionProfileService = ConnectionService
