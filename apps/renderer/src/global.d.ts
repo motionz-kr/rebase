@@ -166,6 +166,8 @@ declare global {
       agentCliLogin: (tool: string) => Promise<ResultWrapper<{ success: boolean }>>;
       mcpEnginePath: () => Promise<string>;
       mcpSetSettings: (profileId: string, enabled: boolean, dataExposure: string) => Promise<ResultWrapper<unknown>>;
+      mcpDetectClients: () => Promise<Array<{ id: string; label: string; present: boolean }>>;
+      mcpAutoconnect: (clientId: string, profileId: string) => Promise<ResultWrapper<{ path?: string; backup?: string }>>;
       updateCheck: () => Promise<void>;
       updateDownload: () => Promise<void>;
       updateInstall: () => Promise<void>;

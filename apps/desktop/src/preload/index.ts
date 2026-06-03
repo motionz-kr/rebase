@@ -35,6 +35,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   mcpEnginePath: () => ipcRenderer.invoke('mcp-engine-path'),
   mcpSetSettings: (profileId: string, enabled: boolean, dataExposure: string) =>
     ipcRenderer.invoke('mcp-set-settings', profileId, enabled, dataExposure),
+  mcpDetectClients: () => ipcRenderer.invoke('mcp-detect-clients'),
+  mcpAutoconnect: (clientId: string, profileId: string) => ipcRenderer.invoke('mcp-autoconnect', clientId, profileId),
   updateCheck: () => ipcRenderer.invoke('update-check'),
   updateDownload: () => ipcRenderer.invoke('update-download'),
   updateInstall: () => ipcRenderer.invoke('update-install'),

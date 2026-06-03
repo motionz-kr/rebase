@@ -6,6 +6,7 @@ import * as readline from 'readline';
 import { execFile, spawn } from 'child_process';
 import { EngineManager } from './engine_manager';
 import { UpdateService } from './updateService';
+import { detectClients, applyClient } from './mcpClients';
 import isDev from 'electron-is-dev';
 
 let mainWindow: BrowserWindow | null = null;
@@ -641,6 +642,12 @@ app.whenReady().then(() => {
 
   // --- MCP server (expose connections to external AI clients) ---
   ipcMain.handle('mcp-engine-path', () => binaryPath);
+  ipcMain.handle('mcp-detect-clients', () => detectClients());
+  ipcMain.handle('mcp-autoconnect', (_event, clientId: string, profileId: string) => {
+    const entry = { command: binaryPath, args: ['-mcp', profileId, '-token', 'mcp', '-handshake', '/dev/null'] };
+    const res = applyClient(clientId, `rebase-${profileId}`, entry);
+    return res.ok ? { success: true, data: { path: res.path, backup: res.backup } } : { success: false, error: res.error };
+  });
   ipcMain.handle('mcp-set-settings', (_event, profileId: string, enabled: boolean, dataExposure: string) => {
     return new Promise((resolve) => {
       if (!engineManager || engineManager.getPort() === null) {
