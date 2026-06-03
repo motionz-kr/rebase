@@ -47,7 +47,7 @@ func (s *AgentService) SetSecrets(secrets []string) { s.secrets = secrets }
 
 // redact replaces every registered secret with a placeholder. Empty secrets are
 // ignored so they can't blank out unrelated text.
-func redact(text string, secrets []string) string {
+func Redact(text string, secrets []string) string {
 	for _, sec := range secrets {
 		if sec == "" {
 			continue
@@ -64,16 +64,16 @@ func (s *AgentService) request(messages []ports.LLMMessage, specs []ports.ToolSp
 	}
 	scrubbed := make([]ports.LLMMessage, len(messages))
 	for i, m := range messages {
-		m.Text = redact(m.Text, s.secrets)
+		m.Text = Redact(m.Text, s.secrets)
 		scrubbed[i] = m
 	}
-	return ports.LLMRequest{System: redact(s.system, s.secrets), Messages: scrubbed, Tools: specs}
+	return ports.LLMRequest{System: Redact(s.system, s.secrets), Messages: scrubbed, Tools: specs}
 }
 
 // dataTools produce row values that the data-exposure policy may withhold.
 var dataTools = map[string]bool{"run_select": true, "explain_query": true, "profile_table": true}
 
-func sanitizeForPolicy(toolName string, result any, p Policy) any {
+func SanitizeForPolicy(toolName string, result any, p Policy) any {
 	if p.DataExposure == "" || p.DataExposure == "unrestricted" || !dataTools[toolName] {
 		return result
 	}
@@ -131,7 +131,7 @@ func (s *AgentService) Run(ctx context.Context, conversation []ports.LLMMessage,
 			// Show the full result to the UI (local), but feed only the
 			// policy-sanitized version back to the model.
 			emit(ports.LLMEvent{Kind: ports.EventToolResult, ToolName: pending.Name, ToolCallID: pending.ID, Result: result})
-			b, _ := json.Marshal(sanitizeForPolicy(pending.Name, result, s.policy))
+			b, _ := json.Marshal(SanitizeForPolicy(pending.Name, result, s.policy))
 			payload = string(b)
 		}
 		messages = append(messages,
