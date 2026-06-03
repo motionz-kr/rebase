@@ -1,10 +1,10 @@
 import type { BrowserWindow } from 'electron';
 import { app, shell } from 'electron';
-import electronUpdater from 'electron-updater';
+// electron-updater is CommonJS with named exports and no default export, so a
+// default import resolves to undefined — use the named import.
+import { autoUpdater } from 'electron-updater';
 import { mapUpdaterEvent, type UpdateStatus } from './updateEvents';
 import { resolveUpdateAction, MAC_SELF_UPDATE, RELEASES_PAGE_URL } from './updatePolicy';
-
-const { autoUpdater } = electronUpdater;
 
 // UpdateService owns the electron-updater lifecycle and streams a neutral
 // status to the renderer over the 'update-status' channel.
