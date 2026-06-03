@@ -5,10 +5,12 @@ import * as crypto from 'crypto';
 import * as readline from 'readline';
 import { execFile, spawn } from 'child_process';
 import { EngineManager } from './engine_manager';
+import { UpdateService } from './updateService';
 import isDev from 'electron-is-dev';
 
 let mainWindow: BrowserWindow | null = null;
 let engineManager: EngineManager | null = null;
+let updateService: UpdateService | null = null;
 let launchToken: string = '';
 
 // In-flight query stream requests, keyed by queryId, so they can be aborted on
@@ -157,6 +159,12 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, '..', '..', '..', 'renderer', 'dist', 'index.html'));
   }
 
+  // Auto-update: one service for the app, re-attached to the current window.
+  // It checks once after the page loads (a no-op in dev / unsigned-disabled).
+  if (!updateService) updateService = new UpdateService();
+  updateService.attach(mainWindow);
+  mainWindow.webContents.once('did-finish-load', () => void updateService?.check());
+
   mainWindow.on('closed', () => {
     // Tear down any in-flight query streams; their 'line' handlers would
     // otherwise keep firing against a destroyed window and the sockets leak.
@@ -166,6 +174,12 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  // Auto-update IPC (registered once; the service is created in createWindow).
+  ipcMain.handle('update-check', () => updateService?.check());
+  ipcMain.handle('update-download', () => updateService?.download());
+  ipcMain.handle('update-install', () => updateService?.installAndRestart());
+  ipcMain.handle('update-simulate', (_e, status) => updateService?.simulate(status));
+
   ipcMain.handle('check-engine-health', async () => {
     if (!engineManager || engineManager.getPort() === null) {
       return { success: false, error: 'Engine not started' };
