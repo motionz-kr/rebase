@@ -33,7 +33,20 @@ func (fakeSQL) ListColumns(context.Context, domain.ConnectionProfile, string, st
 	return nil, nil
 }
 func (fakeSQL) ExecuteQueryStream(_ context.Context, _ domain.ConnectionProfile, _ string, _ string, _ bool, onStart func(int64), onHeader func([]string) error, onRow func([]any) error) (int64, error) {
-	return 0, nil
+	if onStart != nil {
+		onStart(0)
+	}
+	if onHeader != nil {
+		if err := onHeader([]string{"id", "name"}); err != nil {
+			return 0, err
+		}
+	}
+	if onRow != nil {
+		if err := onRow([]any{int64(1), "alice"}); err != nil {
+			return 0, err
+		}
+	}
+	return 1, nil
 }
 
 func newServer() *Server {
@@ -92,6 +105,33 @@ func TestToolsCallDispatches(t *testing.T) {
 	first, _ := content[0].(map[string]any)
 	if text, _ := first["text"].(string); !strings.Contains(text, "users") {
 		t.Errorf("list_tables via MCP should return users: %v", result)
+	}
+}
+
+func TestServerAppliesDataExposurePolicy(t *testing.T) {
+	reg := agent.NewSQLRegistry(fakeSQL{}, domain.ConnectionProfile{}, "", "devdb")
+	s := NewServer(reg)
+	s.SetPolicy(agent.Policy{DataExposure: "metadata"}, []string{"secretpw"})
+
+	m := req(t, s, `{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"run_select","arguments":{"sql":"SELECT * FROM users"}}}`)
+	b, _ := json.Marshal(m["result"])
+	out := string(b)
+	if strings.Contains(out, "alice") {
+		t.Errorf("metadata policy must withhold cell values, leaked: %s", out)
+	}
+	if !strings.Contains(out, "withheld") {
+		t.Errorf("expected a withheld summary, got: %s", out)
+	}
+}
+
+func TestServerUnrestrictedPassesValues(t *testing.T) {
+	reg := agent.NewSQLRegistry(fakeSQL{}, domain.ConnectionProfile{}, "", "devdb")
+	s := NewServer(reg)
+	s.SetPolicy(agent.Policy{DataExposure: "unrestricted"}, nil)
+	m := req(t, s, `{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"run_select","arguments":{"sql":"SELECT * FROM users"}}}`)
+	b, _ := json.Marshal(m["result"])
+	if !strings.Contains(string(b), "alice") {
+		t.Errorf("unrestricted policy should pass values, got: %s", b)
 	}
 }
 
