@@ -11,6 +11,6 @@
     "package": "pnpm build && pnpm --filter desktop exec electron-builder"
   },
   "devDependencies": {
-    "typescript": "^5.3.3"
+    "typescript": "^6.0.3"
   }
 }
