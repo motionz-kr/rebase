@@ -4,6 +4,48 @@ Rebase can act as an [MCP](https://modelcontextprotocol.io) server, letting
 external AI clients (Claude Desktop, Codex, Cursor) use a connection's database
 tools — under the same safety policy as the in-app agent.
 
+## Quick start (60 seconds)
+
+1. In Rebase, click the **pencil** on a MySQL/PostgreSQL connection.
+2. Open **AI 클라이언트 연결 (MCP)** and toggle **이 연결을 외부 AI 클라이언트에 노출** on.
+3. Leave **데이터 노출** at **메타데이터만** (safe default — no cell values leave
+   your machine).
+4. Click **Claude Desktop에 연결** (or **Codex** / **Cursor**). Rebase writes the
+   server entry into that client's config (backing up the old one first).
+5. **Restart the AI client.** Done — ask it about your database.
+
+> Prefer manual setup? Copy the JSON snippet shown in the panel into the client's
+> MCP config instead of using the buttons.
+
+## Example prompts (to your AI client)
+
+Once connected, ask the client things like:
+
+- "What tables are in the database, and how are they related?"
+- "Describe the `orders` table — columns, types, indexes."
+- "Find slow queries and tell me which indexes are missing."
+- "Are there any unused or duplicate indexes I can drop?"
+- "Write the SQL to add a `status` column to `orders`." *(returns SQL only — see
+  below)*
+
+The client calls Rebase's tools (`list_tables`, `describe_table`, `run_select`,
+`explain_query`, …) so its answers are grounded in your **actual** schema, not
+guesses.
+
+## Governance in action
+
+What the AI can see is controlled by the connection's **데이터 노출** level. For a
+table `demo_users(name, email)`:
+
+| 데이터 노출 | The client gets… |
+| --- | --- |
+| **메타데이터만** (default) | columns + row **count** only. `run_select` returns `{columns, rowCount, withheld: true}` — the AI literally cannot read the names/emails. |
+| **요청 시 / 전체** | actual rows, e.g. `Alice / a@x.com`, `Bob / (null)`. |
+
+Switching the toggle takes effect on the client's **next** session. Writes are
+never executed — `propose_write` only returns the SQL for you to run (and
+approve) inside Rebase.
+
 ## Enable a connection
 
 1. Edit a **MySQL or PostgreSQL** connection (the pencil icon).
