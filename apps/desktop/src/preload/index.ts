@@ -32,6 +32,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   agentCancel: (runId: string) => ipcRenderer.invoke('agent-cancel', runId),
   agentCliStatus: (tool: string) => ipcRenderer.invoke('agent-cli-status', tool),
   agentCliLogin: (tool: string) => ipcRenderer.invoke('agent-cli-login', tool),
+  mcpEnginePath: () => ipcRenderer.invoke('mcp-engine-path'),
+  mcpSetSettings: (profileId: string, enabled: boolean, dataExposure: string) =>
+    ipcRenderer.invoke('mcp-set-settings', profileId, enabled, dataExposure),
   updateCheck: () => ipcRenderer.invoke('update-check'),
   updateDownload: () => ipcRenderer.invoke('update-download'),
   updateInstall: () => ipcRenderer.invoke('update-install'),

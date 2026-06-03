@@ -162,6 +162,8 @@ declare global {
         ResultWrapper<{ installed: boolean; loggedIn: boolean; email?: string; subscription?: string; authMethod?: string; detail?: string }>
       >;
       agentCliLogin: (tool: string) => Promise<ResultWrapper<{ success: boolean }>>;
+      mcpEnginePath: () => Promise<string>;
+      mcpSetSettings: (profileId: string, enabled: boolean, dataExposure: string) => Promise<ResultWrapper<unknown>>;
       updateCheck: () => Promise<void>;
       updateDownload: () => Promise<void>;
       updateInstall: () => Promise<void>;
