@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronRight, Database, Table2, KeyRound, AlertTriangle, FileCode, Copy, X, Pencil, PlusSquare, Eraser, Trash2, Type, FilePlus, Upload, Eye } from 'lucide-react';
+import { ChevronRight, Database, Table2, KeyRound, AlertTriangle, FileCode, Copy, X, Pencil, PlusSquare, Eraser, Trash2, Type, FilePlus, Upload, Eye, Network } from 'lucide-react';
 import { TableEditDialog } from './TableEditDialog';
 import { TableActionDialog, type TableAction } from './TableActionDialog';
 import { CreateTableDialog } from './CreateTableDialog';
@@ -15,6 +15,7 @@ interface SchemaExplorerProps {
   onSchemaChanged?: () => void;
   onOpenTableData?: (db: string, table: string) => void;
   onRunQuery?: (sql: string) => void;
+  onOpenErDiagram?: (db: string) => void;
 }
 
 interface TableNode {
@@ -32,7 +33,7 @@ interface DatabaseNode {
   isLoading: boolean;
 }
 
-export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, driver, onSchemaChanged, onOpenTableData, onRunQuery }) => {
+export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, driver, onSchemaChanged, onOpenTableData, onRunQuery, onOpenErDiagram }) => {
   const [databases, setDatabases] = useState<DatabaseNode[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -471,6 +472,11 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
           <button className="ctx-item" onClick={() => { setCreate({ db: dbMenu.db }); setDbMenu(null); }}>
             <FilePlus size={13} /> 테이블 추가…
           </button>
+          {(driver === 'mysql' || driver === 'postgres') && (
+            <button className="ctx-item" onClick={() => { onOpenErDiagram?.(dbMenu.db); setDbMenu(null); }}>
+              <Network size={13} /> ER 다이어그램
+            </button>
+          )}
         </div>
       )}
 

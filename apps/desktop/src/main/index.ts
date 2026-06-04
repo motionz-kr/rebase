@@ -408,6 +408,18 @@ app.whenReady().then(() => {
     }
   });
 
+  ipcMain.handle('get-schema-graph', async (event, profileId, database) => {
+    try {
+      const data = await requestEngine({
+        method: 'GET',
+        path: `/schema-graph?profileId=${encodeURIComponent(profileId)}&database=${encodeURIComponent(database)}`,
+      });
+      return { success: true, data };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
   ipcMain.handle('execute-query-stream', async (event, queryId, profileId, query, options) => {
     try {
       if (!engineManager || engineManager.getPort() === null) {

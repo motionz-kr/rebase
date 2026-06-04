@@ -22,6 +22,7 @@ query engine that streams results to a keyboard-friendly Electron UI.
 **Schema explorer**
 - Tables, views, indexes, and foreign keys
 - Create / alter tables, manage indexes, view DDL — all from the context menu
+- **Read-only ER diagram** — visualize tables and foreign-key relationships, with search, highlight, and click-through to data
 
 **SQL editor**
 - Monaco editor with schema-aware autocomplete and one-click formatting
@@ -126,6 +127,7 @@ The unsigned build runs locally (ad-hoc signed). To distribute to other Macs eit
 | [`docs/development-principles.md`](docs/development-principles.md) | Layer rules & conventions |
 | [`docs/testing-strategy.md`](docs/testing-strategy.md) | Test layers (unit → E2E) |
 | [`docs/security.md`](docs/security.md) | Secret handling & query policy |
+| [`docs/er-diagram.md`](docs/er-diagram.md) | Read-only ER / schema diagram |
 | [`docs/mcp-server.md`](docs/mcp-server.md) | Expose your DB to external AI clients over MCP |
 | [`docs/auto-update.md`](docs/auto-update.md) | Releases & in-app auto-update |
 | [`docs/adr/`](docs/adr/) | Architecture decision records |

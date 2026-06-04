@@ -37,6 +37,27 @@ export type UpdateStatus =
   | { kind: 'downloaded'; version: string }
   | { kind: 'error'; message: string };
 
+export interface SchemaGraphColumn {
+  name: string;
+  type: string;
+  nullable: boolean;
+  primaryKey: boolean;
+}
+export interface SchemaGraphTable {
+  name: string;
+  columns: SchemaGraphColumn[];
+}
+export interface SchemaGraphFK {
+  fromTable: string;
+  fromColumn: string;
+  toTable: string;
+  toColumn: string;
+}
+export interface SchemaGraph {
+  tables: SchemaGraphTable[];
+  foreignKeys: SchemaGraphFK[];
+}
+
 export interface SavedQuery {
   id: string;
   workspaceId: string;
@@ -144,6 +165,7 @@ declare global {
       listViews: (profileId: string, database: string) => Promise<ResultWrapper<TableInfo[]>>;
       getViewDDL: (profileId: string, database: string, view: string) => Promise<ResultWrapper<{ ddl: string }>>;
       getSchemaCompletion: (profileId: string, database: string) => Promise<ResultWrapper<{ tables: { name: string; columns: { name: string; type: string }[] }[] }>>;
+      getSchemaGraph: (profileId: string, database: string) => Promise<ResultWrapper<SchemaGraph>>;
       executeQueryStream: (queryId: string, profileId: string, query: string, options?: { allowWrite?: boolean; confirmDestructive?: boolean; maxRows?: number; fetchAll?: boolean }) => Promise<ResultWrapper<{ success: boolean }>>;
       cancelQuery: (queryId: string) => Promise<ResultWrapper<{ success: boolean }>>;
       executeBatch: (

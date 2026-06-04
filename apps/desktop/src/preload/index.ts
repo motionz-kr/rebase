@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   listViews: (profileId: string, database: string) => ipcRenderer.invoke('list-views', profileId, database),
   getViewDDL: (profileId: string, database: string, view: string) => ipcRenderer.invoke('get-view-ddl', profileId, database, view),
   getSchemaCompletion: (profileId: string, database: string) => ipcRenderer.invoke('get-schema-completion', profileId, database),
+  getSchemaGraph: (profileId: string, database: string) => ipcRenderer.invoke('get-schema-graph', profileId, database),
   executeQueryStream: (
     queryId: string,
     profileId: string,
