@@ -1,11 +1,13 @@
 export type UpdateAction = 'self-update' | 'open-download-page' | 'disabled';
 
-// Attempt in-app self-update on macOS. The build is only ad-hoc signed (no Apple
-// Developer ID), so Squirrel.Mac MAY reject the install during code-signature
-// verification. We try anyway — if it fails, updateService falls back to opening
-// the Releases page (see its 'error' handler). Flip to false to disable the
-// experiment and always use the page fallback.
-export const MAC_SELF_UPDATE = true;
+// In-app self-update on macOS requires an Apple Developer ID signature. Our build
+// is only ad-hoc signed, and Squirrel.Mac rejects the install at code-signature
+// verification (SQRLCodeSignatureErrorDomain) — confirmed by live test: the new
+// version downloads to 100% but quitAndInstall fails. So on unsigned macOS we send
+// users to the Releases page instead of wasting a download. Set to true ONLY once
+// the build is signed+notarized with a real Developer ID. Windows/Linux are
+// unaffected (they self-update regardless of this flag).
+export const MAC_SELF_UPDATE = false;
 
 // Where the unsigned-macOS fallback sends users to download the new build.
 export const RELEASES_PAGE_URL = 'https://github.com/motionz-kr/rebase/releases/latest';
