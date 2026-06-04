@@ -3,27 +3,39 @@ import { analyzeEditableQuery } from './editableQuery';
 
 describe('analyzeEditableQuery', () => {
   it('plain single-table SELECT * is editable', () => {
-    expect(analyzeEditableQuery('SELECT * FROM users')).toEqual({ table: 'users', orderBy: null });
+    expect(analyzeEditableQuery('SELECT * FROM users')).toEqual({ table: 'users', orderBy: null, limit: null });
   });
   it('captures single-column ORDER BY DESC + LIMIT', () => {
     expect(analyzeEditableQuery('SELECT * FROM users ORDER BY id DESC LIMIT 500')).toEqual({
       table: 'users',
       orderBy: { col: 'id', dir: 'desc' },
+      limit: 500,
     });
   });
   it('defaults ORDER BY direction to asc', () => {
     expect(analyzeEditableQuery('SELECT * FROM users ORDER BY name')).toEqual({
       table: 'users',
       orderBy: { col: 'name', dir: 'asc' },
+      limit: null,
+    });
+  });
+  it('captures LIMIT without ORDER BY', () => {
+    expect(analyzeEditableQuery('SELECT * FROM users LIMIT 10')).toEqual({ table: 'users', orderBy: null, limit: 10 });
+  });
+  it('captures LIMIT with OFFSET (offset ignored)', () => {
+    expect(analyzeEditableQuery('SELECT * FROM users LIMIT 25 OFFSET 50')).toEqual({
+      table: 'users',
+      orderBy: null,
+      limit: 25,
     });
   });
   it('is case-insensitive and tolerates a trailing semicolon/whitespace', () => {
-    expect(analyzeEditableQuery('  select *  from users limit 10 ; ')).toEqual({ table: 'users', orderBy: null });
+    expect(analyzeEditableQuery('  select *  from users limit 10 ; ')).toEqual({ table: 'users', orderBy: null, limit: 10 });
   });
   it('strips backticks / double quotes and schema qualifier', () => {
-    expect(analyzeEditableQuery('SELECT * FROM `devdb`.`users`')).toEqual({ table: 'users', orderBy: null });
-    expect(analyzeEditableQuery('SELECT * FROM "public"."users"')).toEqual({ table: 'users', orderBy: null });
-    expect(analyzeEditableQuery('SELECT * FROM devdb.users')).toEqual({ table: 'users', orderBy: null });
+    expect(analyzeEditableQuery('SELECT * FROM `devdb`.`users`')).toEqual({ table: 'users', orderBy: null, limit: null });
+    expect(analyzeEditableQuery('SELECT * FROM "public"."users"')).toEqual({ table: 'users', orderBy: null, limit: null });
+    expect(analyzeEditableQuery('SELECT * FROM devdb.users')).toEqual({ table: 'users', orderBy: null, limit: null });
   });
 
   it('rejects column lists (not SELECT *)', () => {
