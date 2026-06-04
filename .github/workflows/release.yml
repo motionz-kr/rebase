@@ -78,7 +78,7 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         shell: bash
-        run: go build -o apps/desktop/bin/app-engine${{ matrix.platform == 'win' && '.exe' || '' }} ./engine/cmd/app-engine
+        run: go build -ldflags="-s -w" -o apps/desktop/bin/app-engine${{ matrix.platform == 'win' && '.exe' || '' }} ./engine/cmd/app-engine
 
       - name: Build renderer + desktop
         run: |
