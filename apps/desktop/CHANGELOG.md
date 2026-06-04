@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/motionz-kr/rebase/compare/v0.5.0...v0.5.1) (2026-06-04)
+
+
+### Bug Fixes
+
+* **build:** shrink installer to ~90MB and fix macOS "damaged" error ([#67](https://github.com/motionz-kr/rebase/issues/67)) ([2c19e83](https://github.com/motionz-kr/rebase/commit/2c19e83866f4dbd03d7e02820e3f538bdccf09fd))
+
 ## [0.5.0](https://github.com/motionz-kr/rebase/compare/v0.4.0...v0.5.0) (2026-06-04)
 
 
