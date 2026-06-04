@@ -14,8 +14,8 @@ out/
 # Compiled Go engine binary (produced by `pnpm build:engine`)
 apps/desktop/bin/
 
-# Electron-builder installers (output: apps/desktop/dist/installers)
-# already covered by dist/ above, listed for clarity
+# Electron-builder installers (output: apps/desktop/release)
+release/
 
 # ──────────────────────────────────────────────
 # Logs
