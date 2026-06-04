@@ -709,12 +709,14 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
       {editView ? (
         <div className="results">
           <TableDataView
-            key={`edit.${editView.table}.${editView.orderBy?.col ?? ''}.${editView.orderBy?.dir ?? ''}`}
+            key={`edit.${editView.table}.${editView.orderBy?.col ?? ''}.${editView.orderBy?.dir ?? ''}.${editView.limit ?? ''}`}
             profileId={profileId}
             driver={driver as 'mysql' | 'postgres'}
             database={database}
             table={editView.table}
             initialOrderBy={editView.orderBy ?? undefined}
+            limit={editView.limit ?? undefined}
+            readOnly={!writeMode}
             embedded
           />
         </div>

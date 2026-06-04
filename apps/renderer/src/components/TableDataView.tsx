@@ -25,6 +25,10 @@ interface Props {
   // Rendered inside the query result area (not the full-panel table browser);
   // hides the "back to query" affordance.
   embedded?: boolean;
+  // When true, all editing controls are disabled (read-only mode).
+  readOnly?: boolean;
+  // Page size cap from a query's LIMIT clause; falls back to PAGE_SIZE.
+  limit?: number;
 }
 
 interface Sel {
@@ -44,7 +48,8 @@ function asCell(v: unknown): CellValue {
   return JSON.stringify(v);
 }
 
-export const TableDataView: React.FC<Props> = ({ profileId, driver, database, table, onClose, initialFilter, initialOrderBy, onOpenRelated, embedded }) => {
+export const TableDataView: React.FC<Props> = ({ profileId, driver, database, table, onClose, initialFilter, initialOrderBy, onOpenRelated, embedded, readOnly, limit }) => {
+  const pageSize = limit && limit > 0 ? limit : PAGE_SIZE;
   const [columns, setColumns] = useState<string[]>([]);
   const [colTypes, setColTypes] = useState<string[]>([]);
   const [pkCols, setPkCols] = useState<string[]>([]);
@@ -175,8 +180,8 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
     const sql = buildSelectPage(driver, table, {
       filters: appliedFilters,
       orderBy,
-      limit: PAGE_SIZE + 1,
-      offset: page * PAGE_SIZE,
+      limit: pageSize + 1,
+      offset: page * pageSize,
     });
     const res = await runSelect(profileId, sql);
     if (myReq !== reqRef.current) return;
@@ -186,10 +191,10 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
       return;
     }
     if (res.columns.length > 0) setColumns(res.columns);
-    setHasNext(res.rows.length > PAGE_SIZE);
-    setRows(res.rows.slice(0, PAGE_SIZE));
+    setHasNext(res.rows.length > pageSize);
+    setRows(res.rows.slice(0, pageSize));
     setSel(null);
-  }, [profileId, driver, table, appliedFilters, orderBy, page]);
+  }, [profileId, driver, table, appliedFilters, orderBy, page, pageSize]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -208,7 +213,7 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
   }, []);
 
   const noPk = useMemo(() => pkCols.length === 0, [pkCols]);
-  const editable = !noPk;
+  const editable = !noPk && !readOnly;
   const pendingCount = useMemo(
     () => Object.values(edits).reduce((n, r) => n + Object.keys(r).length, 0) + deletes.size + newRows.length,
     [edits, deletes, newRows]
@@ -557,7 +562,7 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
                     className={`grid-row ${r % 2 === 0 ? 'even' : 'odd'} ${del ? 'row-del' : ''}`}
                     style={{ position: 'absolute', top: `${r * ROW_HEIGHT}px`, height: `${ROW_HEIGHT}px`, left: 0, display: 'flex', ...rowSpan }}
                   >
-                    <div className="grid-idx" style={idxStyle('var(--bg)')} onMouseDown={(e) => selectRow(r, e.shiftKey)}>{page * PAGE_SIZE + r + 1}</div>
+                    <div className="grid-idx" style={idxStyle('var(--bg)')} onMouseDown={(e) => selectRow(r, e.shiftKey)}>{page * pageSize + r + 1}</div>
                     {lay.order.map((c) => {
                       if (editing && editing.r === r && editing.c === c) {
                         return (

@@ -3,6 +3,7 @@ import type { OrderBy } from './tableQuery';
 export interface EditableQuery {
   table: string;
   orderBy: OrderBy | null;
+  limit: number | null;
 }
 
 // Strip surrounding backticks/double-quotes and take the last dotted segment
@@ -29,13 +30,14 @@ export function analyzeEditableQuery(sql: string): EditableQuery | null {
   // Table token must be a (optionally schema-qualified, optionally quoted) name.
   if (!/^(?:`[^`]+`|"[^"]+"|\w+)(?:\.(?:`[^`]+`|"[^"]+"|\w+))?$/.test(tableToken)) return null;
 
-  if (clauses === '') return { table: bareTable(tableToken), orderBy: null };
+  if (clauses === '') return { table: bareTable(tableToken), orderBy: null, limit: null };
 
   // Only ORDER BY <col> [ASC|DESC] and/or LIMIT <n> [OFFSET <n>] may follow.
-  const m = /^(?:order by (`[^`]+`|"[^"]+"|\w+(?:\.\w+)?) ?(asc|desc)?)? ?(?:limit \d+(?: offset \d+)?)?$/i.exec(clauses);
+  const m = /^(?:order by (`[^`]+`|"[^"]+"|\w+(?:\.\w+)?) ?(asc|desc)?)? ?(?:limit (\d+)(?: offset \d+)?)?$/i.exec(clauses);
   if (!m) return null;
 
   let orderBy: OrderBy | null = null;
   if (m[1]) orderBy = { col: bareTable(m[1]), dir: (m[2] || 'asc').toLowerCase() as 'asc' | 'desc' };
-  return { table: bareTable(tableToken), orderBy };
+  const limit = m[3] ? parseInt(m[3], 10) : null;
+  return { table: bareTable(tableToken), orderBy, limit };
 }
