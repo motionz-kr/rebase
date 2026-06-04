@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/motionz-kr/rebase/compare/v0.6.0...v0.7.0) (2026-06-04)
+
+
+### Features
+
+* **update:** attempt in-app self-update on macOS (ad-hoc) with page fallback ([#76](https://github.com/motionz-kr/rebase/issues/76)) ([17d858a](https://github.com/motionz-kr/rebase/commit/17d858a21b20fd253e95f888333c9c9f7e7d2c0e))
+
 ## [0.6.0](https://github.com/motionz-kr/rebase/compare/v0.5.3...v0.6.0) (2026-06-04)
 
 
