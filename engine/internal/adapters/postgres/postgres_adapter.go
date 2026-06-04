@@ -426,6 +426,87 @@ func quoteViewIdent(s string) string {
 	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
 }
 
+// GetSchemaGraph returns every table (with columns + PK flags) and all FK
+// relationships in the database, using two information_schema queries.
+func (c *PostgreSQLConnector) GetSchemaGraph(ctx context.Context, p domain.ConnectionProfile, password string, database string) (ports.SchemaGraph, error) {
+	db, err := c.connect(p, password, database)
+	if err != nil {
+		return ports.SchemaGraph{}, err
+	}
+	defer db.Close()
+
+	colRows, err := db.QueryContext(ctx, `
+		SELECT c.table_name, c.column_name, c.data_type, c.is_nullable,
+		       (pk.column_name IS NOT NULL) AS is_pk
+		FROM information_schema.columns c
+		LEFT JOIN (
+			SELECT kcu.table_name, kcu.column_name
+			FROM information_schema.table_constraints tc
+			JOIN information_schema.key_column_usage kcu
+			  ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+			WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_catalog = $1 AND tc.table_schema = 'public'
+		) pk ON pk.table_name = c.table_name AND pk.column_name = c.column_name
+		WHERE c.table_catalog = $1 AND c.table_schema = 'public'
+		ORDER BY c.table_name, c.ordinal_position
+	`, database)
+	if err != nil {
+		return ports.SchemaGraph{}, c.normalizeError(err)
+	}
+	defer colRows.Close()
+
+	order := []string{}
+	byTable := map[string]*ports.SchemaGraphTable{}
+	for colRows.Next() {
+		var tbl, col, typ, nullable string
+		var isPK bool
+		if err := colRows.Scan(&tbl, &col, &typ, &nullable, &isPK); err != nil {
+			return ports.SchemaGraph{}, c.normalizeError(err)
+		}
+		t, ok := byTable[tbl]
+		if !ok {
+			t = &ports.SchemaGraphTable{Name: tbl}
+			byTable[tbl] = t
+			order = append(order, tbl)
+		}
+		t.Columns = append(t.Columns, ports.ColumnInfo{Name: col, Type: typ, Nullable: nullable == "YES", PrimaryKey: isPK})
+	}
+	if err := colRows.Err(); err != nil {
+		return ports.SchemaGraph{}, c.normalizeError(err)
+	}
+
+	fkRows, err := db.QueryContext(ctx, `
+		SELECT kcu.table_name, kcu.column_name, ccu.table_name AS ref_table, ccu.column_name AS ref_column
+		FROM information_schema.table_constraints tc
+		JOIN information_schema.key_column_usage kcu
+		  ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+		JOIN information_schema.constraint_column_usage ccu
+		  ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema
+		WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_catalog = $1 AND tc.table_schema = 'public'
+	`, database)
+	if err != nil {
+		return ports.SchemaGraph{}, c.normalizeError(err)
+	}
+	defer fkRows.Close()
+
+	var fks []ports.SchemaGraphFK
+	for fkRows.Next() {
+		var fk ports.SchemaGraphFK
+		if err := fkRows.Scan(&fk.FromTable, &fk.FromColumn, &fk.ToTable, &fk.ToColumn); err != nil {
+			return ports.SchemaGraph{}, c.normalizeError(err)
+		}
+		fks = append(fks, fk)
+	}
+	if err := fkRows.Err(); err != nil {
+		return ports.SchemaGraph{}, c.normalizeError(err)
+	}
+
+	g := ports.SchemaGraph{ForeignKeys: fks}
+	for _, name := range order {
+		g.Tables = append(g.Tables, *byTable[name])
+	}
+	return g, nil
+}
+
 func (c *PostgreSQLConnector) ListForeignKeys(ctx context.Context, p domain.ConnectionProfile, password string, database string, table string) ([]ports.ForeignKey, error) {
 	db, err := c.connect(p, password, database)
 	if err != nil {
