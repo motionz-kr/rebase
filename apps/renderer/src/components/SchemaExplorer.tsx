@@ -6,6 +6,8 @@ import { CreateTableDialog } from './CreateTableDialog';
 import { CsvImportDialog } from './CsvImportDialog';
 import { IndexManagerDialog } from './IndexManagerDialog';
 import { buildRecentRowsQuery } from '../lib/recentQuery';
+import { loadHidden, saveHidden, hiddenFor, withHidden, hiddenCount, type HiddenStore } from '../lib/tableVisibility';
+import { TableVisibilityDialog } from './TableVisibilityDialog';
 import type { ColumnInfo } from '../global';
 
 interface SchemaExplorerProps {
@@ -46,6 +48,8 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
   const [csvImport, setCsvImport] = useState<{ db: string; table: string } | null>(null);
   const [indexMgr, setIndexMgr] = useState<{ db: string; table: string } | null>(null);
   const [dbMenu, setDbMenu] = useState<{ x: number; y: number; db: string } | null>(null);
+  const [hiddenStore, setHiddenStore] = useState<HiddenStore>(loadHidden);
+  const [visDialog, setVisDialog] = useState<{ db: string; tables: string[] } | null>(null);
   const [create, setCreate] = useState<{ db: string } | null>(null);
   const [viewMenu, setViewMenu] = useState<{ x: number; y: number; db: string; view: string } | null>(null);
 
@@ -318,7 +322,9 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
                   No tables
                 </div>
               ) : (
-                db.tables.map((table) => (
+                db.tables
+                  .filter((t) => !hiddenFor(hiddenStore, profileId, db.name).includes(t.name))
+                  .map((table) => (
                   <div key={table.name} className="tree-node">
                     <div
                       className="tree-row"
@@ -358,6 +364,15 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
                     )}
                   </div>
                 ))
+              )}
+              {hiddenCount(db.tables.map((t) => t.name), hiddenFor(hiddenStore, profileId, db.name)) > 0 && (
+                <div
+                  className="tree-hidden-row"
+                  onClick={() => setVisDialog({ db: db.name, tables: db.tables!.map((t) => t.name) })}
+                  title="클릭하여 표시할 테이블 선택"
+                >
+                  숨긴 테이블 {hiddenCount(db.tables.map((t) => t.name), hiddenFor(hiddenStore, profileId, db.name))}개
+                </div>
               )}
               {db.views && db.views.length > 0 && (
                 <>
@@ -477,7 +492,31 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
               <Network size={13} /> ER 다이어그램
             </button>
           )}
+          <button
+            className="ctx-item"
+            onClick={() => {
+              const dbNode = databases.find((d) => d.name === dbMenu.db);
+              setVisDialog({ db: dbMenu.db, tables: (dbNode?.tables ?? []).map((t) => t.name) });
+              setDbMenu(null);
+            }}
+          >
+            <Eye size={13} /> 테이블 표시…
+          </button>
         </div>
+      )}
+
+      {visDialog && (
+        <TableVisibilityDialog
+          db={visDialog.db}
+          tables={visDialog.tables}
+          hidden={hiddenFor(hiddenStore, profileId, visDialog.db)}
+          onClose={() => setVisDialog(null)}
+          onApply={(hidden) => {
+            const next = withHidden(hiddenStore, profileId, visDialog.db, hidden);
+            setHiddenStore(next);
+            saveHidden(next);
+          }}
+        />
       )}
 
       {viewMenu && (

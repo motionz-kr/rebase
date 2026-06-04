@@ -132,13 +132,24 @@
    Sidebar
    ============================================================ */
 .sidebar {
-  width: 290px;
+  /* width is set inline (resizable, persisted); see App.tsx */
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
   background: var(--bg-panel);
   border-right: 1px solid var(--border);
   min-height: 0;
+}
+.app-resizer {
+  width: 5px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 0.12s;
+}
+.app-resizer:hover {
+  background: var(--accent);
+  opacity: 0.5;
 }
 
 .sidebar-head {
@@ -2064,9 +2075,23 @@
 .grid-head-cell {
   cursor: pointer;
   user-select: none;
+  position: relative;
 }
 .grid-head-cell:hover {
   color: var(--text);
+}
+.col-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 1;
+}
+.col-resizer:hover {
+  background: var(--accent);
+  opacity: 0.5;
 }
 .grid-cell.sel {
   background: var(--accent-soft);
@@ -3149,4 +3174,69 @@
 .er-export-err {
   font-size: 11px;
   color: var(--danger, #e5534b);
+}
+
+/* Table hide/show */
+.tree-hidden-row {
+  padding: 3px 8px 3px 30px;
+  font-size: 11px;
+  color: var(--text-3);
+  font-style: italic;
+  cursor: pointer;
+}
+.tree-hidden-row:hover {
+  color: var(--text-2);
+}
+.tv-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.tv-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  color: var(--text-3);
+}
+.tv-search input {
+  flex: 1;
+  background: none;
+  border: none;
+  color: var(--text);
+  outline: none;
+  font-size: 12px;
+}
+.tv-count {
+  font-size: 11px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.tv-list {
+  max-height: 48vh;
+  overflow: auto;
+  padding: 6px 16px;
+}
+.tv-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px;
+  font-size: 12.5px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.tv-item:hover {
+  background: var(--bg-active);
+}
+.tv-empty {
+  padding: 14px;
+  color: var(--text-3);
+  font-size: 12px;
 }
