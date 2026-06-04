@@ -85,7 +85,34 @@ jobs:
           pnpm --filter renderer build
           pnpm --filter desktop build
 
-      - name: Package + publish (${{ matrix.platform }})
+      - name: Package (build only, no publish)
+        working-directory: apps/desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        shell: bash
+        run: pnpm exec electron-builder --${{ matrix.platform }} --publish never
+
+      # Smoke-test the packaged app: launch it and fail if the main process
+      # can't load a bundled module. This catches dependency-bundling regressions
+      # (e.g. a transitive dep missing from the asar) that a plain build does not.
+      - name: Smoke-test the packaged app (mac)
+        if: matrix.platform == 'mac'
+        shell: bash
+        run: |
+          APP="apps/desktop/release/mac-arm64/Rebase.app/Contents/MacOS/Rebase"
+          "$APP" > /tmp/smoke.log 2>&1 &
+          PID=$!
+          sleep 12
+          kill -9 "$PID" 2>/dev/null || true
+          echo "--- app log ---"
+          cat /tmp/smoke.log || true
+          if grep -q "Cannot find module" /tmp/smoke.log; then
+            echo "::error::Packaged app is missing a bundled module"
+            exit 1
+          fi
+          echo "Smoke test passed: no missing modules"
+
+      - name: Publish (${{ matrix.platform }})
         working-directory: apps/desktop
         env:
           # The repo is public, so the built-in token can publish releases to it.
