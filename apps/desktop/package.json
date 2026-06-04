@@ -21,6 +21,6 @@
     "electron-builder": "^24.9.1",
     "mysql2": "^3.22.4",
     "typescript": "^5.3.3",
-    "vitest": "^1.2.1"
+    "vitest": "^4.1.8"
   }
 }
