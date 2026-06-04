@@ -17,12 +17,57 @@ importers:
       '@iarna/toml':
         specifier: 2.2.5
         version: 2.2.5
+      argparse:
+        specifier: ^2.0.1
+        version: 2.0.1
+      builder-util-runtime:
+        specifier: 9.5.1
+        version: 9.5.1
+      debug:
+        specifier: ^4.4.3
+        version: 4.4.3
       electron-is-dev:
         specifier: ^2.0.0
         version: 2.0.0
       electron-updater:
         specifier: 6.8.3
         version: 6.8.3
+      fs-extra:
+        specifier: ^10.1.0
+        version: 10.1.0
+      graceful-fs:
+        specifier: ^4.2.11
+        version: 4.2.11
+      js-yaml:
+        specifier: ^4.1.0
+        version: 4.2.0
+      jsonfile:
+        specifier: ^6.0.1
+        version: 6.2.1
+      lazy-val:
+        specifier: ^1.0.5
+        version: 1.0.5
+      lodash.escaperegexp:
+        specifier: ^4.1.2
+        version: 4.1.2
+      lodash.isequal:
+        specifier: ^4.5.0
+        version: 4.5.0
+      ms:
+        specifier: ^2.1.3
+        version: 2.1.3
+      sax:
+        specifier: ^1.6.0
+        version: 1.6.0
+      semver:
+        specifier: ^7.7.3
+        version: 7.8.1
+      tiny-typed-emitter:
+        specifier: ^2.1.0
+        version: 2.1.0
+      universalify:
+        specifier: ^2.0.1
+        version: 2.0.1
     devDependencies:
       '@playwright/test':
         specifier: ^1.60.0
@@ -1670,7 +1715,7 @@ packages:
       hosted-git-info: 4.1.0
       is-ci: 3.0.1
       isbinaryfile: 5.0.7
-      js-yaml: 4.1.1
+      js-yaml: 4.2.0
       lazy-val: 1.0.5
       minimatch: 5.1.9
       read-config-file: 6.3.2
@@ -1863,6 +1908,7 @@ packages:
 
   /buffer@5.7.1:
     resolution: {integrity: sha512-EHcyIPBQ4BSGlvjB16k5KgAJ27CIsHY/2JBmCRReo48y9rQ3MaUzWX3KVlBa4U7MyX02HdVj0K7C3WaB3ju7FQ==}
+    requiresBuild: true
     dependencies:
       base64-js: 1.5.1
       ieee754: 1.2.1
@@ -1903,7 +1949,7 @@ packages:
       http-proxy-agent: 5.0.0
       https-proxy-agent: 5.0.1
       is-ci: 3.0.1
-      js-yaml: 4.1.1
+      js-yaml: 4.2.0
       source-map-support: 0.5.21
       stat-mode: 1.0.0
       temp-file: 3.4.0
@@ -2080,11 +2126,6 @@ packages:
   /core-util-is@1.0.2:
     resolution: {integrity: sha512-3lqz5YjWTYnW6dlDa5TLaTCcShfar1e40rmcJVwCBJC6mWlFuj0eCHIElmG1g5kyuJ/GD+8Wn4FFCcz4gJPfaQ==}
     requiresBuild: true
-    dev: true
-    optional: true
-
-  /core-util-is@1.0.3:
-    resolution: {integrity: sha512-ZQBvi1DcpJ4GDqanjucZ2Hj3wEO5pZDS89BWbkcrvdxksJorwUDDZamX9ldFkp9aw2lmBDLgkObEA4DWNJ9FYQ==}
     dev: true
 
   /crc-32@1.2.2:
@@ -2287,7 +2328,7 @@ packages:
       builder-util-runtime: 9.2.4
       fs-extra: 10.1.0
       iconv-lite: 0.6.3
-      js-yaml: 4.1.1
+      js-yaml: 4.2.0
     optionalDependencies:
       dmg-license: 1.0.11
     transitivePeerDependencies:
@@ -3207,19 +3248,11 @@ packages:
     resolution: {integrity: sha512-mxa9E9ITFOt0ban3j6L5MpjwegGz6lBQmM1IJkWeBZGcMxto50+eWdjC/52xDbS2vy0k7vIMK0Fe2wfL9OQSpQ==}
     dev: true
 
-  /js-yaml@4.1.1:
-    resolution: {integrity: sha512-qQKT4zQxXl8lLwBtHMWwaTcGfFOZviOJet3Oy/xmGk2gZH677CJM9EvtfdSkgWcATZhj/55JZ0rmy3myCT5lsA==}
-    hasBin: true
-    dependencies:
-      argparse: 2.0.1
-    dev: true
-
   /js-yaml@4.2.0:
     resolution: {integrity: sha512-ePWsvanv0DWuDRsW8dnt+R4jQ31SCRCQ7hhNcPXZPsoBZiemuZNYGf7adZdqX2D86j6rvKp3RpCxVTSb8WQlOw==}
     hasBin: true
     dependencies:
       argparse: 2.0.1
-    dev: false
 
   /jsesc@3.1.0:
     resolution: {integrity: sha512-/sM3dO2FOzXjKQhJuo0Q173wf2KOo8t4I8vHy6lF9poUp7bKT0/NHE8fPX23PwfhnykfqnC2xRxOnVw5XuGIaA==}
@@ -3965,7 +3998,7 @@ packages:
       config-file-ts: 0.2.6
       dotenv: 9.0.2
       dotenv-expand: 5.1.0
-      js-yaml: 4.1.1
+      js-yaml: 4.2.0
       json5: 2.2.3
       lazy-val: 1.0.5
     dev: true
@@ -3973,7 +4006,7 @@ packages:
   /readable-stream@2.3.8:
     resolution: {integrity: sha512-8p0AUk4XODgIewSi0l8Epjs+EVnWiK7NoDIEGU0HhE7+ZyY8D1IMY7odu5lRrFXGg71L15KG8QrPmum45RTtdA==}
     dependencies:
-      core-util-is: 1.0.3
+      core-util-is: 1.0.2
       inherits: 2.0.4
       isarray: 1.0.0
       process-nextick-args: 2.0.1
@@ -4144,7 +4177,6 @@ packages:
     engines: {node: '>=10'}
     hasBin: true
     requiresBuild: true
-    dev: true
 
   /serialize-error@7.0.1:
     resolution: {integrity: sha512-8I8TjW5KMOKsZQTvoxjuSIa7foAwPWGOts+6o7sgjz41/qMD9VQHEDxi6PBvK2l0MXUmqZyNpUK+T2tQaaElvw==}
