@@ -63,6 +63,12 @@ export class UpdateService {
     autoUpdater.quitAndInstall();
   }
 
+  // Manual fallback: open the GitHub Releases page (used when a macOS ad-hoc
+  // self-update fails Squirrel.Mac's signature check).
+  openReleasesPage() {
+    void shell.openExternal(RELEASES_PAGE_URL);
+  }
+
   // Dev-only: lets a CDP/Playwright test drive the renderer UI without a real feed.
   simulate(status: UpdateStatus) {
     if (!app.isPackaged) this.emit(status);
