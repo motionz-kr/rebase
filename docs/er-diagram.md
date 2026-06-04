@@ -37,6 +37,27 @@ Large schemas (more than 60 tables) start collapsed with a prompt to search,
 since laying out hundreds of nodes at once is rarely useful; typing in the search
 box reveals the matching subset.
 
+## Exporting
+
+The **내보내기 ▾** button in the toolbar exports the **currently visible** graph
+(whatever the search box has filtered to — the full schema when the box is empty)
+in five formats:
+
+| Format | File | Contents |
+| --- | --- | --- |
+| **PNG** | `.png` | Raster image of the rendered diagram (white background). |
+| **SVG** | `.svg` | Vector image of the rendered diagram. |
+| **SQL** | `.sql` | Real `SHOW CREATE TABLE` DDL for each table, runnable. |
+| **Mermaid** | `.mmd` | `erDiagram` diagram-as-code (renders on GitHub, Notion, …). |
+| **DBML** | `.dbml` | dbdiagram.io schema syntax. |
+
+PNG and SVG capture the whole diagram's bounds (not just the visible viewport),
+so the image is framed even when you're zoomed in; any selection highlight is
+cleared first for a clean picture. The image options are disabled while a large
+schema is collapsed behind search (there is nothing rendered to capture). If a
+single table's DDL fails to load, that table becomes a `-- failed …` comment and
+the rest of the export still succeeds.
+
 ## How it works
 
 ```
