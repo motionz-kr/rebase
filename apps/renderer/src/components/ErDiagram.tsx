@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -8,13 +8,18 @@ import {
   Handle,
   Position,
   useReactFlow,
+  getNodesBounds,
+  getViewportForBounds,
   type Node,
   type Edge,
   type NodeProps,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Search, Maximize2, Loader2 } from 'lucide-react';
+import { Search, Maximize2, Loader2, Download } from 'lucide-react';
 import { buildErGraph, layoutErGraph, filterErGraph, relatedIds } from '../lib/erGraph';
+import { toMermaid, toDbml, joinDdl, type DdlPart } from '../lib/erExport';
+import { exportErImage, downloadDataUrl } from '../lib/erImage';
+import { download, tsTimestamp } from '../lib/gridFormat';
 import type { SchemaGraph, SchemaGraphColumn } from '../global';
 
 interface Props {
@@ -53,6 +58,9 @@ const ErDiagramInner: React.FC<Props> = ({ profileId, database, onOpenTable }) =
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [exportErr, setExportErr] = useState<string | null>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
   const { fitView } = useReactFlow();
 
   const load = useCallback(() => {
@@ -98,6 +106,47 @@ const ErDiagramInner: React.FC<Props> = ({ profileId, database, onOpenTable }) =
     }
   }, [view.nodes.length, fitView]);
 
+  const onExport = useCallback(
+    async (kind: 'png' | 'svg' | 'sql' | 'mermaid' | 'dbml') => {
+      setMenuOpen(false);
+      setExportErr(null);
+      if (!raw) return;
+      const g = filterErGraph(raw, search);
+      const base = `${database}-er-${tsTimestamp()}`;
+      if (kind === 'mermaid') return download(`${base}.mmd`, toMermaid(g), 'text/plain');
+      if (kind === 'dbml') return download(`${base}.dbml`, toDbml(g), 'text/plain');
+      if (kind === 'sql') {
+        const parts: DdlPart[] = [];
+        for (const t of g.tables) {
+          const res = await window.electronAPI.getTableDDL(profileId, database, t.name);
+          if (res.success && res.data) parts.push({ table: t.name, ddl: res.data.ddl });
+          else parts.push({ table: t.name, error: res.error || 'unknown error' });
+        }
+        return download(`${base}.sql`, joinDdl(parts), 'text/plain');
+      }
+      try {
+        // Clear any selection dim/highlight so the exported image is clean, and
+        // let React paint the change before snapshotting.
+        if (selected) {
+          setSelected(null);
+          await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(null))));
+        }
+        const vpEl = wrapRef.current?.querySelector('.react-flow__viewport') as HTMLElement | null;
+        if (!vpEl) throw new Error('viewport not found');
+        const bounds = getNodesBounds(view.nodes);
+        const w = Math.min(Math.max(Math.round(bounds.width + 120), 640), 4096);
+        const h = Math.min(Math.max(Math.round(bounds.height + 120), 480), 4096);
+        const vp = getViewportForBounds(bounds, w, h, 0.2, 2, 0.1);
+        const transform = `translate(${vp.x}px, ${vp.y}px) scale(${vp.zoom})`;
+        const dataUrl = await exportErImage(kind, vpEl, { width: w, height: h, transform });
+        downloadDataUrl(`${base}.${kind}`, dataUrl);
+      } catch (e) {
+        setExportErr(`이미지 내보내기 실패: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    },
+    [raw, search, database, profileId, view.nodes, selected],
+  );
+
   if (error) {
     return (
       <div className="er-state">
@@ -120,7 +169,7 @@ const ErDiagramInner: React.FC<Props> = ({ profileId, database, onOpenTable }) =
   }
 
   return (
-    <div className="er-wrap">
+    <div className="er-wrap" ref={wrapRef}>
       <div className="er-toolbar">
         <div className="er-search">
           <Search size={13} />
@@ -130,6 +179,25 @@ const ErDiagramInner: React.FC<Props> = ({ profileId, database, onOpenTable }) =
         <button className="btn btn-secondary btn-xs" onClick={() => fitView({ duration: 200 })}>
           <Maximize2 size={12} /> 맞춤
         </button>
+        <div className="er-export">
+          <button className="btn btn-secondary btn-xs" onClick={() => setMenuOpen((v) => !v)}>
+            <Download size={12} /> 내보내기 ▾
+          </button>
+          {menuOpen && (
+            <div className="er-export-menu" onMouseLeave={() => setMenuOpen(false)}>
+              <button onClick={() => onExport('png')} disabled={tooLarge}>
+                PNG 이미지
+              </button>
+              <button onClick={() => onExport('svg')} disabled={tooLarge}>
+                SVG 이미지
+              </button>
+              <button onClick={() => onExport('sql')}>SQL (DDL)</button>
+              <button onClick={() => onExport('mermaid')}>Mermaid</button>
+              <button onClick={() => onExport('dbml')}>DBML</button>
+            </div>
+          )}
+        </div>
+        {exportErr && <span className="er-export-err">{exportErr}</span>}
       </div>
       {tooLarge ? (
         <div className="er-state">{raw.tables.length}개 테이블 — 검색으로 좁혀보세요.</div>
