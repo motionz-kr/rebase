@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useReducer } from 'react';
+import React, { useState, useEffect, useCallback, useReducer } from 'react';
 import {
   Database,
   Plus,
@@ -13,6 +13,7 @@ import {
   Bot,
   DownloadCloud,
 } from 'lucide-react';
+import { clampSidebarWidth, SIDEBAR_DEFAULT, loadNum, saveNum } from './lib/uiPrefs';
 import { SchemaExplorer } from './components/SchemaExplorer';
 import { UpdateButton } from './components/UpdateButton';
 import { McpConnectPanel } from './components/McpConnectPanel';
@@ -58,6 +59,25 @@ function App() {
   const [engineInfo, setEngineInfo] = useState<{ port?: number; pid?: number } | null>(null);
   const [engineError, setEngineError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const [sidebarWidth, setSidebarWidth] = useState(() => clampSidebarWidth(loadNum('rebase.ui.sidebarWidth', SIDEBAR_DEFAULT)));
+  useEffect(() => saveNum('rebase.ui.sidebarWidth', sidebarWidth), [sidebarWidth]);
+  const startSidebarResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = sidebarWidth;
+    const onMove = (ev: MouseEvent) => setSidebarWidth(clampSidebarWidth(startW + (ev.clientX - startX)));
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  };
 
   const [profiles, setProfiles] = useState<ConnectionProfile[]>([]);
 
@@ -367,7 +387,7 @@ function App() {
 
       <div className="app-body">
         {/* Sidebar: connection tree */}
-        <aside className="sidebar">
+        <aside className="sidebar" style={{ width: sidebarWidth, flexShrink: 0 }}>
           <div className="sidebar-head">
             <h2>Connections</h2>
             <button
@@ -585,6 +605,13 @@ function App() {
             </div>
           )}
         </aside>
+
+        <div
+          className="app-resizer"
+          onMouseDown={startSidebarResize}
+          onDoubleClick={() => setSidebarWidth(SIDEBAR_DEFAULT)}
+          title="드래그하여 너비 조절 · 더블클릭으로 초기화"
+        />
 
         {/* Main: keep-mounted panel per connected connection, focused one visible */}
         <main className="main" style={showAgent && agentPopped ? { display: 'none' } : undefined}>

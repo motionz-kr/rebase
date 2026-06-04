@@ -132,13 +132,24 @@
    Sidebar
    ============================================================ */
 .sidebar {
-  width: 290px;
+  /* width is set inline (resizable, persisted); see App.tsx */
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
   background: var(--bg-panel);
   border-right: 1px solid var(--border);
   min-height: 0;
+}
+.app-resizer {
+  width: 5px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 0.12s;
+}
+.app-resizer:hover {
+  background: var(--accent);
+  opacity: 0.5;
 }
 
 .sidebar-head {
