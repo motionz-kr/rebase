@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.2](https://github.com/motionz-kr/rebase/compare/v0.5.1...v0.5.2) (2026-06-04)
+
+
+### Bug Fixes
+
+* **build:** bundle electron-updater deps so the packaged app launches ([#69](https://github.com/motionz-kr/rebase/issues/69)) ([f7f6726](https://github.com/motionz-kr/rebase/commit/f7f6726992f00e14b3fa1adf8be6bdc478622454))
+
 ## [0.5.1](https://github.com/motionz-kr/rebase/compare/v0.5.0...v0.5.1) (2026-06-04)
 
 
