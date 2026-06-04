@@ -3182,61 +3182,50 @@
   font-size: 11px;
   color: var(--text-3);
   font-style: italic;
-  cursor: pointer;
 }
-.tree-hidden-row:hover {
-  color: var(--text-2);
+
+/* Table-visibility tree inside the connection Edit dialog */
+.ctp-section {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
 }
-.tv-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--border);
-}
-.tv-search {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex: 1;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 4px 8px;
-  color: var(--text-3);
-}
-.tv-search input {
-  flex: 1;
-  background: none;
-  border: none;
-  color: var(--text);
-  outline: none;
+.ctp-head {
   font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+  margin-bottom: 2px;
 }
-.tv-count {
+.ctp-hint {
   font-size: 11px;
   color: var(--text-3);
-  white-space: nowrap;
+  margin: 0 0 8px;
 }
-.tv-list {
-  max-height: 48vh;
+.ctp-tree {
+  max-height: 38vh;
   overflow: auto;
-  padding: 6px 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 0;
 }
-.tv-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 4px;
-  font-size: 12.5px;
-  border-radius: 5px;
+.ctp-tree .tree-row {
+  cursor: default;
+}
+.ctp-check {
+  margin: 0 2px;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+.ctp-table-row {
   cursor: pointer;
 }
-.tv-item:hover {
-  background: var(--bg-active);
-}
-.tv-empty {
-  padding: 14px;
-  color: var(--text-3);
+.ctp-status {
   font-size: 12px;
+  padding: 10px 4px;
+}
+.ctp-status.muted {
+  color: var(--text-3);
+}
+.ctp-status.error {
+  color: var(--danger, #e5484d);
 }

@@ -14,7 +14,9 @@ import {
   DownloadCloud,
 } from 'lucide-react';
 import { clampSidebarWidth, SIDEBAR_DEFAULT, loadNum, saveNum } from './lib/uiPrefs';
+import { loadHidden, saveHidden, type HiddenStore } from './lib/tableVisibility';
 import { SchemaExplorer } from './components/SchemaExplorer';
+import { ConnectionTablePrefs } from './components/ConnectionTablePrefs';
 import { UpdateButton } from './components/UpdateButton';
 import { McpConnectPanel } from './components/McpConnectPanel';
 import { QueryEditor } from './components/QueryEditor';
@@ -115,6 +117,15 @@ function App() {
   const [formPassword, setFormPassword] = useState('');
   const [formTlsMode, setFormTlsMode] = useState<'none' | 'prefer' | 'require'>('none');
   const [editingId, setEditingId] = useState<string | null>(null);
+
+  // Per-connection hidden-tables map, lifted here so both the schema explorer
+  // (which filters the tree) and the connection Edit dialog (which sets it) stay
+  // in sync within the same tab. Persisted to localStorage on every change.
+  const [hiddenStore, setHiddenStore] = useState<HiddenStore>(loadHidden);
+  const updateHidden = useCallback((next: HiddenStore) => {
+    setHiddenStore(next);
+    saveHidden(next);
+  }, []);
 
   useEffect(() => {
     // Intentional load-on-mount; loadProfiles manages its own state.
@@ -493,6 +504,18 @@ function App() {
             />
           )}
 
+          {showCreateForm && editingId && (formDriver === 'mysql' || formDriver === 'postgres') && (
+            <div className="ctp-section">
+              <div className="ctp-head">표시할 테이블</div>
+              <p className="ctp-hint">체크한 테이블만 스키마 트리에 표시됩니다.</p>
+              {conns.byId[editingId]?.status === 'connected' ? (
+                <ConnectionTablePrefs profileId={editingId} store={hiddenStore} onChange={updateHidden} />
+              ) : (
+                <div className="ctp-status muted">먼저 이 연결에 접속하면 테이블 목록이 표시됩니다.</div>
+              )}
+            </div>
+          )}
+
           {!showCreateForm && (
             <div className="conn-list">
               {profiles.length === 0 && (
@@ -560,7 +583,7 @@ function App() {
                             onDisconnect={() => disconnect(p.id!)}
                           />
                         ) : (
-                          <SchemaExplorer profileId={p.id!} driver={p.driver} onDisconnect={() => disconnect(p.id!)} onSchemaChanged={() => setSchemaVersion((n) => n + 1)} onOpenTableData={(db, table) => { setErTab((prev) => ({ ...prev, [p.id!]: null })); setOpenTable((prev) => ({ ...prev, [p.id!]: { db, table } })); }} onOpenErDiagram={(db) => { setOpenTable((prev) => ({ ...prev, [p.id!]: null })); setErTab((prev) => ({ ...prev, [p.id!]: { db } })); }} onRunQuery={(sql) => { setErTab((prev) => ({ ...prev, [p.id!]: null })); setOpenTable((prev) => ({ ...prev, [p.id!]: null })); setRunReq({ profileId: p.id!, sql, nonce: Date.now() }); }} />
+                          <SchemaExplorer profileId={p.id!} driver={p.driver} hiddenStore={hiddenStore} onDisconnect={() => disconnect(p.id!)} onSchemaChanged={() => setSchemaVersion((n) => n + 1)} onOpenTableData={(db, table) => { setErTab((prev) => ({ ...prev, [p.id!]: null })); setOpenTable((prev) => ({ ...prev, [p.id!]: { db, table } })); }} onOpenErDiagram={(db) => { setOpenTable((prev) => ({ ...prev, [p.id!]: null })); setErTab((prev) => ({ ...prev, [p.id!]: { db } })); }} onRunQuery={(sql) => { setErTab((prev) => ({ ...prev, [p.id!]: null })); setOpenTable((prev) => ({ ...prev, [p.id!]: null })); setRunReq({ profileId: p.id!, sql, nonce: Date.now() }); }} />
                         )}
                       </div>
                     )}
