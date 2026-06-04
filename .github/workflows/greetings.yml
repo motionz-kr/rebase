@@ -11,13 +11,15 @@ jobs:
   greeting:
     runs-on: ubuntu-latest
     steps:
+      # first-interaction v3 renamed inputs to snake_case
+      # (issue_message / pr_message / repo_token).
       - uses: actions/first-interaction@v3
         with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          issue-message: |
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          issue_message: |
             👋 Thanks for opening your first issue! A maintainer will take a look soon.
             Please make sure you've included reproduction steps, your app version, and your OS.
-          pr-message: |
+          pr_message: |
             🎉 Thanks for your first pull request! Please make sure the title is a
             [Conventional Commit](https://www.conventionalcommits.org/) and that the checks pass.
             See `CONTRIBUTING.md` if you haven't yet. A maintainer will review shortly.
