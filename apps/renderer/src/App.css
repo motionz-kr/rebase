@@ -3004,3 +3004,113 @@
 }
 .mcp-note.ok { color: var(--green); }
 .mcp-note.err { color: var(--red); }
+
+/* --- ER diagram --- */
+.er-wrap {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.er-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.er-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0 8px;
+  color: var(--text-3);
+}
+.er-search input {
+  width: 220px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 12.5px;
+  outline: none;
+}
+.er-count {
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+.er-toolbar .btn {
+  margin-left: auto;
+}
+.er-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 100%;
+  color: var(--text-3);
+  font-size: 13px;
+}
+.er-state .spin {
+  margin-right: 6px;
+}
+
+/* React Flow node = a table card */
+.er-node {
+  width: 220px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  overflow: hidden;
+  font-size: 11.5px;
+  box-shadow: var(--shadow-pop);
+}
+.er-node-dim {
+  opacity: 0.28;
+}
+.er-node-head {
+  padding: 6px 10px;
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--bg-active);
+  border-bottom: 1px solid var(--border);
+}
+.er-node-cols {
+  display: flex;
+  flex-direction: column;
+}
+.er-col {
+  display: grid;
+  grid-template-columns: 16px 1fr auto;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  height: 22px;
+  font-family: var(--mono);
+}
+.er-col-key {
+  font-size: 9px;
+}
+.er-col-name {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.er-col-type {
+  color: var(--text-3);
+  font-size: 10.5px;
+}
+.react-flow__edge.er-edge-dim {
+  opacity: 0.2;
+}
+.react-flow__edge.er-edge-hl path {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
