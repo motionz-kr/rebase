@@ -405,6 +405,74 @@ func (c *MySQLConnector) ExecuteBatch(ctx context.Context, p domain.ConnectionPr
 	return total, -1, nil
 }
 
+// GetSchemaGraph returns every table (with columns + PK flags) and all FK
+// relationships in the database, using two information_schema queries.
+func (c *MySQLConnector) GetSchemaGraph(ctx context.Context, p domain.ConnectionProfile, password string, database string) (ports.SchemaGraph, error) {
+	db, err := c.connect(p, password, database)
+	if err != nil {
+		return ports.SchemaGraph{}, err
+	}
+	defer db.Close()
+
+	colRows, err := db.QueryContext(ctx, `
+		SELECT table_name, column_name, data_type, is_nullable, column_key
+		FROM information_schema.columns
+		WHERE table_schema = ?
+		ORDER BY table_name, ordinal_position
+	`, database)
+	if err != nil {
+		return ports.SchemaGraph{}, c.normalizeError(err)
+	}
+	defer colRows.Close()
+
+	order := []string{}
+	byTable := map[string]*ports.SchemaGraphTable{}
+	for colRows.Next() {
+		var tbl, col, typ, nullable, key string
+		if err := colRows.Scan(&tbl, &col, &typ, &nullable, &key); err != nil {
+			return ports.SchemaGraph{}, c.normalizeError(err)
+		}
+		t, ok := byTable[tbl]
+		if !ok {
+			t = &ports.SchemaGraphTable{Name: tbl}
+			byTable[tbl] = t
+			order = append(order, tbl)
+		}
+		t.Columns = append(t.Columns, ports.ColumnInfo{Name: col, Type: typ, Nullable: nullable == "YES", PrimaryKey: key == "PRI"})
+	}
+	if err := colRows.Err(); err != nil {
+		return ports.SchemaGraph{}, c.normalizeError(err)
+	}
+
+	fkRows, err := db.QueryContext(ctx, `
+		SELECT table_name, column_name, referenced_table_name, referenced_column_name
+		FROM information_schema.key_column_usage
+		WHERE table_schema = ? AND referenced_table_name IS NOT NULL
+	`, database)
+	if err != nil {
+		return ports.SchemaGraph{}, c.normalizeError(err)
+	}
+	defer fkRows.Close()
+
+	var fks []ports.SchemaGraphFK
+	for fkRows.Next() {
+		var fk ports.SchemaGraphFK
+		if err := fkRows.Scan(&fk.FromTable, &fk.FromColumn, &fk.ToTable, &fk.ToColumn); err != nil {
+			return ports.SchemaGraph{}, c.normalizeError(err)
+		}
+		fks = append(fks, fk)
+	}
+	if err := fkRows.Err(); err != nil {
+		return ports.SchemaGraph{}, c.normalizeError(err)
+	}
+
+	g := ports.SchemaGraph{ForeignKeys: fks}
+	for _, name := range order {
+		g.Tables = append(g.Tables, *byTable[name])
+	}
+	return g, nil
+}
+
 func (c *MySQLConnector) ListForeignKeys(ctx context.Context, p domain.ConnectionProfile, password string, database string, table string) ([]ports.ForeignKey, error) {
 	db, err := c.connect(p, password, database)
 	if err != nil {

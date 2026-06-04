@@ -43,6 +43,25 @@ type ForeignKey struct {
 	RefColumn string `json:"refColumn"`
 }
 
+// SchemaGraphTable / SchemaGraphFK / SchemaGraph describe a whole database's
+// table+column structure and FK relationships for the ER diagram, in one shot.
+type SchemaGraphTable struct {
+	Name    string       `json:"name"`
+	Columns []ColumnInfo `json:"columns"`
+}
+
+type SchemaGraphFK struct {
+	FromTable  string `json:"fromTable"`
+	FromColumn string `json:"fromColumn"`
+	ToTable    string `json:"toTable"`
+	ToColumn   string `json:"toColumn"`
+}
+
+type SchemaGraph struct {
+	Tables      []SchemaGraphTable `json:"tables"`
+	ForeignKeys []SchemaGraphFK    `json:"foreignKeys"`
+}
+
 // Index describes a table index (one entry per index, columns in order).
 type Index struct {
 	Name    string   `json:"name"`
