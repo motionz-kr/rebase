@@ -1,34 +1,39 @@
 version: 2
+
+# Strategy: group **minor + patch** updates per ecosystem into a single, safe,
+# auto-mergeable PR. **Major** updates are deliberately left UNgrouped so each
+# arrives as its own reviewable PR (major framework bumps — Electron, TS, Vite,
+# ESLint — need real validation, not a bundled auto-merge).
 updates:
   # JavaScript/TypeScript (pnpm workspaces). One entry per package.json dir.
   - package-ecosystem: npm
     directory: '/'
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 10
     groups:
-      js-root:
-        patterns: ['*']
+      js-root-minor-patch:
+        update-types: ['minor', 'patch']
 
   - package-ecosystem: npm
     directory: '/apps/desktop'
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 10
     groups:
-      desktop-deps:
-        patterns: ['*']
+      desktop-minor-patch:
+        update-types: ['minor', 'patch']
 
   - package-ecosystem: npm
     directory: '/apps/renderer'
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 10
     groups:
-      renderer-deps:
-        patterns: ['*']
+      renderer-minor-patch:
+        update-types: ['minor', 'patch']
 
-  # Go engine
+  # Go engine — majors are rare; group everything.
   - package-ecosystem: gomod
     directory: '/'
     schedule:
@@ -38,7 +43,7 @@ updates:
       go-deps:
         patterns: ['*']
 
-  # GitHub Actions used by our workflows
+  # GitHub Actions used by our workflows — low risk; group everything.
   - package-ecosystem: github-actions
     directory: '/'
     schedule:
