@@ -80,6 +80,7 @@ type SQLConnector interface {
 	GetTableDDL(ctx context.Context, p domain.ConnectionProfile, password string, database string, table string) (string, error)
 	ListColumns(ctx context.Context, p domain.ConnectionProfile, password string, database string) ([]ColumnRef, error)
 	ListForeignKeys(ctx context.Context, p domain.ConnectionProfile, password string, database string, table string) ([]ForeignKey, error)
+	GetSchemaGraph(ctx context.Context, p domain.ConnectionProfile, password string, database string) (SchemaGraph, error)
 	ListIndexes(ctx context.Context, p domain.ConnectionProfile, password string, database string, table string) ([]Index, error)
 	ExecuteQueryStream(ctx context.Context, p domain.ConnectionProfile, password string, query string, readOnly bool, onSessionStart func(sessionID int64), onHeader func(columns []string) error, onRow func(row []any) error) (int64, error)
 	ExecuteBatch(ctx context.Context, p domain.ConnectionProfile, password string, statements []string) (rowsAffected int64, failedIndex int, err error)
