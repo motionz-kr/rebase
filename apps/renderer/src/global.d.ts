@@ -193,6 +193,7 @@ declare global {
       updateCheck: () => Promise<void>;
       updateDownload: () => Promise<void>;
       updateInstall: () => Promise<void>;
+      updateOpenPage: () => Promise<void>;
       updateSimulate: (status: UpdateStatus) => Promise<void>;
       onUpdateStatus: (callback: (status: UpdateStatus) => void) => () => void;
       agentKeyStatus: (provider: string) => Promise<ResultWrapper<{ present: boolean }>>;

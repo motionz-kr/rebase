@@ -179,6 +179,7 @@ app.whenReady().then(() => {
   ipcMain.handle('update-check', () => updateService?.check());
   ipcMain.handle('update-download', () => updateService?.download());
   ipcMain.handle('update-install', () => updateService?.installAndRestart());
+  ipcMain.handle('update-open-page', () => updateService?.openReleasesPage());
   ipcMain.handle('update-simulate', (_e, status) => updateService?.simulate(status));
 
   ipcMain.handle('check-engine-health', async () => {

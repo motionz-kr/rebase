@@ -61,9 +61,14 @@ export const UpdateButton: React.FC = () => {
                 </button>
               )}
               {state.phase === 'error' && (
-                <button className="btn btn-secondary btn-sm" onClick={() => window.electronAPI.updateDownload()}>
-                  다시 시도
-                </button>
+                <>
+                  <button className="btn btn-secondary btn-sm" onClick={() => window.electronAPI.updateOpenPage()}>
+                    GitHub에서 받기
+                  </button>
+                  <button className="btn btn-secondary btn-sm" onClick={() => window.electronAPI.updateDownload()}>
+                    다시 시도
+                  </button>
+                </>
               )}
             </div>
           </div>
