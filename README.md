@@ -20,8 +20,9 @@ query engine that streams results to a keyboard-friendly Electron UI.
 - TLS modes; passwords stored in the OS keychain (never in plaintext)
 
 **Schema explorer**
-- Tables, views, indexes, and foreign keys
+- Tables, views, indexes, and foreign keys; **resizable sidebar** (drag to resize, double-click to reset)
 - Create / alter tables, manage indexes, view DDL — all from the context menu
+- **Hide/show tables** — pick which tables appear in the tree (per connection, persisted)
 - **Read-only ER diagram** — visualize tables and foreign-key relationships, with search, highlight, and click-through to data; export to PNG / SVG / SQL / Mermaid / DBML
 
 **SQL editor**
@@ -31,7 +32,7 @@ query engine that streams results to a keyboard-friendly Electron UI.
 
 **Result grid**
 - Sort, per-column filter chips, export (CSV / JSON)
-- Full keyboard navigation, **pin/freeze columns**, copy selection
+- Full keyboard navigation, **pin/freeze columns**, **resize column widths** (persisted) and **drag to reorder**, copy selection
 - One-click **"recent 500 rows"** from any table
 
 **Editable data**
