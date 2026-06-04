@@ -22,7 +22,7 @@ query engine that streams results to a keyboard-friendly Electron UI.
 **Schema explorer**
 - Tables, views, indexes, and foreign keys
 - Create / alter tables, manage indexes, view DDL — all from the context menu
-- **Read-only ER diagram** — visualize tables and foreign-key relationships, with search, highlight, and click-through to data
+- **Read-only ER diagram** — visualize tables and foreign-key relationships, with search, highlight, and click-through to data; export to PNG / SVG / SQL / Mermaid / DBML
 
 **SQL editor**
 - Monaco editor with schema-aware autocomplete and one-click formatting
