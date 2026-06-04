@@ -1,37 +1,47 @@
 version: 2
 
-# Strategy: group **minor + patch** updates per ecosystem into a single, safe,
-# auto-mergeable PR. **Major** updates are deliberately left UNgrouped so each
-# arrives as its own reviewable PR (major framework bumps — Electron, TS, Vite,
-# ESLint — need real validation, not a bundled auto-merge).
+# Strategy: keep dependency PRs few and safe.
+# - **Ignore major** updates entirely — big framework bumps (Electron, TS, Vite,
+#   ESLint, Vitest) are done as deliberate, separately-tested efforts, not
+#   Dependabot PRs.
+# - Group everything else (minor + patch) into ONE PR per ecosystem.
 updates:
   # JavaScript/TypeScript (pnpm workspaces). One entry per package.json dir.
   - package-ecosystem: npm
     directory: '/'
     schedule:
       interval: weekly
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: '*'
+        update-types: ['version-update:semver-major']
     groups:
-      js-root-minor-patch:
-        update-types: ['minor', 'patch']
+      js-root:
+        patterns: ['*']
 
   - package-ecosystem: npm
     directory: '/apps/desktop'
     schedule:
       interval: weekly
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: '*'
+        update-types: ['version-update:semver-major']
     groups:
-      desktop-minor-patch:
-        update-types: ['minor', 'patch']
+      desktop-deps:
+        patterns: ['*']
 
   - package-ecosystem: npm
     directory: '/apps/renderer'
     schedule:
       interval: weekly
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: '*'
+        update-types: ['version-update:semver-major']
     groups:
-      renderer-minor-patch:
-        update-types: ['minor', 'patch']
+      renderer-deps:
+        patterns: ['*']
 
   # Go engine — majors are rare; group everything.
   - package-ecosystem: gomod
