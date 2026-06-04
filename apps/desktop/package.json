@@ -3,6 +3,8 @@
   "version": "0.7.0",
   "private": true,
   "license": "MIT",
+  "description": "Rebase — a desktop database manager",
+  "author": "motionz-kr",
   "main": "dist/main/index.js",
   "scripts": {
     "dev": "tsc -w & electron .",
