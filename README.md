@@ -148,6 +148,21 @@ macOS/Windows installers. See [`docs/auto-update.md`](docs/auto-update.md).
 
 [release-please]: https://github.com/googleapis/release-please
 
+### macOS first launch
+
+Rebase is distributed **unsigned** (no paid Apple Developer ID — it's a free,
+open-source app), so macOS Gatekeeper quarantines the download and may say
+*"Rebase is damaged and can't be opened."* That's the quarantine flag, not a
+real problem. Clear it once, either way:
+
+- **Finder:** right-click `Rebase.app` → **Open** → **Open** again, or
+- **Terminal:**
+  ```bash
+  xattr -cr /Applications/Rebase.app
+  ```
+
+After that the app launches normally and auto-updates as usual.
+
 ## 📄 License
 
 [MIT](LICENSE) © motionz-kr
