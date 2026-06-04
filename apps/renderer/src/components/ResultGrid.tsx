@@ -5,6 +5,16 @@ import { sortRows, filterRows, type SortDir } from '../lib/gridView';
 import { cellText, tsTimestamp, download } from '../lib/gridFormat';
 import { nextCell } from '../lib/gridNav';
 import { pinLayout, PIN_W, COL_W } from '../lib/pinLayout';
+import { columnWidth, reorderUnpinned } from '../lib/gridColumns';
+
+const COL_W_KEY = 'rebase.ui.colWidths';
+const loadColWidths = (): Record<string, number> => {
+  try {
+    return JSON.parse(localStorage.getItem(COL_W_KEY) || '{}');
+  } catch {
+    return {};
+  }
+};
 
 interface Props {
   columns: string[];
@@ -27,8 +37,32 @@ export const ResultGrid: React.FC<Props> = ({ columns, rows, rowHeight = 32 }) =
   const [menuOpen, setMenuOpen] = useState(false);
   const [pinned, setPinned] = useState<Set<number>>(new Set());
   const [headerMenu, setHeaderMenu] = useState<{ x: number; y: number; col: number } | null>(null);
+  const [colWidths, setColWidths] = useState<Record<string, number>>(loadColWidths);
+  const [userOrder, setUserOrder] = useState<number[] | null>(null);
+  useEffect(() => {
+    try {
+      localStorage.setItem(COL_W_KEY, JSON.stringify(colWidths));
+    } catch {
+      /* ignore */
+    }
+  }, [colWidths]);
 
   const lay = useMemo(() => pinLayout(columns.length, pinned), [columns.length, pinned]);
+  // Fixed-width mode kicks in once pinning is active OR the user has resized any
+  // column — then every column needs an explicit width so the row spans the full
+  // content width.
+  const widthMode = lay.active || Object.keys(colWidths).length > 0;
+
+  // Display order: pinned columns stay left (in pin order); the unpinned group
+  // follows the user's drag-reordered sequence (session-scoped, not persisted).
+  const displayOrder = useMemo(() => {
+    const pinnedPart = lay.order.filter((i) => pinned.has(i));
+    const rest = lay.order.filter((i) => !pinned.has(i));
+    if (!userOrder) return [...pinnedPart, ...rest];
+    const ordered = userOrder.filter((i) => rest.includes(i));
+    const missing = rest.filter((i) => !ordered.includes(i));
+    return [...pinnedPart, ...ordered, ...missing];
+  }, [lay.order, pinned, userOrder]);
   // Cell geometry. While pinning is active every column gets a fixed width so the
   // row spans the full content width — that's what lets pinned cells stay sticky
   // across the whole horizontal scroll (not just the viewport width). Pinned cells
@@ -37,14 +71,17 @@ export const ResultGrid: React.FC<Props> = ({ columns, rows, rowHeight = 32 }) =
     if (lay.stickyLeft[origC] !== undefined) {
       return { position: 'sticky', left: lay.stickyLeft[origC], zIndex: 2, flex: '0 0 auto', width: PIN_W, minWidth: PIN_W, maxWidth: PIN_W, background: selected ? undefined : bg };
     }
-    if (lay.active) return { flex: `0 0 ${COL_W}px`, width: COL_W, minWidth: COL_W, maxWidth: COL_W };
+    if (widthMode) {
+      const w = columnWidth(columns[origC], colWidths, COL_W);
+      return { flex: `0 0 ${w}px`, width: w, minWidth: w, maxWidth: w };
+    }
     return {};
   };
   const idxStyle = (bg: string): React.CSSProperties =>
     lay.active ? { position: 'sticky', left: 0, zIndex: 3, background: bg } : {};
-  // When pinning is active the row spans full content width so sticky has room;
-  // otherwise it fills the viewport (flexible columns, original behaviour).
-  const rowSpan: React.CSSProperties = lay.active ? { width: 'max-content', minWidth: '100%' } : { right: 0 };
+  // In fixed-width mode the row spans full content width so sticky has room and
+  // resized columns hold their size; otherwise it fills the viewport.
+  const rowSpan: React.CSSProperties = widthMode ? { width: 'max-content', minWidth: '100%' } : { right: 0 };
   const togglePin = (col: number) =>
     setPinned((prev) => {
       const next = new Set(prev);
@@ -52,6 +89,42 @@ export const ResultGrid: React.FC<Props> = ({ columns, rows, rowHeight = 32 }) =
       else next.add(col);
       return next;
     });
+
+  // Drag a header-cell border to resize that column (stored by name).
+  const startColResize = (e: React.MouseEvent, name: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startW = columnWidth(name, colWidths, COL_W);
+    const onMove = (ev: MouseEvent) => setColWidths((w) => ({ ...w, [name]: Math.max(60, Math.round(startW + (ev.clientX - startX))) }));
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.removeProperty('cursor');
+    };
+    document.body.style.setProperty('cursor', 'col-resize');
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  };
+  const resetColWidth = (name: string) =>
+    setColWidths((w) => {
+      const n = { ...w };
+      delete n[name];
+      return n;
+    });
+
+  // Drag a header cell onto another to reorder (within the unpinned group only).
+  const dragCol = useRef<number | null>(null);
+  const onColDrop = (targetIdx: number) => {
+    const from = dragCol.current;
+    dragCol.current = null;
+    if (from === null || from === targetIdx || pinned.has(from) || pinned.has(targetIdx)) return;
+    const rest = displayOrder.filter((i) => !pinned.has(i));
+    const fromPos = rest.indexOf(from);
+    const toPos = rest.indexOf(targetIdx);
+    if (fromPos < 0 || toPos < 0) return;
+    setUserOrder(reorderUnpinned(rest, fromPos, toPos));
+  };
 
   const bodyRef = useRef<HTMLDivElement>(null);
   const headRef = useRef<HTMLDivElement>(null);
@@ -87,10 +160,11 @@ export const ResultGrid: React.FC<Props> = ({ columns, rows, rowHeight = 32 }) =
     setSel(null);
   }, [rows, filter, sort]);
 
-  // Reset pinned columns when the column set changes (e.g. a new query).
+  // Reset pinned columns + drag order when the column set changes (new query).
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setPinned(new Set());
+    setUserOrder(null);
   }, [columns]);
 
   // Close the header context menu on any outside click or Escape.
@@ -228,18 +302,30 @@ export const ResultGrid: React.FC<Props> = ({ columns, rows, rowHeight = 32 }) =
 
       <div className="grid-head" ref={headRef}>
         <div className="grid-idx" style={idxStyle('var(--bg-panel-2)')}>#</div>
-        {lay.order.map((idx) => (
+        {displayOrder.map((idx) => (
           <div
             key={idx}
             className={`grid-cell grid-head-cell ${pinned.has(idx) ? 'pinned' : ''}`}
             style={cellGeom(idx, 'var(--bg-panel-2)')}
             title={columns[idx]}
+            draggable={!pinned.has(idx)}
+            onDragStart={() => { dragCol.current = idx; }}
+            onDragOver={(e) => { if (!pinned.has(idx) && dragCol.current !== null) e.preventDefault(); }}
+            onDrop={() => onColDrop(idx)}
             onClick={() => toggleSort(idx)}
             onContextMenu={(e) => { e.preventDefault(); setHeaderMenu({ x: e.clientX, y: e.clientY, col: idx }); }}
           >
             {pinned.has(idx) && <Pin size={11} className="pin-mark" />}
             {columns[idx]}
             {sort && sort.col === idx ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : ''}
+            {!pinned.has(idx) && (
+              <span
+                className="col-resizer"
+                onMouseDown={(e) => startColResize(e, columns[idx])}
+                onClick={(e) => e.stopPropagation()}
+                onDoubleClick={(e) => { e.stopPropagation(); resetColWidth(columns[idx]); }}
+              />
+            )}
           </div>
         ))}
       </div>
@@ -258,7 +344,7 @@ export const ResultGrid: React.FC<Props> = ({ columns, rows, rowHeight = 32 }) =
                   style={{ position: 'absolute', top: `${r * rowHeight}px`, height: `${rowHeight}px`, left: 0, display: 'flex', ...rowSpan }}
                 >
                   <div className="grid-idx" style={idxStyle('var(--bg)')} onMouseDown={(e) => selectRow(r, e.shiftKey)}>{r + 1}</div>
-                  {lay.order.map((c) => {
+                  {displayOrder.map((c) => {
                     const val = row[c];
                     const isNull = val === null || val === undefined;
                     const text = cellText(val);

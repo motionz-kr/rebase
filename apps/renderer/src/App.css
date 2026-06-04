@@ -2075,9 +2075,23 @@
 .grid-head-cell {
   cursor: pointer;
   user-select: none;
+  position: relative;
 }
 .grid-head-cell:hover {
   color: var(--text);
+}
+.col-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 1;
+}
+.col-resizer:hover {
+  background: var(--accent);
+  opacity: 0.5;
 }
 .grid-cell.sel {
   background: var(--accent-soft);
