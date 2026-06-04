@@ -9,8 +9,8 @@ importers:
   .:
     devDependencies:
       typescript:
-        specifier: ^5.3.3
-        version: 5.9.3
+        specifier: ^6.0.3
+        version: 6.0.3
 
   apps/desktop:
     dependencies:
@@ -37,8 +37,8 @@ importers:
         specifier: ^3.22.4
         version: 3.22.4(@types/node@24.12.4)
       typescript:
-        specifier: ^5.3.3
-        version: 5.9.3
+        specifier: ^6.0.3
+        version: 6.0.3
       vitest:
         specifier: ^1.2.1
         version: 1.6.1(@types/node@24.12.4)
@@ -95,7 +95,7 @@ importers:
         specifier: ^17.6.0
         version: 17.6.0
       typescript:
-        specifier: ~6.0.2
+        specifier: ~6.0.3
         version: 6.0.3
       typescript-eslint:
         specifier: ^8.59.2
