@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/motionz-kr/rebase/compare/v0.4.0...v0.5.0) (2026-06-04)
+
+
+### Features
+
+* **er:** read-only schema/ER diagram ([#64](https://github.com/motionz-kr/rebase/issues/64)) ([c61e28c](https://github.com/motionz-kr/rebase/commit/c61e28c213569976458f464c48da00c18e05ee15))
+
 ## [0.4.0](https://github.com/motionz-kr/rebase/compare/v0.3.0...v0.4.0) (2026-06-03)
 
 
