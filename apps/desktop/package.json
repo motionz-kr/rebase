@@ -13,7 +13,7 @@
   "dependencies": {
     "@iarna/toml": "2.2.5",
     "electron-is-dev": "^2.0.0",
-    "electron-updater": "6.3.9"
+    "electron-updater": "6.8.3"
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0",
