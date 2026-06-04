@@ -24,6 +24,7 @@ import { AgentChat } from './components/AgentChat';
 import { SavedQueries } from './components/SavedQueries';
 import { QueryHistory } from './components/QueryHistory';
 import { TableDataView } from './components/TableDataView';
+import { ErDiagram } from './components/ErDiagram';
 import { connectionsReducer, initialConnectionsState } from './state/connections';
 import './App.css';
 
@@ -82,6 +83,7 @@ function App() {
   const [savedTrigger, setSavedTrigger] = useState(0);
   const [schemaVersion, setSchemaVersion] = useState(0);
   const [openTable, setOpenTable] = useState<Record<string, { db: string; table: string; filter?: { col: string; value: string } } | null>>({});
+  const [erTab, setErTab] = useState<Record<string, { db: string } | null>>({});
 
   // Create form state
   const [formDriver, setFormDriver] = useState<'mysql' | 'postgres' | 'redis'>('mysql');
@@ -538,7 +540,7 @@ function App() {
                             onDisconnect={() => disconnect(p.id!)}
                           />
                         ) : (
-                          <SchemaExplorer profileId={p.id!} driver={p.driver} onDisconnect={() => disconnect(p.id!)} onSchemaChanged={() => setSchemaVersion((n) => n + 1)} onOpenTableData={(db, table) => setOpenTable((prev) => ({ ...prev, [p.id!]: { db, table } }))} onRunQuery={(sql) => { setOpenTable((prev) => ({ ...prev, [p.id!]: null })); setRunReq({ profileId: p.id!, sql, nonce: Date.now() }); }} />
+                          <SchemaExplorer profileId={p.id!} driver={p.driver} onDisconnect={() => disconnect(p.id!)} onSchemaChanged={() => setSchemaVersion((n) => n + 1)} onOpenTableData={(db, table) => { setErTab((prev) => ({ ...prev, [p.id!]: null })); setOpenTable((prev) => ({ ...prev, [p.id!]: { db, table } })); }} onOpenErDiagram={(db) => { setOpenTable((prev) => ({ ...prev, [p.id!]: null })); setErTab((prev) => ({ ...prev, [p.id!]: { db } })); }} onRunQuery={(sql) => { setErTab((prev) => ({ ...prev, [p.id!]: null })); setOpenTable((prev) => ({ ...prev, [p.id!]: null })); setRunReq({ profileId: p.id!, sql, nonce: Date.now() }); }} />
                         )}
                       </div>
                     )}
@@ -659,6 +661,13 @@ function App() {
                         />
                       )}
                     </div>
+                  ) : erTab[id] ? (
+                    <ErDiagram
+                      key={`er:${erTab[id]!.db}`}
+                      profileId={id}
+                      database={erTab[id]!.db}
+                      onOpenTable={(table) => { setErTab((prev) => ({ ...prev, [id]: null })); setOpenTable((prev) => ({ ...prev, [id]: { db: erTab[id]!.db, table } })); }}
+                    />
                   ) : openTable[id] ? (
                     <TableDataView
                       key={`${openTable[id]!.db}.${openTable[id]!.table}.${openTable[id]!.filter?.value ?? ''}`}
