@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.1](https://github.com/motionz-kr/rebase/compare/v0.7.0...v0.7.1) (2026-06-04)
+
+
+### Bug Fixes
+
+* **build:** add app description/author metadata ([#78](https://github.com/motionz-kr/rebase/issues/78)) ([b12320b](https://github.com/motionz-kr/rebase/commit/b12320b4e03fc5282b10b6e5797349c636aa42b7))
+
 ## [0.7.0](https://github.com/motionz-kr/rebase/compare/v0.6.0...v0.7.0) (2026-06-04)
 
 
