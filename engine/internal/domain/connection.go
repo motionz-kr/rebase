@@ -8,14 +8,15 @@ import (
 type ConnectionProfile struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
-	Driver    string `json:"driver"` // mysql, postgres, redis
+	Driver    string `json:"driver"` // mysql, postgres, redis, sqlite
 	Host      string `json:"host"`
 	Port      int    `json:"port"`
 	Database  string `json:"database"`
 	Username  string `json:"username"`
 	SecretRef string `json:"secretRef"`
 	TLSMode   string `json:"tlsMode"` // none, prefer, require
-	// ReadOnly opens the database read-only (currently used by sqlite: mode=ro).
+	// ReadOnly is a general read-only intent for the connection; currently the
+	// sqlite connector honors it (opens mode=ro). Other drivers ignore it today.
 	ReadOnly bool `json:"readOnly"`
 	// MCP exposure for external AI clients (off by default).
 	McpEnabled      bool      `json:"mcpEnabled"`

@@ -128,7 +128,7 @@ func TestConnectionProfile_Validate(t *testing.T) {
 }
 
 func TestValidate_SQLiteAcceptsFilePathWithoutHostPort(t *testing.T) {
-	p := ConnectionProfile{Name: "local.db", Driver: "sqlite", Database: "/tmp/local.db"}
+	p := ConnectionProfile{Name: "my-sqlite", Driver: "sqlite", Database: "/tmp/local.db"}
 	if err := p.Validate(); err != nil {
 		t.Fatalf("expected sqlite profile with a file path to be valid, got: %v", err)
 	}
