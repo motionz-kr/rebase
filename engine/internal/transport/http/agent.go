@@ -13,6 +13,7 @@ import (
 	"github.com/smlee/database-local-engine/engine/internal/adapters/mysql"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/postgres"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/sqlite"
+	"github.com/smlee/database-local-engine/engine/internal/adapters/sqlserver"
 	"github.com/smlee/database-local-engine/engine/internal/agent"
 	"github.com/smlee/database-local-engine/engine/internal/application"
 	"github.com/smlee/database-local-engine/engine/internal/ports"
@@ -62,11 +63,12 @@ func buildMCPConfig(exePath, profileID string) string {
 }
 
 type AgentHandler struct {
-	token             string
-	service           *application.ConnectionService
-	mysqlConnector    *mysql.MySQLConnector
-	postgresConnector *postgres.PostgreSQLConnector
-	sqliteConnector   *sqlite.SQLiteConnector
+	token              string
+	service            *application.ConnectionService
+	mysqlConnector     *mysql.MySQLConnector
+	postgresConnector  *postgres.PostgreSQLConnector
+	sqliteConnector    *sqlite.SQLiteConnector
+	sqlserverConnector *sqlserver.SQLServerConnector
 
 	oauthMu      sync.Mutex
 	pendingOAuth map[string]llm.PKCEParams // provider -> in-flight PKCE attempt
@@ -74,12 +76,13 @@ type AgentHandler struct {
 
 func NewAgentHandler(token string, service *application.ConnectionService) *AgentHandler {
 	return &AgentHandler{
-		token:             token,
-		service:           service,
-		mysqlConnector:    mysql.NewMySQLConnector(),
-		postgresConnector: postgres.NewPostgreSQLConnector(),
-		sqliteConnector:   sqlite.NewSQLiteConnector(),
-		pendingOAuth:      make(map[string]llm.PKCEParams),
+		token:              token,
+		service:            service,
+		mysqlConnector:     mysql.NewMySQLConnector(),
+		postgresConnector:  postgres.NewPostgreSQLConnector(),
+		sqliteConnector:    sqlite.NewSQLiteConnector(),
+		sqlserverConnector: sqlserver.NewSQLServerConnector(),
+		pendingOAuth:       make(map[string]llm.PKCEParams),
 	}
 }
 
@@ -95,6 +98,8 @@ func (h *AgentHandler) getConnector(driver string) (ports.SQLConnector, error) {
 		return h.postgresConnector, nil
 	case "sqlite":
 		return h.sqliteConnector, nil
+	case "sqlserver":
+		return h.sqlserverConnector, nil
 	default:
 		return nil, fmtError("agent mode currently supports SQL drivers (mysql, postgres); got: " + driver)
 	}

@@ -7,25 +7,28 @@ import (
 	"github.com/smlee/database-local-engine/engine/internal/adapters/mysql"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/postgres"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/sqlite"
+	"github.com/smlee/database-local-engine/engine/internal/adapters/sqlserver"
 	"github.com/smlee/database-local-engine/engine/internal/application"
 	"github.com/smlee/database-local-engine/engine/internal/ports"
 )
 
 type IntrospectionHandler struct {
-	token             string
-	service           *application.ConnectionService
-	mysqlConnector    *mysql.MySQLConnector
-	postgresConnector *postgres.PostgreSQLConnector
-	sqliteConnector   *sqlite.SQLiteConnector
+	token              string
+	service            *application.ConnectionService
+	mysqlConnector     *mysql.MySQLConnector
+	postgresConnector  *postgres.PostgreSQLConnector
+	sqliteConnector    *sqlite.SQLiteConnector
+	sqlserverConnector *sqlserver.SQLServerConnector
 }
 
 func NewIntrospectionHandler(token string, service *application.ConnectionService) *IntrospectionHandler {
 	return &IntrospectionHandler{
-		token:             token,
-		service:           service,
-		mysqlConnector:    mysql.NewMySQLConnector(),
-		postgresConnector: postgres.NewPostgreSQLConnector(),
-		sqliteConnector:   sqlite.NewSQLiteConnector(),
+		token:              token,
+		service:            service,
+		mysqlConnector:     mysql.NewMySQLConnector(),
+		postgresConnector:  postgres.NewPostgreSQLConnector(),
+		sqliteConnector:    sqlite.NewSQLiteConnector(),
+		sqlserverConnector: sqlserver.NewSQLServerConnector(),
 	}
 }
 
@@ -37,6 +40,8 @@ func (h *IntrospectionHandler) getConnector(driver string) (ports.SQLConnector, 
 		return h.postgresConnector, nil
 	case "sqlite":
 		return h.sqliteConnector, nil
+	case "sqlserver":
+		return h.sqlserverConnector, nil
 	default:
 		return nil, fmtError("unsupported SQL driver: " + driver)
 	}

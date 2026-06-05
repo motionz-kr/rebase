@@ -8,27 +8,30 @@ import (
 	"github.com/smlee/database-local-engine/engine/internal/adapters/postgres"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/redis"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/sqlite"
+	"github.com/smlee/database-local-engine/engine/internal/adapters/sqlserver"
 	"github.com/smlee/database-local-engine/engine/internal/application"
 	"github.com/smlee/database-local-engine/engine/internal/domain"
 )
 
 type ProfileHandler struct {
-	token             string
-	service           *application.ConnectionService
-	mysqlConnector    *mysql.MySQLConnector
-	postgresConnector *postgres.PostgreSQLConnector
-	redisConnector    *redis.RedisConnector
-	sqliteConnector   *sqlite.SQLiteConnector
+	token              string
+	service            *application.ConnectionService
+	mysqlConnector     *mysql.MySQLConnector
+	postgresConnector  *postgres.PostgreSQLConnector
+	redisConnector     *redis.RedisConnector
+	sqliteConnector    *sqlite.SQLiteConnector
+	sqlserverConnector *sqlserver.SQLServerConnector
 }
 
 func NewProfileHandler(token string, service *application.ConnectionService) *ProfileHandler {
 	return &ProfileHandler{
-		token:             token,
-		service:           service,
-		mysqlConnector:    mysql.NewMySQLConnector(),
-		postgresConnector: postgres.NewPostgreSQLConnector(),
-		redisConnector:    redis.NewRedisConnector(),
-		sqliteConnector:   sqlite.NewSQLiteConnector(),
+		token:              token,
+		service:            service,
+		mysqlConnector:     mysql.NewMySQLConnector(),
+		postgresConnector:  postgres.NewPostgreSQLConnector(),
+		redisConnector:     redis.NewRedisConnector(),
+		sqliteConnector:    sqlite.NewSQLiteConnector(),
+		sqlserverConnector: sqlserver.NewSQLServerConnector(),
 	}
 }
 
@@ -170,6 +173,8 @@ func (h *ProfileHandler) TestConnection() http.Handler {
 			err = h.redisConnector.TestConnection(r.Context(), profile, password)
 		case "sqlite":
 			err = h.sqliteConnector.TestConnection(r.Context(), profile, password)
+		case "sqlserver":
+			err = h.sqlserverConnector.TestConnection(r.Context(), profile, password)
 		default:
 			http.Error(w, "unsupported driver: "+req.Profile.Driver, http.StatusBadRequest)
 			return

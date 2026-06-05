@@ -246,3 +246,9 @@ func TestQuoteIdent_SQLiteUsesDoubleQuotes(t *testing.T) {
 		t.Fatalf("quoteIdent sqlite = %q, want %q", got, want)
 	}
 }
+
+func TestQuoteIdent_SQLServerUsesBrackets(t *testing.T) {
+	if got := quoteIdent("sqlserver", "we]ird"); got != "[we]]ird]" {
+		t.Fatalf("quoteIdent sqlserver = %q, want %q", got, "[we]]ird]")
+	}
+}
