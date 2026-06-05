@@ -841,7 +841,7 @@ function App() {
                     <TableDataView
                       key={`${openTable[id]!.db}.${openTable[id]!.table}.${openTable[id]!.filter?.value ?? ''}`}
                       profileId={id}
-                      driver={profile.driver as 'mysql' | 'postgres'}
+                      driver={profile.driver as 'mysql' | 'postgres' | 'sqlite'}
                       readOnly={profile.readOnly ?? false}
                       database={openTable[id]!.db}
                       table={openTable[id]!.table}

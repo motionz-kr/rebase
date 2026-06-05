@@ -7,6 +7,7 @@ import { CsvImportDialog } from './CsvImportDialog';
 import { IndexManagerDialog } from './IndexManagerDialog';
 import { buildRecentRowsQuery } from '../lib/recentQuery';
 import { hiddenFor, hiddenCount, type HiddenStore } from '../lib/tableVisibility';
+import type { Driver } from '../lib/ddlBuilder';
 import type { ColumnInfo } from '../global';
 
 interface SchemaExplorerProps {
@@ -128,7 +129,7 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
     } catch {
       /* fall back to no ORDER BY */
     }
-    onRunQuery?.(buildRecentRowsQuery(driver as 'mysql' | 'postgres', table, pk, 500));
+    onRunQuery?.(buildRecentRowsQuery(driver as Driver, table, pk, 500));
   };
 
   const showDDL = async (dbName: string, table: string) => {
@@ -408,27 +409,19 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
             <KeyRound size={13} /> 인덱스 관리…
           </button>
           <div className="ctx-sep" />
-          {/* SQLite cannot ALTER column types or TRUNCATE, so those DDL edits are
-              hidden for sqlite (deferred — needs table-rebuild logic). */}
-          {driver !== 'sqlite' && (
-            <>
-              <button className="ctx-item" onClick={() => { setEdit({ db: menu.db, table: menu.table, focusNewColumn: false }); setMenu(null); }}>
-                <Pencil size={13} /> 테이블 수정…
-              </button>
-              <button className="ctx-item" onClick={() => { setEdit({ db: menu.db, table: menu.table, focusNewColumn: true }); setMenu(null); }}>
-                <PlusSquare size={13} /> 컬럼 추가…
-              </button>
-            </>
-          )}
+          <button className="ctx-item" onClick={() => { setEdit({ db: menu.db, table: menu.table, focusNewColumn: false }); setMenu(null); }}>
+            <Pencil size={13} /> 테이블 수정…
+          </button>
+          <button className="ctx-item" onClick={() => { setEdit({ db: menu.db, table: menu.table, focusNewColumn: true }); setMenu(null); }}>
+            <PlusSquare size={13} /> 컬럼 추가…
+          </button>
           <button className="ctx-item" onClick={() => { setTableAction({ db: menu.db, table: menu.table, action: 'rename' }); setMenu(null); }}>
             <Type size={13} /> 테이블 이름 변경…
           </button>
           <div className="ctx-sep" />
-          {driver !== 'sqlite' && (
-            <button className="ctx-item" onClick={() => { setTableAction({ db: menu.db, table: menu.table, action: 'truncate' }); setMenu(null); }}>
-              <Eraser size={13} /> 테이블 비우기…
-            </button>
-          )}
+          <button className="ctx-item" onClick={() => { setTableAction({ db: menu.db, table: menu.table, action: 'truncate' }); setMenu(null); }}>
+            <Eraser size={13} /> 테이블 비우기…
+          </button>
           <button className="ctx-item danger" onClick={() => { setTableAction({ db: menu.db, table: menu.table, action: 'drop' }); setMenu(null); }}>
             <Trash2 size={13} /> 테이블 삭제…
           </button>
@@ -439,7 +432,7 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
         <TableEditDialog
           key={`${edit.db}.${edit.table}.${edit.focusNewColumn}`}
           profileId={profileId}
-          driver={driver as 'mysql' | 'postgres'}
+          driver={driver as Driver}
           database={edit.db}
           table={edit.table}
           focusNewColumn={edit.focusNewColumn}
@@ -452,7 +445,7 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
         <TableActionDialog
           key={`${tableAction.db}.${tableAction.table}.${tableAction.action}`}
           profileId={profileId}
-          driver={driver as 'mysql' | 'postgres'}
+          driver={driver as Driver}
           table={tableAction.table}
           action={tableAction.action}
           onClose={() => setTableAction(null)}
@@ -464,7 +457,7 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
         <CsvImportDialog
           key={`${csvImport.db}.${csvImport.table}`}
           profileId={profileId}
-          driver={driver as 'mysql' | 'postgres'}
+          driver={driver as Driver}
           database={csvImport.db}
           table={csvImport.table}
           onClose={() => setCsvImport(null)}
@@ -476,7 +469,7 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
         <IndexManagerDialog
           key={`idx.${indexMgr.db}.${indexMgr.table}`}
           profileId={profileId}
-          driver={driver as 'mysql' | 'postgres'}
+          driver={driver as Driver}
           database={indexMgr.db}
           table={indexMgr.table}
           onClose={() => setIndexMgr(null)}
@@ -486,13 +479,9 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
 
       {dbMenu && (
         <div className="ctx-menu" style={{ top: dbMenu.y, left: dbMenu.x }} onClick={(e) => e.stopPropagation()}>
-          {/* Create-table DDL uses AUTO_INCREMENT (MySQL) / IDENTITY (Postgres),
-              not SQLite's AUTOINCREMENT — hidden for sqlite (deferred). */}
-          {driver !== 'sqlite' && (
-            <button className="ctx-item" onClick={() => { setCreate({ db: dbMenu.db }); setDbMenu(null); }}>
-              <FilePlus size={13} /> 테이블 추가…
-            </button>
-          )}
+          <button className="ctx-item" onClick={() => { setCreate({ db: dbMenu.db }); setDbMenu(null); }}>
+            <FilePlus size={13} /> 테이블 추가…
+          </button>
           {/* The schema graph is computed by the engine for sqlite too, so the
               ER diagram works across mysql/postgres/sqlite. */}
           {driver !== 'redis' && (
@@ -515,7 +504,7 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
         <CreateTableDialog
           key={create.db}
           profileId={profileId}
-          driver={driver as 'mysql' | 'postgres'}
+          driver={driver as Driver}
           database={create.db}
           onClose={() => setCreate(null)}
           onApplied={() => refreshAfterDdl(create.db)}
