@@ -57,7 +57,6 @@ func TestSQLiteProfileRepository_Contract(t *testing.T) {
 
 func TestProfileRepository_ReadOnlyRoundTrips(t *testing.T) {
 	repo := newProfileRepo(t)
-	defer func() {}()
 	ctx := context.Background()
 
 	p := &domain.ConnectionProfile{
