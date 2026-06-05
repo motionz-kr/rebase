@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.0](https://github.com/motionz-kr/rebase/compare/v0.12.1...v0.13.0) (2026-06-05)
+
+
+### Features
+
+* SQLite 연결 지원 (engine expansion [#34](https://github.com/motionz-kr/rebase/issues/34)) ([#96](https://github.com/motionz-kr/rebase/issues/96)) ([bcb5001](https://github.com/motionz-kr/rebase/commit/bcb500183e1385fb8298712923906bc9ac6ddd71))
+
 ## [0.12.1](https://github.com/motionz-kr/rebase/compare/v0.12.0...v0.12.1) (2026-06-05)
 
 
