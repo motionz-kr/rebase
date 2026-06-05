@@ -90,7 +90,24 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         shell: bash
-        run: pnpm exec electron-builder --${{ matrix.platform }} --publish never
+        # GitHub's macOS runners intermittently fail DMG creation with
+        # "hdiutil: ... Device not configured" (a flaky disk-image subsystem,
+        # not a code problem). Retry the build up to 3x, detaching any stale
+        # Rebase DMG volume a failed attempt left mounted before retrying.
+        run: |
+          attempt=1; max=3
+          until pnpm exec electron-builder --${{ matrix.platform }} --publish never; do
+            if [ "$attempt" -ge "$max" ]; then
+              echo "::error::electron-builder (package) failed after $max attempts"; exit 1
+            fi
+            echo "::warning::electron-builder (package) attempt $attempt failed; cleaning up, retrying in 15s"
+            if [ "${{ matrix.platform }}" = "mac" ]; then
+              for v in $(ls /Volumes 2>/dev/null | grep -i '^Rebase' || true); do
+                hdiutil detach "/Volumes/$v" -force 2>/dev/null || true
+              done
+            fi
+            attempt=$((attempt + 1)); sleep 15
+          done
 
       # Smoke-test the packaged app: launch it and fail if the main process
       # can't load a bundled module. This catches dependency-bundling regressions
@@ -119,4 +136,21 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         shell: bash
-        run: pnpm exec electron-builder --${{ matrix.platform }} --publish always
+        # Same hdiutil flakiness as the package step; retry. Re-uploading an asset
+        # that a prior attempt already pushed is safe — electron-builder's GitHub
+        # publisher overwrites an existing artifact (422 already_exists → delete +
+        # re-upload), so a retry never hard-fails on a duplicate.
+        run: |
+          attempt=1; max=3
+          until pnpm exec electron-builder --${{ matrix.platform }} --publish always; do
+            if [ "$attempt" -ge "$max" ]; then
+              echo "::error::electron-builder (publish) failed after $max attempts"; exit 1
+            fi
+            echo "::warning::electron-builder (publish) attempt $attempt failed; cleaning up, retrying in 15s"
+            if [ "${{ matrix.platform }}" = "mac" ]; then
+              for v in $(ls /Volumes 2>/dev/null | grep -i '^Rebase' || true); do
+                hdiutil detach "/Volumes/$v" -force 2>/dev/null || true
+              done
+            fi
+            attempt=$((attempt + 1)); sleep 15
+          done
