@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.1](https://github.com/motionz-kr/rebase/compare/v0.12.0...v0.12.1) (2026-06-05)
+
+
+### Bug Fixes
+
+* **update:** desktop updateEvents 테스트를 새 progress 형태에 맞춤 ([#94](https://github.com/motionz-kr/rebase/issues/94)) ([913b6e9](https://github.com/motionz-kr/rebase/commit/913b6e94a62b6763bd9291cbadba80a48d7fbc70))
+
 ## [0.12.0](https://github.com/motionz-kr/rebase/compare/v0.11.0...v0.12.0) (2026-06-05)
 
 
