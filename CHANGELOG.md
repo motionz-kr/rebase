@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.1](https://github.com/motionz-kr/rebase/compare/v0.9.0...v0.9.1) (2026-06-05)
+
+
+### Bug Fixes
+
+* **ci:** don't set empty CSC_LINK on Windows release build ([#85](https://github.com/motionz-kr/rebase/issues/85)) ([7cd3afa](https://github.com/motionz-kr/rebase/commit/7cd3afabb555f47b8257264213e5df83e7df2944))
+
 ## [0.9.0](https://github.com/motionz-kr/rebase/compare/v0.8.0...v0.9.0) (2026-06-05)
 
 
