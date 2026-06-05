@@ -9,15 +9,18 @@ interface Proposal {
   message?: string;
 }
 
+type AgentProvider = 'anthropic' | 'anthropic-oauth' | 'openai' | 'openai-oauth';
+const PROVIDERS: AgentProvider[] = ['anthropic', 'anthropic-oauth', 'openai', 'openai-oauth'];
+
 interface AgentSettings {
-  provider: 'stub' | 'anthropic' | 'anthropic-oauth' | 'openai' | 'openai-oauth' | 'cli' | 'codex';
+  provider: AgentProvider;
   model: string;
   autonomy: 'approval' | 'autonomous';
   dataExposure: 'metadata' | 'on_request' | 'unrestricted';
 }
 const SETTINGS_KEY = 'rebase.agent.settings';
 const defaultSettings: AgentSettings = {
-  provider: 'stub',
+  provider: 'anthropic-oauth',
   model: 'claude-sonnet-4-6',
   autonomy: 'approval',
   dataExposure: 'metadata',
@@ -30,6 +33,8 @@ function loadSettings(): AgentSettings {
       const parsed = JSON.parse(raw);
       // Drop any legacy plaintext apiKey: keys now live in the OS keychain.
       delete parsed.apiKey;
+      // Drop removed providers (stub / local CLI) so old settings fall back.
+      if (!PROVIDERS.includes(parsed.provider)) delete parsed.provider;
       return { ...defaultSettings, ...parsed };
     }
   } catch {
@@ -61,17 +66,12 @@ export const AgentChat: React.FC<AgentChatProps> = ({
   const [settings, setSettings] = useState<AgentSettings>(loadSettings);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [proposals, setProposals] = useState<Record<string, Proposal>>({});
-  const [cliStatus, setCliStatus] = useState<
-    { loading: boolean; installed?: boolean; loggedIn?: boolean; email?: string; subscription?: string; detail?: string } | null
-  >(null);
   // API key lives in the OS keychain, never in component/localStorage state.
   // We hold only the in-progress input and whether a key is already stored.
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [keyPresent, setKeyPresent] = useState<boolean | null>(null);
 
-  const isCliProvider = (p: AgentSettings['provider']) => p === 'cli' || p === 'codex';
   const isOAuthProvider = (p: AgentSettings['provider']) => p === 'anthropic-oauth' || p === 'openai-oauth';
-  const cliTool = settings.provider === 'codex' ? 'codex' : 'claude';
   // The engine keychain provider key + which login flow this provider uses.
   const oauthKey = settings.provider === 'openai-oauth' ? 'openai' : 'anthropic';
   const isPasteFlow = settings.provider === 'anthropic-oauth'; // openai uses a loopback (no paste)
@@ -141,11 +141,6 @@ export const AgentChat: React.FC<AgentChatProps> = ({
     await refreshOAuthStatus();
   };
 
-  const refreshCliStatus = async () => {
-    setCliStatus({ loading: true });
-    const res = await window.electronAPI.agentCliStatus(cliTool);
-    setCliStatus(res.success && res.data ? { loading: false, ...res.data } : { loading: false, detail: res.error || 'status check failed' });
-  };
   const runRef = useRef<string | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const profileRef = useRef(profileId);
@@ -277,16 +272,6 @@ export const AgentChat: React.FC<AgentChatProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings.provider]);
 
-  // Check CLI login status when a CLI provider is active, and again when the
-  // window regains focus (e.g. after completing login in the terminal).
-  useEffect(() => {
-    if (!isCliProvider(settings.provider)) return;
-    void refreshCliStatus();
-    const onFocus = () => void refreshCliStatus();
-    window.addEventListener('focus', onFocus);
-    return () => window.removeEventListener('focus', onFocus);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.provider]);
 
   // Check subscription OAuth login status when an OAuth provider is active.
   useEffect(() => {
@@ -321,9 +306,8 @@ export const AgentChat: React.FC<AgentChatProps> = ({
 
     const res = await window.electronAPI.agentRun(runId, profileId, history, {
       provider: settings.provider,
-      // API key is resolved engine-side from the OS keychain (never sent here).
-      // CLI providers (claude/codex) use their own logged-in default model.
-      model: needsApiKey(settings.provider) ? settings.model : '',
+      // API key / OAuth token is resolved engine-side from the OS keychain.
+      model: settings.model,
       dataExposure: settings.dataExposure,
     });
     if (!res.success) {
@@ -370,50 +354,12 @@ export const AgentChat: React.FC<AgentChatProps> = ({
           <label>
             Provider
             <select value={settings.provider} onChange={(e) => setProvider(e.target.value as AgentSettings['provider'])}>
-              <option value="stub">Stub (offline)</option>
-              <option value="anthropic">Anthropic API key</option>
               <option value="anthropic-oauth">Claude (구독 로그인 — API 키 불필요)</option>
               <option value="openai-oauth">Codex / ChatGPT (구독 로그인 — API 키 불필요)</option>
+              <option value="anthropic">Anthropic API key</option>
               <option value="openai">OpenAI API key</option>
-              <option value="cli">Local CLI — claude (uses your login)</option>
-              <option value="codex">Local CLI — codex (uses your login)</option>
             </select>
           </label>
-          {isCliProvider(settings.provider) && (
-            <div className="agent-cli-status">
-              <p className="agent-settings-note">
-                Uses your logged-in <code>{cliTool}</code> CLI — no API key needed.
-              </p>
-              {cliStatus?.loading && <div className="cli-line">Checking claude login…</div>}
-              {cliStatus && !cliStatus.loading && cliStatus.loggedIn && (
-                <div className="cli-line ok">
-                  <Check size={13} /> Logged in{cliStatus.email ? ` as ${cliStatus.email}` : ''}
-                  {cliStatus.subscription ? ` (${cliStatus.subscription})` : ''}
-                </div>
-              )}
-              {cliStatus && !cliStatus.loading && !cliStatus.loggedIn && (
-                <div className="cli-line warn">
-                  <AlertTriangle size={13} />
-                  <span>
-                    {cliStatus.installed === false ? `${cliTool} CLI not found on PATH.` : `Not logged in to ${cliTool}.`}
-                  </span>
-                </div>
-              )}
-              <p className="agent-settings-note">
-                Already logged in? The stored token can still expire. If a request returns 401, re-authenticate.
-              </p>
-              <div className="cli-actions">
-                {cliStatus?.installed !== false && (
-                  <button className="btn btn-primary btn-sm" onClick={() => window.electronAPI.agentCliLogin(cliTool)}>
-                    {cliStatus?.loggedIn ? 'Re-authenticate' : 'Log in to claude'}
-                  </button>
-                )}
-                <button className="btn btn-secondary btn-sm" onClick={() => void refreshCliStatus()} disabled={cliStatus?.loading}>
-                  Re-check
-                </button>
-              </div>
-            </div>
-          )}
           {isOAuthProvider(settings.provider) && (
             <div className="agent-cli-status">
               <p className="agent-settings-note">
@@ -473,6 +419,16 @@ export const AgentChat: React.FC<AgentChatProps> = ({
                   다시 확인
                 </button>
               </div>
+              <label className="agent-oauth-model">
+                모델
+                <select value={settings.model} onChange={(e) => updateSettings({ model: e.target.value })}>
+                  {modelOptions(settings.provider, settings.model).map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
           )}
           {needsApiKey(settings.provider) && (
@@ -692,18 +648,6 @@ export const AgentChat: React.FC<AgentChatProps> = ({
         ))}
       </div>
 
-      {isCliProvider(settings.provider) &&
-        messages.length > 0 &&
-        /401|authentication_error|Failed to authenticate|not logged in|unauthor/i.test(messages[messages.length - 1].text) && (
-          <div className="agent-authfix">
-            <AlertTriangle size={14} />
-            <span>{cliTool} session problem. Re-authenticate, then send again.</span>
-            <button className="btn btn-primary btn-sm" onClick={() => window.electronAPI.agentCliLogin(cliTool)}>
-              Re-authenticate
-            </button>
-          </div>
-        )}
-
       <div className="agent-composer">
         <div className="agent-composer-box">
           <textarea
@@ -721,11 +665,10 @@ export const AgentChat: React.FC<AgentChatProps> = ({
             value={settings.provider}
             onChange={(e) => setProvider(e.target.value as AgentSettings['provider'])}
           >
-            <option value="stub">Stub</option>
+            <option value="anthropic-oauth">Claude (구독)</option>
+            <option value="openai-oauth">Codex (구독)</option>
             <option value="anthropic">Anthropic API</option>
             <option value="openai">OpenAI API</option>
-            <option value="cli">claude CLI</option>
-            <option value="codex">codex CLI</option>
           </select>
           {needsApiKey(settings.provider) && (
             <select
