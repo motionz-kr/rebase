@@ -9,15 +9,18 @@ interface Proposal {
   message?: string;
 }
 
+type AgentProvider = 'anthropic' | 'anthropic-oauth' | 'openai' | 'openai-oauth';
+const PROVIDERS: AgentProvider[] = ['anthropic', 'anthropic-oauth', 'openai', 'openai-oauth'];
+
 interface AgentSettings {
-  provider: 'stub' | 'anthropic' | 'openai' | 'cli' | 'codex';
+  provider: AgentProvider;
   model: string;
   autonomy: 'approval' | 'autonomous';
   dataExposure: 'metadata' | 'on_request' | 'unrestricted';
 }
 const SETTINGS_KEY = 'rebase.agent.settings';
 const defaultSettings: AgentSettings = {
-  provider: 'stub',
+  provider: 'anthropic-oauth',
   model: 'claude-sonnet-4-6',
   autonomy: 'approval',
   dataExposure: 'metadata',
@@ -30,6 +33,8 @@ function loadSettings(): AgentSettings {
       const parsed = JSON.parse(raw);
       // Drop any legacy plaintext apiKey: keys now live in the OS keychain.
       delete parsed.apiKey;
+      // Drop removed providers (stub / local CLI) so old settings fall back.
+      if (!PROVIDERS.includes(parsed.provider)) delete parsed.provider;
       return { ...defaultSettings, ...parsed };
     }
   } catch {
@@ -61,22 +66,81 @@ export const AgentChat: React.FC<AgentChatProps> = ({
   const [settings, setSettings] = useState<AgentSettings>(loadSettings);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [proposals, setProposals] = useState<Record<string, Proposal>>({});
-  const [cliStatus, setCliStatus] = useState<
-    { loading: boolean; installed?: boolean; loggedIn?: boolean; email?: string; subscription?: string; detail?: string } | null
-  >(null);
   // API key lives in the OS keychain, never in component/localStorage state.
   // We hold only the in-progress input and whether a key is already stored.
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [keyPresent, setKeyPresent] = useState<boolean | null>(null);
 
-  const isCliProvider = (p: AgentSettings['provider']) => p === 'cli' || p === 'codex';
-  const cliTool = settings.provider === 'codex' ? 'codex' : 'claude';
+  const isOAuthProvider = (p: AgentSettings['provider']) => p === 'anthropic-oauth' || p === 'openai-oauth';
+  // The engine keychain provider key + which login flow this provider uses.
+  const oauthKey = settings.provider === 'openai-oauth' ? 'openai' : 'anthropic';
+  const isPasteFlow = settings.provider === 'anthropic-oauth'; // openai uses a loopback (no paste)
 
-  const refreshCliStatus = async () => {
-    setCliStatus({ loading: true });
-    const res = await window.electronAPI.agentCliStatus(cliTool);
-    setCliStatus(res.success && res.data ? { loading: false, ...res.data } : { loading: false, detail: res.error || 'status check failed' });
+  // Subscription OAuth (Claude / ChatGPT). Tokens live in the keychain via the
+  // engine; here we track only login status + the in-progress login flow.
+  const [oauthStatus, setOauthStatus] = useState<{ loading: boolean; loggedIn?: boolean } | null>(null);
+  const [oauthAwaitingCode, setOauthAwaitingCode] = useState(false); // anthropic paste-code
+  const [oauthWaiting, setOauthWaiting] = useState(false); // openai loopback in progress
+  const [oauthCode, setOauthCode] = useState('');
+  const [oauthError, setOauthError] = useState<string | null>(null);
+  const oauthPollRef = useRef(0);
+
+  const refreshOAuthStatus = async () => {
+    setOauthStatus({ loading: true });
+    const res = await window.electronAPI.agentOAuthStatus(oauthKey);
+    setOauthStatus({ loading: false, loggedIn: res.success && res.data ? res.data.loggedIn : false });
   };
+  const startOAuth = async () => {
+    setOauthError(null);
+    const res = await window.electronAPI.agentOAuthStart(oauthKey);
+    if (!res.success) {
+      setOauthError(res.error || '로그인을 시작하지 못했습니다.');
+      return;
+    }
+    if (isPasteFlow) {
+      setOauthAwaitingCode(true);
+      return;
+    }
+    // Loopback flow: the engine catches the browser redirect; poll until logged in.
+    setOauthWaiting(true);
+    const token = ++oauthPollRef.current;
+    for (let i = 0; i < 80 && oauthPollRef.current === token; i++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const st = await window.electronAPI.agentOAuthStatus('openai');
+      if (st.success && st.data?.loggedIn) {
+        if (oauthPollRef.current === token) {
+          setOauthWaiting(false);
+          setOauthStatus({ loading: false, loggedIn: true });
+        }
+        return;
+      }
+    }
+    if (oauthPollRef.current === token) setOauthWaiting(false);
+  };
+  const completeOAuth = async () => {
+    const code = oauthCode.trim();
+    if (!code) return;
+    setOauthError(null);
+    setOauthStatus({ loading: true });
+    const res = await window.electronAPI.agentOAuthComplete(oauthKey, code);
+    if (!res.success) {
+      setOauthError(res.error || '인증에 실패했습니다.');
+      setOauthStatus({ loading: false, loggedIn: false });
+      return;
+    }
+    setOauthAwaitingCode(false);
+    setOauthCode('');
+    await refreshOAuthStatus();
+  };
+  const logoutOAuth = async () => {
+    oauthPollRef.current++;
+    await window.electronAPI.agentOAuthLogout(oauthKey);
+    setOauthAwaitingCode(false);
+    setOauthWaiting(false);
+    setOauthCode('');
+    await refreshOAuthStatus();
+  };
+
   const runRef = useRef<string | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const profileRef = useRef(profileId);
@@ -120,7 +184,12 @@ export const AgentChat: React.FC<AgentChatProps> = ({
   const setProvider = (provider: AgentSettings['provider']) => {
     const patch: Partial<AgentSettings> = { provider };
     if (provider === 'openai' && settings.model.startsWith('claude')) patch.model = 'gpt-4o';
-    if (provider === 'anthropic' && settings.model.startsWith('gpt')) patch.model = 'claude-sonnet-4-6';
+    // The Claude subscription (OAuth) path accepts the current Claude Code model
+    // aliases (sonnet 4.6 / opus 4.7 / opus 4.8); pin a sensible default.
+    else if (provider === 'anthropic-oauth') patch.model = 'claude-sonnet-4-6';
+    // ChatGPT subscription (Codex backend) accepts gpt-5.4 (verified live).
+    else if (provider === 'openai-oauth') patch.model = 'gpt-5.4';
+    else if (provider === 'anthropic' && settings.model.startsWith('gpt')) patch.model = 'claude-sonnet-4-6';
     updateSettings(patch);
   };
 
@@ -203,14 +272,16 @@ export const AgentChat: React.FC<AgentChatProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings.provider]);
 
-  // Check CLI login status when a CLI provider is active, and again when the
-  // window regains focus (e.g. after completing login in the terminal).
+
+  // Check subscription OAuth login status when an OAuth provider is active.
   useEffect(() => {
-    if (!isCliProvider(settings.provider)) return;
-    void refreshCliStatus();
-    const onFocus = () => void refreshCliStatus();
-    window.addEventListener('focus', onFocus);
-    return () => window.removeEventListener('focus', onFocus);
+    oauthPollRef.current++; // cancel any in-flight loopback poll
+    if (!isOAuthProvider(settings.provider)) return;
+    setOauthAwaitingCode(false);
+    setOauthWaiting(false);
+    setOauthCode('');
+    setOauthError(null);
+    void refreshOAuthStatus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings.provider]);
 
@@ -235,9 +306,8 @@ export const AgentChat: React.FC<AgentChatProps> = ({
 
     const res = await window.electronAPI.agentRun(runId, profileId, history, {
       provider: settings.provider,
-      // API key is resolved engine-side from the OS keychain (never sent here).
-      // CLI providers (claude/codex) use their own logged-in default model.
-      model: needsApiKey(settings.provider) ? settings.model : '',
+      // API key / OAuth token is resolved engine-side from the OS keychain.
+      model: settings.model,
       dataExposure: settings.dataExposure,
     });
     if (!res.success) {
@@ -280,48 +350,81 @@ export const AgentChat: React.FC<AgentChatProps> = ({
       </div>
 
       {settingsOpen && (
-        <div className="agent-settings">
+        <div className="modal-overlay" onClick={() => setSettingsOpen(false)}>
+          <div className="modal agent-settings-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>Agent 설정</h3>
+              <button className="icon-btn" onClick={() => setSettingsOpen(false)} aria-label="닫기">
+                <X size={15} />
+              </button>
+            </div>
+            <div className="agent-settings">
           <label>
             Provider
             <select value={settings.provider} onChange={(e) => setProvider(e.target.value as AgentSettings['provider'])}>
-              <option value="stub">Stub (offline)</option>
+              <option value="anthropic-oauth">Claude (구독 로그인 — API 키 불필요)</option>
+              <option value="openai-oauth">Codex / ChatGPT (구독 로그인 — API 키 불필요)</option>
               <option value="anthropic">Anthropic API key</option>
               <option value="openai">OpenAI API key</option>
-              <option value="cli">Local CLI — claude (uses your login)</option>
-              <option value="codex">Local CLI — codex (uses your login)</option>
             </select>
           </label>
-          {isCliProvider(settings.provider) && (
+          {isOAuthProvider(settings.provider) && (
             <div className="agent-cli-status">
               <p className="agent-settings-note">
-                Uses your logged-in <code>{cliTool}</code> CLI — no API key needed.
+                {settings.provider === 'openai-oauth' ? 'ChatGPT Plus/Pro' : 'Claude Pro/Max'} 구독으로 로그인합니다 — API 키가 필요
+                없습니다.
               </p>
-              {cliStatus?.loading && <div className="cli-line">Checking claude login…</div>}
-              {cliStatus && !cliStatus.loading && cliStatus.loggedIn && (
+              {oauthStatus?.loading && <div className="cli-line">확인 중…</div>}
+              {oauthStatus && !oauthStatus.loading && oauthStatus.loggedIn && (
                 <div className="cli-line ok">
-                  <Check size={13} /> Logged in{cliStatus.email ? ` as ${cliStatus.email}` : ''}
-                  {cliStatus.subscription ? ` (${cliStatus.subscription})` : ''}
+                  <Check size={13} /> 로그인됨
                 </div>
               )}
-              {cliStatus && !cliStatus.loading && !cliStatus.loggedIn && (
+              {oauthStatus && !oauthStatus.loading && !oauthStatus.loggedIn && !oauthAwaitingCode && !oauthWaiting && (
                 <div className="cli-line warn">
                   <AlertTriangle size={13} />
-                  <span>
-                    {cliStatus.installed === false ? `${cliTool} CLI not found on PATH.` : `Not logged in to ${cliTool}.`}
-                  </span>
+                  <span>로그인이 필요합니다.</span>
                 </div>
               )}
-              <p className="agent-settings-note">
-                Already logged in? The stored token can still expire. If a request returns 401, re-authenticate.
-              </p>
+              {oauthWaiting && (
+                <div className="cli-line">
+                  <span className="spinner" /> 브라우저에서 로그인을 완료하세요…
+                </div>
+              )}
+              {oauthAwaitingCode && (
+                <div className="agent-oauth-paste">
+                  <p className="agent-settings-note">브라우저에서 로그인·승인 후 표시되는 인증 코드를 붙여넣으세요.</p>
+                  <input
+                    type="text"
+                    value={oauthCode}
+                    onChange={(e) => setOauthCode(e.target.value)}
+                    placeholder="인증 코드 (code#state)"
+                    autoFocus
+                  />
+                </div>
+              )}
+              {oauthError && (
+                <div className="cli-line warn">
+                  <AlertTriangle size={13} />
+                  <span>{oauthError}</span>
+                </div>
+              )}
               <div className="cli-actions">
-                {cliStatus?.installed !== false && (
-                  <button className="btn btn-primary btn-sm" onClick={() => window.electronAPI.agentCliLogin(cliTool)}>
-                    {cliStatus?.loggedIn ? 'Re-authenticate' : 'Log in to claude'}
+                {oauthStatus?.loggedIn ? (
+                  <button className="btn btn-secondary btn-sm" onClick={() => void logoutOAuth()}>
+                    로그아웃
+                  </button>
+                ) : oauthAwaitingCode ? (
+                  <button className="btn btn-primary btn-sm" onClick={() => void completeOAuth()} disabled={!oauthCode.trim()}>
+                    완료
+                  </button>
+                ) : (
+                  <button className="btn btn-primary btn-sm" onClick={() => void startOAuth()} disabled={oauthWaiting}>
+                    로그인
                   </button>
                 )}
-                <button className="btn btn-secondary btn-sm" onClick={() => void refreshCliStatus()} disabled={cliStatus?.loading}>
-                  Re-check
+                <button className="btn btn-secondary btn-sm" onClick={() => void refreshOAuthStatus()} disabled={oauthStatus?.loading}>
+                  다시 확인
                 </button>
               </div>
             </div>
@@ -370,10 +473,6 @@ export const AgentChat: React.FC<AgentChatProps> = ({
                   )}
                 </div>
               )}
-              <label>
-                Model
-                <input type="text" value={settings.model} onChange={(e) => updateSettings({ model: e.target.value })} />
-              </label>
               <p className="agent-settings-note">
                 The key is stored in your OS keychain via the local engine, then sent only to the{' '}
                 {settings.provider === 'openai' ? 'OpenAI' : 'Anthropic'} API.
@@ -406,6 +505,8 @@ export const AgentChat: React.FC<AgentChatProps> = ({
               ⚠️ Autonomous + Unrestricted is the least restrictive combination.
             </p>
           )}
+            </div>
+          </div>
         </div>
       )}
 
@@ -543,18 +644,6 @@ export const AgentChat: React.FC<AgentChatProps> = ({
         ))}
       </div>
 
-      {isCliProvider(settings.provider) &&
-        messages.length > 0 &&
-        /401|authentication_error|Failed to authenticate|not logged in|unauthor/i.test(messages[messages.length - 1].text) && (
-          <div className="agent-authfix">
-            <AlertTriangle size={14} />
-            <span>{cliTool} session problem. Re-authenticate, then send again.</span>
-            <button className="btn btn-primary btn-sm" onClick={() => window.electronAPI.agentCliLogin(cliTool)}>
-              Re-authenticate
-            </button>
-          </div>
-        )}
-
       <div className="agent-composer">
         <div className="agent-composer-box">
           <textarea
@@ -566,32 +655,19 @@ export const AgentChat: React.FC<AgentChatProps> = ({
             disabled={busy || !profileId}
           />
           <div className="agent-composer-bar">
+          {/* Provider/LLM is chosen in Settings; here you only pick the model. */}
           <select
             className="agent-pick"
-            title="Provider"
-            value={settings.provider}
-            onChange={(e) => setProvider(e.target.value as AgentSettings['provider'])}
+            title="Model"
+            value={settings.model}
+            onChange={(e) => updateSettings({ model: e.target.value })}
           >
-            <option value="stub">Stub</option>
-            <option value="anthropic">Anthropic API</option>
-            <option value="openai">OpenAI API</option>
-            <option value="cli">claude CLI</option>
-            <option value="codex">codex CLI</option>
+            {modelOptions(settings.provider, settings.model).map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
           </select>
-          {needsApiKey(settings.provider) && (
-            <select
-              className="agent-pick"
-              title="Model"
-              value={settings.model}
-              onChange={(e) => updateSettings({ model: e.target.value })}
-            >
-              {modelOptions(settings.provider, settings.model).map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-            </select>
-          )}
           <span className="agent-composer-spacer" />
           <button className="btn btn-primary btn-sm" onClick={send} disabled={busy || !profileId || !input.trim()} title="Send (Enter)">
             <CornerDownLeft size={13} /> Send
@@ -606,9 +682,18 @@ export const AgentChat: React.FC<AgentChatProps> = ({
 // modelOptions lists a few common Anthropic models plus whatever the user has
 // configured (so a custom model typed in settings is never lost from the picker).
 function modelOptions(provider: string, current: string): string[] {
-  const presets =
-    provider === 'openai'
-      ? ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1']
-      : ['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-4-6'];
+  let presets: string[];
+  if (provider === 'openai') {
+    presets = ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1'];
+  } else if (provider === 'anthropic-oauth') {
+    // Claude Code subscription models, newest first (verified live). The field is
+    // free-text, so newer ids can be typed even if not listed here.
+    presets = ['claude-opus-4-8', 'claude-opus-4-7', 'claude-sonnet-4-6'];
+  } else if (provider === 'openai-oauth') {
+    // ChatGPT subscription via the Codex backend.
+    presets = ['gpt-5.5', 'gpt-5.4'];
+  } else {
+    presets = ['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-4-6'];
+  }
   return Array.from(new Set(current ? [current, ...presets] : presets));
 }

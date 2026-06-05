@@ -1,9 +1,13 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"os"
+	"strings"
+	"sync"
+	"time"
 
 	"github.com/smlee/database-local-engine/engine/internal/adapters/llm"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/mysql"
@@ -12,6 +16,34 @@ import (
 	"github.com/smlee/database-local-engine/engine/internal/application"
 	"github.com/smlee/database-local-engine/engine/internal/ports"
 )
+
+// oauthTokenStore adapts the keychain-backed ConnectionService to the
+// llm.OAuthTokenStore interface (JSON blob <-> OAuthToken). Background context
+// is fine: keychain reads/writes are local and fast.
+type oauthTokenStore struct {
+	service  *application.ConnectionService
+	provider string
+}
+
+func (s oauthTokenStore) Get() (llm.OAuthToken, error) {
+	blob, err := s.service.GetOAuthToken(context.Background(), s.provider)
+	if err != nil || blob == "" {
+		return llm.OAuthToken{}, err
+	}
+	var t llm.OAuthToken
+	if jerr := json.Unmarshal([]byte(blob), &t); jerr != nil {
+		return llm.OAuthToken{}, jerr
+	}
+	return t, nil
+}
+
+func (s oauthTokenStore) Set(t llm.OAuthToken) error {
+	b, err := json.Marshal(t)
+	if err != nil {
+		return err
+	}
+	return s.service.SetOAuthToken(context.Background(), s.provider, string(b))
+}
 
 // buildMCPConfig returns a claude --mcp-config JSON that launches this same
 // engine binary in -mcp mode as the "rebase" tool server for the profile.
@@ -33,6 +65,9 @@ type AgentHandler struct {
 	service           *application.ConnectionService
 	mysqlConnector    *mysql.MySQLConnector
 	postgresConnector *postgres.PostgreSQLConnector
+
+	oauthMu      sync.Mutex
+	pendingOAuth map[string]llm.PKCEParams // provider -> in-flight PKCE attempt
 }
 
 func NewAgentHandler(token string, service *application.ConnectionService) *AgentHandler {
@@ -41,6 +76,7 @@ func NewAgentHandler(token string, service *application.ConnectionService) *Agen
 		service:           service,
 		mysqlConnector:    mysql.NewMySQLConnector(),
 		postgresConnector: postgres.NewPostgreSQLConnector(),
+		pendingOAuth:      make(map[string]llm.PKCEParams),
 	}
 }
 
@@ -180,6 +216,10 @@ func (h *AgentHandler) Run() http.Handler {
 		switch body.Provider {
 		case "anthropic":
 			provider = llm.NewAnthropicProvider(apiKey, body.Model, "")
+		case "anthropic-oauth":
+			provider = llm.NewAnthropicOAuthProvider(oauthTokenStore{service: h.service, provider: "anthropic"}, body.Model, "")
+		case "openai-oauth":
+			provider = llm.NewCodexOAuthProvider(oauthTokenStore{service: h.service, provider: "openai"}, body.Model)
 		case "openai":
 			provider = llm.NewOpenAIProvider(apiKey, body.Model, "")
 		case "cli":
@@ -227,6 +267,109 @@ func (h *AgentHandler) Run() http.Handler {
 		}
 		if err := svc.Run(r.Context(), body.Messages, emit); err != nil {
 			emit(ports.LLMEvent{Kind: ports.EventError, Err: err.Error()})
+		}
+	})
+}
+
+// OAuth drives subscription OAuth login (browser → paste-code) for providers
+// like Claude. Tokens are stored in the keychain; the renderer never sees them.
+//   POST   /agent/oauth/start    {provider}        -> {authorizeUrl}
+//   POST   /agent/oauth/complete {provider, code}  -> {ok}      (exchange + store)
+//   GET    /agent/oauth/status?provider=           -> {loggedIn, expiresAt}
+//   DELETE /agent/oauth/status?provider=           -> clears tokens
+func (h *AgentHandler) OAuth() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !h.checkToken(r) {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch strings.TrimPrefix(r.URL.Path, "/agent/oauth/") {
+		case "start":
+			var b struct {
+				Provider string `json:"provider"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&b)
+			switch b.Provider {
+			case "anthropic":
+				// Paste-code flow: the user copies the code back into the app.
+				params, err := llm.NewAnthropicPKCE()
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				h.oauthMu.Lock()
+				h.pendingOAuth[b.Provider] = params
+				h.oauthMu.Unlock()
+				_ = json.NewEncoder(w).Encode(map[string]string{"authorizeUrl": params.AuthorizeURL})
+			case "openai":
+				// Loopback flow: OpenAI redirects to localhost:1455, which the
+				// engine catches, exchanges, and stores — no paste step.
+				login, err := llm.NewCodexLogin()
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				go func() {
+					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+					defer cancel()
+					_ = llm.RunCodexLoopback(ctx, login, func(tok llm.OAuthToken) error {
+						blob, _ := json.Marshal(tok)
+						return h.service.SetOAuthToken(context.Background(), "openai", string(blob))
+					})
+				}()
+				_ = json.NewEncoder(w).Encode(map[string]string{"authorizeUrl": login.AuthorizeURL})
+			default:
+				http.Error(w, "unsupported oauth provider: "+b.Provider, http.StatusBadRequest)
+			}
+		case "complete":
+			var b struct {
+				Provider string `json:"provider"`
+				Code     string `json:"code"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+				http.Error(w, "invalid request body", http.StatusBadRequest)
+				return
+			}
+			h.oauthMu.Lock()
+			params, ok := h.pendingOAuth[b.Provider]
+			h.oauthMu.Unlock()
+			if !ok {
+				http.Error(w, "no pending login for "+b.Provider+"; start again", http.StatusBadRequest)
+				return
+			}
+			tok, err := llm.ExchangeAnthropicCode(r.Context(), nil, b.Code, params.Verifier)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadGateway)
+				return
+			}
+			blob, _ := json.Marshal(tok)
+			if err := h.service.SetOAuthToken(r.Context(), b.Provider, string(blob)); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			h.oauthMu.Lock()
+			delete(h.pendingOAuth, b.Provider)
+			h.oauthMu.Unlock()
+			_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+		case "status":
+			provider := r.URL.Query().Get("provider")
+			if r.Method == http.MethodDelete {
+				_ = h.service.ClearOAuthToken(r.Context(), provider)
+				_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+				return
+			}
+			resp := map[string]any{"loggedIn": false}
+			if blob, err := h.service.GetOAuthToken(r.Context(), provider); err == nil && blob != "" {
+				var t llm.OAuthToken
+				if json.Unmarshal([]byte(blob), &t) == nil && t.AccessToken != "" {
+					resp["loggedIn"] = true
+					resp["expiresAt"] = t.ExpiresAt
+				}
+			}
+			_ = json.NewEncoder(w).Encode(resp)
+		default:
+			http.Error(w, "not found", http.StatusNotFound)
 		}
 	})
 }

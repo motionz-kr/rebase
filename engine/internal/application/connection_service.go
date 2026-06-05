@@ -138,6 +138,35 @@ func (s *ConnectionService) HasAgentKey(ctx context.Context, provider string) bo
 	return err == nil && v != ""
 }
 
+// oauthRef namespaces a provider's OAuth token blob (JSON) in the keychain,
+// alongside API keys. Used by subscription-login providers (e.g. Claude OAuth)
+// so access/refresh tokens never touch renderer storage.
+func oauthRef(provider string) string { return "agent-oauth:" + provider }
+
+// SetOAuthToken stores a provider's OAuth token blob (JSON string) in the keychain.
+func (s *ConnectionService) SetOAuthToken(ctx context.Context, provider, blobJSON string) error {
+	if provider == "" {
+		return fmt.Errorf("provider is required")
+	}
+	return s.store.Set(ctx, oauthRef(provider), blobJSON)
+}
+
+// GetOAuthToken returns a provider's stored OAuth token blob (empty + error if none).
+func (s *ConnectionService) GetOAuthToken(ctx context.Context, provider string) (string, error) {
+	return s.store.Get(ctx, oauthRef(provider))
+}
+
+// ClearOAuthToken removes a provider's stored OAuth token blob.
+func (s *ConnectionService) ClearOAuthToken(ctx context.Context, provider string) error {
+	return s.store.Delete(ctx, oauthRef(provider))
+}
+
+// HasOAuthToken reports whether a non-empty OAuth token blob is stored.
+func (s *ConnectionService) HasOAuthToken(ctx context.Context, provider string) bool {
+	v, err := s.GetOAuthToken(ctx, provider)
+	return err == nil && v != ""
+}
+
 // SetMCPConnectionSettings toggles MCP exposure + data-exposure for a profile.
 func (s *ConnectionService) SetMCPConnectionSettings(ctx context.Context, id string, enabled bool, dataExposure string) error {
 	p, err := s.repo.GetByID(ctx, id)

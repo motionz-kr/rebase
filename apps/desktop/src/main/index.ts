@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import * as path from 'path';
 import * as http from 'http';
 import * as crypto from 'crypto';
@@ -652,6 +652,67 @@ app.whenReady().then(() => {
     engineKeyRequest('POST', provider, { provider, key })
   );
   ipcMain.handle('agent-key-clear', (_event, provider: string) => engineKeyRequest('DELETE', provider));
+
+  // Subscription OAuth login (e.g. Claude Pro/Max). Tokens live in the keychain
+  // via the engine; the renderer only triggers the flow and pastes the code.
+  function engineOAuthRequest(
+    action: 'start' | 'complete' | 'status' | 'logout',
+    provider: string,
+    body?: Record<string, unknown>
+  ): Promise<any> {
+    return new Promise((resolve) => {
+      if (!engineManager || engineManager.getPort() === null) {
+        resolve({ success: false, error: 'Engine not started' });
+        return;
+      }
+      const port = engineManager.getPort()!;
+      let method: 'GET' | 'POST' | 'DELETE' = 'POST';
+      let path = `/agent/oauth/${action}`;
+      let payload: string | null = null;
+      if (action === 'start' || action === 'complete') {
+        payload = JSON.stringify(body ?? { provider });
+      } else {
+        method = action === 'logout' ? 'DELETE' : 'GET';
+        path = `/agent/oauth/status?provider=${encodeURIComponent(provider)}`;
+      }
+      const headers: Record<string, string> = { 'X-App-Engine-Token': launchToken };
+      if (payload) {
+        headers['Content-Type'] = 'application/json';
+        headers['Content-Length'] = Buffer.byteLength(payload).toString();
+      }
+      const req = http.request({ host: '127.0.0.1', port, path, method, headers }, (res) => {
+        let data = '';
+        res.on('data', (c) => (data += c));
+        res.on('end', () => {
+          if (res.statusCode && res.statusCode >= 400) {
+            resolve({ success: false, error: data || `status ${res.statusCode}` });
+            return;
+          }
+          try {
+            resolve({ success: true, data: JSON.parse(data || '{}') });
+          } catch {
+            resolve({ success: true, data: {} });
+          }
+        });
+      });
+      req.on('error', (err) => resolve({ success: false, error: err.message }));
+      if (payload) req.write(payload);
+      req.end();
+    });
+  }
+
+  ipcMain.handle('agent-oauth-start', async (_event, provider: string) => {
+    const res = await engineOAuthRequest('start', provider);
+    if (res.success && res.data?.authorizeUrl) {
+      void shell.openExternal(res.data.authorizeUrl as string);
+    }
+    return res;
+  });
+  ipcMain.handle('agent-oauth-complete', (_event, provider: string, code: string) =>
+    engineOAuthRequest('complete', provider, { provider, code })
+  );
+  ipcMain.handle('agent-oauth-status', (_event, provider: string) => engineOAuthRequest('status', provider));
+  ipcMain.handle('agent-oauth-logout', (_event, provider: string) => engineOAuthRequest('logout', provider));
 
   // --- MCP server (expose connections to external AI clients) ---
   ipcMain.handle('mcp-engine-path', () => binaryPath);
