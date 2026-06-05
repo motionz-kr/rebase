@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/motionz-kr/rebase/compare/v0.9.1...v0.10.0) (2026-06-05)
+
+
+### Features
+
+* **ui:** connection create/edit form as a resizable modal ([#87](https://github.com/motionz-kr/rebase/issues/87)) ([dd24260](https://github.com/motionz-kr/rebase/commit/dd24260eee44e9ff1d0e3909cf8ee7101089c542))
+
 ## [0.9.1](https://github.com/motionz-kr/rebase/compare/v0.9.0...v0.9.1) (2026-06-05)
 
 
