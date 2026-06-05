@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/smlee/database-local-engine/engine/internal/domain"
+	"github.com/smlee/database-local-engine/engine/internal/ports"
 )
 
 // sqlserverProfile reads SQLSERVER_TEST_DSN and builds a ConnectionProfile plus
@@ -177,6 +178,109 @@ func TestSQLServer_GetViewDDL(t *testing.T) {
 	}
 	if !strings.Contains(ddl, "book_titles") && !strings.Contains(strings.ToUpper(ddl), "SELECT") {
 		t.Errorf("unexpected view DDL: %q", ddl)
+	}
+}
+
+func TestSQLServer_DescribeTable(t *testing.T) {
+	p, pw, _ := sqlserverProfile(t)
+	seedDB(t, p, pw)
+	c := NewSQLServerConnector()
+	d, err := c.DescribeTable(context.Background(), p, pw, "rebase_test", "books")
+	if err != nil {
+		t.Fatalf("DescribeTable: %v", err)
+	}
+	if len(d.Columns) != 3 {
+		t.Fatalf("want 3 cols, got %d (%+v)", len(d.Columns), d.Columns)
+	}
+	// id is PK + not null; title not null; author_id nullable
+	byName := map[string]ports.ColumnInfo{}
+	for _, col := range d.Columns {
+		byName[col.Name] = col
+	}
+	if !byName["id"].PrimaryKey {
+		t.Fatalf("id should be PK: %+v", byName["id"])
+	}
+	if byName["title"].Nullable {
+		t.Fatalf("title should be NOT NULL")
+	}
+	if !byName["author_id"].Nullable {
+		t.Fatalf("author_id should be nullable")
+	}
+}
+
+func TestSQLServer_ListColumns(t *testing.T) {
+	p, pw, _ := sqlserverProfile(t)
+	seedDB(t, p, pw)
+	c := NewSQLServerConnector()
+	cols, err := c.ListColumns(context.Background(), p, pw, "rebase_test")
+	if err != nil {
+		t.Fatalf("ListColumns: %v", err)
+	}
+	if len(cols) != 5 {
+		t.Fatalf("want 5 column refs (2+3), got %d", len(cols))
+	}
+}
+
+func TestSQLServer_ListForeignKeys(t *testing.T) {
+	p, pw, _ := sqlserverProfile(t)
+	seedDB(t, p, pw)
+	c := NewSQLServerConnector()
+	fks, err := c.ListForeignKeys(context.Background(), p, pw, "rebase_test", "books")
+	if err != nil {
+		t.Fatalf("ListForeignKeys: %v", err)
+	}
+	if len(fks) != 1 || fks[0].Column != "author_id" || fks[0].RefTable != "authors" || fks[0].RefColumn != "id" {
+		t.Fatalf("unexpected FKs: %+v", fks)
+	}
+}
+
+func TestSQLServer_ListIndexes(t *testing.T) {
+	p, pw, _ := sqlserverProfile(t)
+	seedDB(t, p, pw)
+	c := NewSQLServerConnector()
+	idx, err := c.ListIndexes(context.Background(), p, pw, "rebase_test", "authors")
+	if err != nil {
+		t.Fatalf("ListIndexes: %v", err)
+	}
+	var found *ports.Index
+	for i := range idx {
+		if idx[i].Name == "idx_authors_name" {
+			found = &idx[i]
+		}
+	}
+	if found == nil || !found.Unique || len(found.Columns) != 1 || found.Columns[0] != "name" {
+		t.Fatalf("idx_authors_name missing/incorrect: %+v", idx)
+	}
+}
+
+func TestSQLServer_GetSchemaGraph(t *testing.T) {
+	p, pw, _ := sqlserverProfile(t)
+	seedDB(t, p, pw)
+	c := NewSQLServerConnector()
+	g, err := c.GetSchemaGraph(context.Background(), p, pw, "rebase_test")
+	if err != nil {
+		t.Fatalf("GetSchemaGraph: %v", err)
+	}
+	if len(g.Tables) != 2 {
+		t.Fatalf("want 2 tables, got %d", len(g.Tables))
+	}
+	if len(g.ForeignKeys) != 1 || g.ForeignKeys[0].FromTable != "books" || g.ForeignKeys[0].ToTable != "authors" {
+		t.Fatalf("unexpected FKs: %+v", g.ForeignKeys)
+	}
+}
+
+func TestSQLServer_GetTableDDL(t *testing.T) {
+	p, pw, _ := sqlserverProfile(t)
+	seedDB(t, p, pw)
+	c := NewSQLServerConnector()
+	ddl, err := c.GetTableDDL(context.Background(), p, pw, "rebase_test", "books")
+	if err != nil {
+		t.Fatalf("GetTableDDL: %v", err)
+	}
+	for _, want := range []string{"CREATE TABLE", "[books]", "IDENTITY", "PRIMARY KEY"} {
+		if !strings.Contains(ddl, want) {
+			t.Fatalf("DDL missing %q:\n%s", want, ddl)
+		}
 	}
 }
 
