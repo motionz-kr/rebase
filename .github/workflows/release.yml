@@ -129,12 +129,32 @@ jobs:
           fi
           echo "Smoke test passed: no missing modules"
 
+      # Write the App Store Connect API key (.p8) to a file so electron-builder's
+      # notarytool step can find it via $APPLE_API_KEY. Passed through env (not
+      # inline) so the multi-line key is preserved exactly.
+      - name: Prepare Apple notarization key (mac)
+        if: matrix.platform == 'mac'
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        shell: bash
+        run: |
+          printf '%s\n' "$APPLE_API_KEY_P8" > "$RUNNER_TEMP/authkey.p8"
+          echo "APPLE_API_KEY=$RUNNER_TEMP/authkey.p8" >> "$GITHUB_ENV"
+
       - name: Publish (${{ matrix.platform }})
         working-directory: apps/desktop
         env:
           # The repo is public, so the built-in token can publish releases to it.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          # Code-signing + notarization is macOS-only. CSC_LINK/CSC_KEY_PASSWORD are
+          # generic (mac AND win) electron-builder vars, so they MUST be scoped to
+          # mac — feeding the mac .p12 to the Windows build would break win signing.
+          # electron-builder auto-notarizes when APPLE_API_KEY{,_ID,_ISSUER} are set.
+          CSC_LINK: ${{ matrix.platform == 'mac' && secrets.MAC_CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ matrix.platform == 'mac' && secrets.MAC_CSC_KEY_PASSWORD || '' }}
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ matrix.platform == 'mac' && 'true' || 'false' }}
+          APPLE_API_KEY_ID: ${{ matrix.platform == 'mac' && secrets.APPLE_API_KEY_ID || '' }}
+          APPLE_API_ISSUER: ${{ matrix.platform == 'mac' && secrets.APPLE_API_ISSUER || '' }}
         shell: bash
         # Same hdiutil flakiness as the package step; retry. Re-uploading an asset
         # that a prior attempt already pushed is safe — electron-builder's GitHub

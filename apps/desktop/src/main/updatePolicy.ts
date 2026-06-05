@@ -1,13 +1,11 @@
 export type UpdateAction = 'self-update' | 'open-download-page' | 'disabled';
 
-// In-app self-update on macOS requires an Apple Developer ID signature. Our build
-// is only ad-hoc signed, and Squirrel.Mac rejects the install at code-signature
-// verification (SQRLCodeSignatureErrorDomain) — confirmed by live test: the new
-// version downloads to 100% but quitAndInstall fails. So on unsigned macOS we send
-// users to the Releases page instead of wasting a download. Set to true ONLY once
-// the build is signed+notarized with a real Developer ID. Windows/Linux are
-// unaffected (they self-update regardless of this flag).
-export const MAC_SELF_UPDATE = false;
+// The macOS build is signed with a real Apple Developer ID and notarized in CI
+// (see .github/workflows/release.yml + electron-builder.json), so Squirrel.Mac
+// accepts the in-app update install. Enable self-update on macOS — it now behaves
+// like Windows. (If a build ever ships unsigned again, flip this back to false to
+// avoid the wasted-download UX where quitAndInstall fails signature verification.)
+export const MAC_SELF_UPDATE = true;
 
 // Where the unsigned-macOS fallback sends users to download the new build.
 export const RELEASES_PAGE_URL = 'https://github.com/motionz-kr/rebase/releases/latest';
