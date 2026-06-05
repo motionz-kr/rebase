@@ -350,7 +350,15 @@ export const AgentChat: React.FC<AgentChatProps> = ({
       </div>
 
       {settingsOpen && (
-        <div className="agent-settings">
+        <div className="modal-overlay" onClick={() => setSettingsOpen(false)}>
+          <div className="modal agent-settings-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>Agent 설정</h3>
+              <button className="icon-btn" onClick={() => setSettingsOpen(false)} aria-label="닫기">
+                <X size={15} />
+              </button>
+            </div>
+            <div className="agent-settings">
           <label>
             Provider
             <select value={settings.provider} onChange={(e) => setProvider(e.target.value as AgentSettings['provider'])}>
@@ -511,6 +519,8 @@ export const AgentChat: React.FC<AgentChatProps> = ({
               ⚠️ Autonomous + Unrestricted is the least restrictive combination.
             </p>
           )}
+            </div>
+          </div>
         </div>
       )}
 

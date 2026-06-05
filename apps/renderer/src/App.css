@@ -2716,6 +2716,23 @@
   max-height: 62%;
   overflow-y: auto;
 }
+/* Agent settings rendered inside a centered modal (matches the connection modal). */
+.agent-settings-modal {
+  width: 460px;
+  display: flex;
+  flex-direction: column;
+  max-height: 85vh;
+}
+.agent-settings-modal .modal-head {
+  flex-shrink: 0;
+}
+.agent-settings-modal .agent-settings {
+  padding: 0;
+  border-bottom: none;
+  background: none;
+  max-height: none;
+  overflow-y: auto;
+}
 .agent-settings label {
   display: flex;
   flex-direction: column;
