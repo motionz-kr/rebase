@@ -7,11 +7,12 @@ import { CsvImportDialog } from './CsvImportDialog';
 import { IndexManagerDialog } from './IndexManagerDialog';
 import { buildRecentRowsQuery } from '../lib/recentQuery';
 import { hiddenFor, hiddenCount, type HiddenStore } from '../lib/tableVisibility';
+import type { Driver } from '../lib/ddlBuilder';
 import type { ColumnInfo } from '../global';
 
 interface SchemaExplorerProps {
   profileId: string;
-  driver: 'mysql' | 'postgres' | 'redis';
+  driver: 'mysql' | 'postgres' | 'redis' | 'sqlite';
   hiddenStore: HiddenStore;
   onDisconnect: () => void;
   onSchemaChanged?: () => void;
@@ -128,7 +129,7 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
     } catch {
       /* fall back to no ORDER BY */
     }
-    onRunQuery?.(buildRecentRowsQuery(driver as 'mysql' | 'postgres', table, pk, 500));
+    onRunQuery?.(buildRecentRowsQuery(driver as Driver, table, pk, 500));
   };
 
   const showDDL = async (dbName: string, table: string) => {
@@ -431,7 +432,7 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
         <TableEditDialog
           key={`${edit.db}.${edit.table}.${edit.focusNewColumn}`}
           profileId={profileId}
-          driver={driver as 'mysql' | 'postgres'}
+          driver={driver as Driver}
           database={edit.db}
           table={edit.table}
           focusNewColumn={edit.focusNewColumn}
@@ -444,7 +445,7 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
         <TableActionDialog
           key={`${tableAction.db}.${tableAction.table}.${tableAction.action}`}
           profileId={profileId}
-          driver={driver as 'mysql' | 'postgres'}
+          driver={driver as Driver}
           table={tableAction.table}
           action={tableAction.action}
           onClose={() => setTableAction(null)}
@@ -456,7 +457,7 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
         <CsvImportDialog
           key={`${csvImport.db}.${csvImport.table}`}
           profileId={profileId}
-          driver={driver as 'mysql' | 'postgres'}
+          driver={driver as Driver}
           database={csvImport.db}
           table={csvImport.table}
           onClose={() => setCsvImport(null)}
@@ -468,7 +469,7 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
         <IndexManagerDialog
           key={`idx.${indexMgr.db}.${indexMgr.table}`}
           profileId={profileId}
-          driver={driver as 'mysql' | 'postgres'}
+          driver={driver as Driver}
           database={indexMgr.db}
           table={indexMgr.table}
           onClose={() => setIndexMgr(null)}
@@ -481,7 +482,9 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
           <button className="ctx-item" onClick={() => { setCreate({ db: dbMenu.db }); setDbMenu(null); }}>
             <FilePlus size={13} /> 테이블 추가…
           </button>
-          {(driver === 'mysql' || driver === 'postgres') && (
+          {/* The schema graph is computed by the engine for sqlite too, so the
+              ER diagram works across mysql/postgres/sqlite. */}
+          {driver !== 'redis' && (
             <button className="ctx-item" onClick={() => { onOpenErDiagram?.(dbMenu.db); setDbMenu(null); }}>
               <Network size={13} /> ER 다이어그램
             </button>
@@ -501,7 +504,7 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
         <CreateTableDialog
           key={create.db}
           profileId={profileId}
-          driver={driver as 'mysql' | 'postgres'}
+          driver={driver as Driver}
           database={create.db}
           onClose={() => setCreate(null)}
           onApplied={() => refreshAfterDdl(create.db)}

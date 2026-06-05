@@ -57,7 +57,7 @@ interface QueryTab {
 
 interface QueryEditorProps {
   profileId: string;
-  driver: 'mysql' | 'postgres' | 'redis';
+  driver: 'mysql' | 'postgres' | 'redis' | 'sqlite';
   database: string;
   connectionName: string;
   onQueryExecuted?: () => void;
@@ -68,7 +68,7 @@ interface QueryEditorProps {
   schemaVersion?: number;
 }
 
-const DRIVER_LABEL: Record<string, string> = { mysql: 'MY', postgres: 'PG', redis: 'RS' };
+const DRIVER_LABEL: Record<string, string> = { mysql: 'MY', postgres: 'PG', redis: 'RS', sqlite: 'SQ' };
 
 const newTab = (id: string, name: string, query: string): QueryTab => ({
   id,
@@ -97,7 +97,9 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
       'Query 1',
       driver === 'mysql'
         ? 'SELECT SCHEMA_NAME FROM information_schema.schemata;'
-        : 'SELECT datname FROM pg_database;'
+        : driver === 'sqlite'
+          ? "SELECT name FROM sqlite_master WHERE type='table';"
+          : 'SELECT datname FROM pg_database;'
     ),
   ]);
   const [activeTabId, setActiveTabId] = useState('tab-1');

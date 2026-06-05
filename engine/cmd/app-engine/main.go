@@ -161,6 +161,14 @@ func main() {
 			`,
 			Checksum: "profile-mcp-settings-v1",
 		},
+		{
+			Version: 4,
+			Name:    "add_profile_read_only",
+			SQL: `
+				ALTER TABLE connection_profiles ADD COLUMN read_only INTEGER NOT NULL DEFAULT 0;
+			`,
+			Checksum: "profile-read-only-v1",
+		},
 	}
 	if err := migrationRunner.Run(migrations); err != nil {
 		log.Fatalf("failed to run migrations: %v", err)
@@ -351,6 +359,8 @@ func runMCPServer(svc *application.ConnectionService, profileID string) {
 		conn = mysql.NewMySQLConnector()
 	case "postgres":
 		conn = postgres.NewPostgreSQLConnector()
+	case "sqlite":
+		conn = sqlite.NewSQLiteConnector()
 	default:
 		log.Fatalf("mcp: unsupported driver %q (SQL drivers only)", profile.Driver)
 	}

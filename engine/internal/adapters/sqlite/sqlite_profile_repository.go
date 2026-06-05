@@ -19,20 +19,20 @@ func NewSQLiteProfileRepository(db *sql.DB) *SQLiteProfileRepository {
 
 func (r *SQLiteProfileRepository) Create(ctx context.Context, p *domain.ConnectionProfile) error {
 	_, err := r.db.ExecContext(ctx, `
-		INSERT INTO connection_profiles (id, name, driver, host, port, database, username, secret_ref, tls_mode, mcp_enabled, mcp_data_exposure, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, p.ID, p.Name, p.Driver, p.Host, p.Port, p.Database, p.Username, p.SecretRef, p.TLSMode, p.McpEnabled, p.McpDataExposure, p.CreatedAt, p.UpdatedAt)
+		INSERT INTO connection_profiles (id, name, driver, host, port, database, username, secret_ref, tls_mode, mcp_enabled, mcp_data_exposure, read_only, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, p.ID, p.Name, p.Driver, p.Host, p.Port, p.Database, p.Username, p.SecretRef, p.TLSMode, p.McpEnabled, p.McpDataExposure, p.ReadOnly, p.CreatedAt, p.UpdatedAt)
 	return err
 }
 
 func (r *SQLiteProfileRepository) GetByID(ctx context.Context, id string) (*domain.ConnectionProfile, error) {
 	row := r.db.QueryRowContext(ctx, `
-		SELECT id, name, driver, host, port, database, username, secret_ref, tls_mode, mcp_enabled, mcp_data_exposure, created_at, updated_at
+		SELECT id, name, driver, host, port, database, username, secret_ref, tls_mode, mcp_enabled, mcp_data_exposure, read_only, created_at, updated_at
 		FROM connection_profiles WHERE id = ?
 	`, id)
 
 	var p domain.ConnectionProfile
-	err := row.Scan(&p.ID, &p.Name, &p.Driver, &p.Host, &p.Port, &p.Database, &p.Username, &p.SecretRef, &p.TLSMode, &p.McpEnabled, &p.McpDataExposure, &p.CreatedAt, &p.UpdatedAt)
+	err := row.Scan(&p.ID, &p.Name, &p.Driver, &p.Host, &p.Port, &p.Database, &p.Username, &p.SecretRef, &p.TLSMode, &p.McpEnabled, &p.McpDataExposure, &p.ReadOnly, &p.CreatedAt, &p.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, errors.New("profile not found")
 	}
@@ -44,7 +44,7 @@ func (r *SQLiteProfileRepository) GetByID(ctx context.Context, id string) (*doma
 
 func (r *SQLiteProfileRepository) List(ctx context.Context) ([]domain.ConnectionProfile, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, name, driver, host, port, database, username, secret_ref, tls_mode, mcp_enabled, mcp_data_exposure, created_at, updated_at
+		SELECT id, name, driver, host, port, database, username, secret_ref, tls_mode, mcp_enabled, mcp_data_exposure, read_only, created_at, updated_at
 		FROM connection_profiles
 	`)
 	if err != nil {
@@ -55,7 +55,7 @@ func (r *SQLiteProfileRepository) List(ctx context.Context) ([]domain.Connection
 	var list []domain.ConnectionProfile
 	for rows.Next() {
 		var p domain.ConnectionProfile
-		err := rows.Scan(&p.ID, &p.Name, &p.Driver, &p.Host, &p.Port, &p.Database, &p.Username, &p.SecretRef, &p.TLSMode, &p.McpEnabled, &p.McpDataExposure, &p.CreatedAt, &p.UpdatedAt)
+		err := rows.Scan(&p.ID, &p.Name, &p.Driver, &p.Host, &p.Port, &p.Database, &p.Username, &p.SecretRef, &p.TLSMode, &p.McpEnabled, &p.McpDataExposure, &p.ReadOnly, &p.CreatedAt, &p.UpdatedAt)
 		if err != nil {
 			return nil, err
 		}
@@ -68,9 +68,9 @@ func (r *SQLiteProfileRepository) Update(ctx context.Context, p *domain.Connecti
 	p.UpdatedAt = time.Now()
 	res, err := r.db.ExecContext(ctx, `
 		UPDATE connection_profiles
-		SET name = ?, driver = ?, host = ?, port = ?, database = ?, username = ?, secret_ref = ?, tls_mode = ?, mcp_enabled = ?, mcp_data_exposure = ?, updated_at = ?
+		SET name = ?, driver = ?, host = ?, port = ?, database = ?, username = ?, secret_ref = ?, tls_mode = ?, mcp_enabled = ?, mcp_data_exposure = ?, read_only = ?, updated_at = ?
 		WHERE id = ?
-	`, p.Name, p.Driver, p.Host, p.Port, p.Database, p.Username, p.SecretRef, p.TLSMode, p.McpEnabled, p.McpDataExposure, p.UpdatedAt, p.ID)
+	`, p.Name, p.Driver, p.Host, p.Port, p.Database, p.Username, p.SecretRef, p.TLSMode, p.McpEnabled, p.McpDataExposure, p.ReadOnly, p.UpdatedAt, p.ID)
 	if err != nil {
 		return err
 	}

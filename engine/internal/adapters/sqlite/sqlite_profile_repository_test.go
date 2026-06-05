@@ -37,6 +37,7 @@ func newProfileRepo(t *testing.T) *SQLiteProfileRepository {
 					tls_mode TEXT NOT NULL,
 					mcp_enabled INTEGER NOT NULL DEFAULT 0,
 					mcp_data_exposure TEXT NOT NULL DEFAULT 'metadata',
+					read_only INTEGER NOT NULL DEFAULT 0,
 					created_at DATETIME NOT NULL,
 					updated_at DATETIME NOT NULL
 				);
@@ -52,6 +53,27 @@ func newProfileRepo(t *testing.T) *SQLiteProfileRepository {
 
 func TestSQLiteProfileRepository_Contract(t *testing.T) {
 	ports.VerifyProfileRepositoryContract(t, newProfileRepo(t))
+}
+
+func TestProfileRepository_ReadOnlyRoundTrips(t *testing.T) {
+	repo := newProfileRepo(t)
+	ctx := context.Background()
+
+	p := &domain.ConnectionProfile{
+		ID: "ro1", Name: "local", Driver: "sqlite", Host: "", Port: 0,
+		Database: "/tmp/x.db", Username: "", SecretRef: "", TLSMode: "none",
+		ReadOnly: true, CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	if err := repo.Create(ctx, p); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	got, err := repo.GetByID(ctx, "ro1")
+	if err != nil {
+		t.Fatalf("getByID: %v", err)
+	}
+	if !got.ReadOnly {
+		t.Fatalf("expected ReadOnly=true to round-trip, got false")
+	}
 }
 
 func TestProfileMCPFieldsRoundTrip(t *testing.T) {

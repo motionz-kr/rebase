@@ -12,6 +12,7 @@ import (
 	"github.com/smlee/database-local-engine/engine/internal/adapters/llm"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/mysql"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/postgres"
+	"github.com/smlee/database-local-engine/engine/internal/adapters/sqlite"
 	"github.com/smlee/database-local-engine/engine/internal/agent"
 	"github.com/smlee/database-local-engine/engine/internal/application"
 	"github.com/smlee/database-local-engine/engine/internal/ports"
@@ -65,6 +66,7 @@ type AgentHandler struct {
 	service           *application.ConnectionService
 	mysqlConnector    *mysql.MySQLConnector
 	postgresConnector *postgres.PostgreSQLConnector
+	sqliteConnector   *sqlite.SQLiteConnector
 
 	oauthMu      sync.Mutex
 	pendingOAuth map[string]llm.PKCEParams // provider -> in-flight PKCE attempt
@@ -76,6 +78,7 @@ func NewAgentHandler(token string, service *application.ConnectionService) *Agen
 		service:           service,
 		mysqlConnector:    mysql.NewMySQLConnector(),
 		postgresConnector: postgres.NewPostgreSQLConnector(),
+		sqliteConnector:   sqlite.NewSQLiteConnector(),
 		pendingOAuth:      make(map[string]llm.PKCEParams),
 	}
 }
@@ -90,6 +93,8 @@ func (h *AgentHandler) getConnector(driver string) (ports.SQLConnector, error) {
 		return h.mysqlConnector, nil
 	case "postgres":
 		return h.postgresConnector, nil
+	case "sqlite":
+		return h.sqliteConnector, nil
 	default:
 		return nil, fmtError("agent mode currently supports SQL drivers (mysql, postgres); got: " + driver)
 	}
@@ -273,10 +278,11 @@ func (h *AgentHandler) Run() http.Handler {
 
 // OAuth drives subscription OAuth login (browser → paste-code) for providers
 // like Claude. Tokens are stored in the keychain; the renderer never sees them.
-//   POST   /agent/oauth/start    {provider}        -> {authorizeUrl}
-//   POST   /agent/oauth/complete {provider, code}  -> {ok}      (exchange + store)
-//   GET    /agent/oauth/status?provider=           -> {loggedIn, expiresAt}
-//   DELETE /agent/oauth/status?provider=           -> clears tokens
+//
+//	POST   /agent/oauth/start    {provider}        -> {authorizeUrl}
+//	POST   /agent/oauth/complete {provider, code}  -> {ok}      (exchange + store)
+//	GET    /agent/oauth/status?provider=           -> {loggedIn, expiresAt}
+//	DELETE /agent/oauth/status?provider=           -> clears tokens
 func (h *AgentHandler) OAuth() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !h.checkToken(r) {

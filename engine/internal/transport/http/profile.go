@@ -7,6 +7,7 @@ import (
 	"github.com/smlee/database-local-engine/engine/internal/adapters/mysql"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/postgres"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/redis"
+	"github.com/smlee/database-local-engine/engine/internal/adapters/sqlite"
 	"github.com/smlee/database-local-engine/engine/internal/application"
 	"github.com/smlee/database-local-engine/engine/internal/domain"
 )
@@ -17,6 +18,7 @@ type ProfileHandler struct {
 	mysqlConnector    *mysql.MySQLConnector
 	postgresConnector *postgres.PostgreSQLConnector
 	redisConnector    *redis.RedisConnector
+	sqliteConnector   *sqlite.SQLiteConnector
 }
 
 func NewProfileHandler(token string, service *application.ConnectionService) *ProfileHandler {
@@ -26,6 +28,7 @@ func NewProfileHandler(token string, service *application.ConnectionService) *Pr
 		mysqlConnector:    mysql.NewMySQLConnector(),
 		postgresConnector: postgres.NewPostgreSQLConnector(),
 		redisConnector:    redis.NewRedisConnector(),
+		sqliteConnector:   sqlite.NewSQLiteConnector(),
 	}
 }
 
@@ -165,6 +168,8 @@ func (h *ProfileHandler) TestConnection() http.Handler {
 			err = h.postgresConnector.TestConnection(r.Context(), profile, password)
 		case "redis":
 			err = h.redisConnector.TestConnection(r.Context(), profile, password)
+		case "sqlite":
+			err = h.sqliteConnector.TestConnection(r.Context(), profile, password)
 		default:
 			http.Error(w, "unsupported driver: "+req.Profile.Driver, http.StatusBadRequest)
 			return

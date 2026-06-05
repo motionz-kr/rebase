@@ -176,6 +176,10 @@ export const TableEditDialog: React.FC<Props> = ({
               <input className="input" value={tableName} onChange={(e) => setTableName(e.target.value)} />
             </label>
 
+            {driver === 'sqlite' && (
+              <p className="dialog-hint">SQLite에서는 기존 컬럼의 타입·NULL·기본값을 변경할 수 없습니다. 컬럼 추가·삭제·이름 변경과 테이블 이름 변경만 가능합니다.</p>
+            )}
+
             <div className="ddl-cols">
               <div className="ddl-col-head">
                 <span>이름</span><span>타입</span><span>NULL</span><span>기본값</span><span />
@@ -185,11 +189,11 @@ export const TableEditDialog: React.FC<Props> = ({
                   <input className="input" value={r.name} placeholder="column" autoFocus={!r.original}
                     disabled={r.removed} onChange={(e) => patch(r.key, { name: e.target.value })} />
                   <input className="input" value={r.type} placeholder="INT / text…"
-                    disabled={r.removed} onChange={(e) => patch(r.key, { type: e.target.value })} />
-                  <input type="checkbox" checked={r.nullable} disabled={r.removed}
+                    disabled={r.removed || (driver === 'sqlite' && !!r.original)} onChange={(e) => patch(r.key, { type: e.target.value })} />
+                  <input type="checkbox" checked={r.nullable} disabled={r.removed || (driver === 'sqlite' && !!r.original)}
                     onChange={(e) => patch(r.key, { nullable: e.target.checked })} />
                   <input className="input" value={r.defaultValue} placeholder="(none)"
-                    disabled={r.removed} onChange={(e) => patch(r.key, { defaultValue: e.target.value })} />
+                    disabled={r.removed || (driver === 'sqlite' && !!r.original)} onChange={(e) => patch(r.key, { defaultValue: e.target.value })} />
                   {r.original ? (
                     <button className="icon-btn" title={r.removed ? '되돌리기' : '삭제'}
                       onClick={() => patch(r.key, { removed: !r.removed })}>
