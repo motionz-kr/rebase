@@ -337,7 +337,12 @@ func (c *SQLiteConnector) ExecuteQueryStream(
 		onSessionStart(id)
 	}
 
-	rows, err := db.QueryContext(qctx, query)
+	// `query` is the SQL the operator authored in their own database client;
+	// executing it verbatim is the entire purpose of the query runner. There is
+	// no external/untrusted input to parameterize away, and the application's
+	// policy gate enforces read-only/destructive confirmation. This mirrors the
+	// existing mysql/postgres connectors.
+	rows, err := db.QueryContext(qctx, query) // codeql[go/sql-injection]
 	if err != nil {
 		return 0, c.normalizeError(err)
 	}
@@ -403,8 +408,10 @@ func (c *SQLiteConnector) ExecuteBatch(ctx context.Context, p domain.ConnectionP
 		return 0, -1, c.normalizeError(err)
 	}
 	var total int64
+	// Each `stmt` is operator-authored SQL from the app's batch runner; executing
+	// it is the feature (see ExecuteQueryStream). Mirrors mysql/postgres.
 	for i, stmt := range statements {
-		res, execErr := tx.ExecContext(ctx, stmt)
+		res, execErr := tx.ExecContext(ctx, stmt) // codeql[go/sql-injection]
 		if execErr != nil {
 			_ = tx.Rollback()
 			return total, i, c.normalizeError(execErr)
