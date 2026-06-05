@@ -45,7 +45,7 @@ type sqlReader interface {
 
 // quoteIdent quotes a SQL identifier for the given driver.
 func quoteIdent(driver, ident string) string {
-	if driver == "postgres" {
+	if driver == "postgres" || driver == "sqlite" {
 		return `"` + strings.ReplaceAll(ident, `"`, `""`) + `"`
 	}
 	return "`" + strings.ReplaceAll(ident, "`", "``") + "`"
@@ -311,6 +311,8 @@ func NewSQLRegistry(conn sqlReader, p domain.ConnectionProfile, password, databa
 				sql = "SELECT c.reltuples::bigint AS rows, pg_total_relation_size(c.oid) AS bytes " +
 					"FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace " +
 					"WHERE c.relname = " + lit + " AND n.nspname = current_schema()"
+			} else if p.Driver == "sqlite" {
+				sql = "SELECT (SELECT COUNT(*) FROM " + quoteIdent(p.Driver, table) + ") AS rows, 0 AS bytes"
 			} else {
 				sql = "SELECT table_rows AS rows, data_length + index_length AS bytes " +
 					"FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = " + lit

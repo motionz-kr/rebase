@@ -238,3 +238,11 @@ func TestRegistryUnknownTool(t *testing.T) {
 		t.Fatal("expected error for unknown tool")
 	}
 }
+
+func TestQuoteIdent_SQLiteUsesDoubleQuotes(t *testing.T) {
+	got := quoteIdent("sqlite", `we"ird`)
+	want := `"we""ird"`
+	if got != want {
+		t.Fatalf("quoteIdent sqlite = %q, want %q", got, want)
+	}
+}
