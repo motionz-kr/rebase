@@ -484,7 +484,7 @@ function App() {
                     <X size={15} />
                   </button>
                 </div>
-                {editingId && (formDriver === 'mysql' || formDriver === 'postgres') && (
+                {editingId && (formDriver === 'mysql' || formDriver === 'postgres' || formDriver === 'sqlserver') && (
                   <div className="seg-tabs conn-modal-tabs">
                     <button type="button" className={`seg-tab ${formTab === 'basic' ? 'active' : ''}`} onClick={() => setFormTab('basic')}>
                       기본 정보
@@ -497,7 +497,7 @@ function App() {
                     </button>
                   </div>
                 )}
-                <div className={`conn-modal-body${editingId && (formDriver === 'mysql' || formDriver === 'postgres') ? ' tabbed' : ''}`}>
+                <div className={`conn-modal-body${editingId && (formDriver === 'mysql' || formDriver === 'postgres' || formDriver === 'sqlserver') ? ' tabbed' : ''}`}>
                   {formTab === 'basic' && (
                   <form className="conn-form" onSubmit={handleCreateProfile}>
               <div>
@@ -611,7 +611,7 @@ function App() {
                   </form>
                   )}
 
-                  {formTab === 'mcp' && editingId && (formDriver === 'mysql' || formDriver === 'postgres') && (
+                  {formTab === 'mcp' && editingId && (formDriver === 'mysql' || formDriver === 'postgres' || formDriver === 'sqlserver') && (
                     <McpConnectPanel
                       connId={editingId}
                       connName={formName}
@@ -620,7 +620,7 @@ function App() {
                     />
                   )}
 
-                  {formTab === 'schema' && editingId && (formDriver === 'mysql' || formDriver === 'postgres') && (
+                  {formTab === 'schema' && editingId && (formDriver === 'mysql' || formDriver === 'postgres' || formDriver === 'sqlserver') && (
                     <div className="ctp-section">
                       <div className="ctp-head">표시할 테이블</div>
                       <p className="ctp-hint">체크한 테이블만 스키마 트리에 표시됩니다.</p>
