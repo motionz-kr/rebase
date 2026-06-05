@@ -359,6 +359,8 @@ func runMCPServer(svc *application.ConnectionService, profileID string) {
 		conn = mysql.NewMySQLConnector()
 	case "postgres":
 		conn = postgres.NewPostgreSQLConnector()
+	case "sqlite":
+		conn = sqlite.NewSQLiteConnector()
 	default:
 		log.Fatalf("mcp: unsupported driver %q (SQL drivers only)", profile.Driver)
 	}

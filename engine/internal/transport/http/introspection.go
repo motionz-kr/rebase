@@ -6,6 +6,7 @@ import (
 
 	"github.com/smlee/database-local-engine/engine/internal/adapters/mysql"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/postgres"
+	"github.com/smlee/database-local-engine/engine/internal/adapters/sqlite"
 	"github.com/smlee/database-local-engine/engine/internal/application"
 	"github.com/smlee/database-local-engine/engine/internal/ports"
 )
@@ -15,6 +16,7 @@ type IntrospectionHandler struct {
 	service           *application.ConnectionService
 	mysqlConnector    *mysql.MySQLConnector
 	postgresConnector *postgres.PostgreSQLConnector
+	sqliteConnector   *sqlite.SQLiteConnector
 }
 
 func NewIntrospectionHandler(token string, service *application.ConnectionService) *IntrospectionHandler {
@@ -23,6 +25,7 @@ func NewIntrospectionHandler(token string, service *application.ConnectionServic
 		service:           service,
 		mysqlConnector:    mysql.NewMySQLConnector(),
 		postgresConnector: postgres.NewPostgreSQLConnector(),
+		sqliteConnector:   sqlite.NewSQLiteConnector(),
 	}
 }
 
@@ -32,6 +35,8 @@ func (h *IntrospectionHandler) getConnector(driver string) (ports.SQLConnector, 
 		return h.mysqlConnector, nil
 	case "postgres":
 		return h.postgresConnector, nil
+	case "sqlite":
+		return h.sqliteConnector, nil
 	default:
 		return nil, fmtError("unsupported SQL driver: " + driver)
 	}
