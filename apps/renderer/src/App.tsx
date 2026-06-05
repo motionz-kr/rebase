@@ -154,6 +154,22 @@ function App() {
     loadProfiles();
   }, []);
 
+  // Escape closes the top-most open modal. Every modal overlay closes on its own
+  // click handler, so we just trigger that on the last .modal-overlay in the DOM.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      const overlays = document.querySelectorAll<HTMLElement>('.modal-overlay');
+      const top = overlays[overlays.length - 1];
+      if (top) {
+        e.preventDefault();
+        top.click();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
+
   const loadProfiles = async () => {
     try {
       const res = await window.electronAPI.listProfiles();
