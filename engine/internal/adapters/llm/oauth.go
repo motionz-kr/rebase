@@ -34,10 +34,14 @@ const (
 )
 
 // OAuthToken is the persisted credential blob (stored in the OS keychain).
+// IDToken/AccountID are used by ChatGPT/Codex (the backend needs the account id);
+// Anthropic leaves them empty.
 type OAuthToken struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
 	ExpiresAt    int64  `json:"expires_at"` // epoch millis
+	IDToken      string `json:"id_token,omitempty"`
+	AccountID    string `json:"account_id,omitempty"`
 }
 
 // OAuthTokenStore loads/saves the token blob (keychain-backed in production).

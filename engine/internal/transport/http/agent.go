@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/smlee/database-local-engine/engine/internal/adapters/llm"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/mysql"
@@ -217,6 +218,8 @@ func (h *AgentHandler) Run() http.Handler {
 			provider = llm.NewAnthropicProvider(apiKey, body.Model, "")
 		case "anthropic-oauth":
 			provider = llm.NewAnthropicOAuthProvider(oauthTokenStore{service: h.service, provider: "anthropic"}, body.Model, "")
+		case "openai-oauth":
+			provider = llm.NewCodexOAuthProvider(oauthTokenStore{service: h.service, provider: "openai"}, body.Model)
 		case "openai":
 			provider = llm.NewOpenAIProvider(apiKey, body.Model, "")
 		case "cli":
@@ -287,19 +290,38 @@ func (h *AgentHandler) OAuth() http.Handler {
 				Provider string `json:"provider"`
 			}
 			_ = json.NewDecoder(r.Body).Decode(&b)
-			if b.Provider != "anthropic" {
+			switch b.Provider {
+			case "anthropic":
+				// Paste-code flow: the user copies the code back into the app.
+				params, err := llm.NewAnthropicPKCE()
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				h.oauthMu.Lock()
+				h.pendingOAuth[b.Provider] = params
+				h.oauthMu.Unlock()
+				_ = json.NewEncoder(w).Encode(map[string]string{"authorizeUrl": params.AuthorizeURL})
+			case "openai":
+				// Loopback flow: OpenAI redirects to localhost:1455, which the
+				// engine catches, exchanges, and stores — no paste step.
+				login, err := llm.NewCodexLogin()
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				go func() {
+					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+					defer cancel()
+					_ = llm.RunCodexLoopback(ctx, login, func(tok llm.OAuthToken) error {
+						blob, _ := json.Marshal(tok)
+						return h.service.SetOAuthToken(context.Background(), "openai", string(blob))
+					})
+				}()
+				_ = json.NewEncoder(w).Encode(map[string]string{"authorizeUrl": login.AuthorizeURL})
+			default:
 				http.Error(w, "unsupported oauth provider: "+b.Provider, http.StatusBadRequest)
-				return
 			}
-			params, err := llm.NewAnthropicPKCE()
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			h.oauthMu.Lock()
-			h.pendingOAuth[b.Provider] = params
-			h.oauthMu.Unlock()
-			_ = json.NewEncoder(w).Encode(map[string]string{"authorizeUrl": params.AuthorizeURL})
 		case "complete":
 			var b struct {
 				Provider string `json:"provider"`

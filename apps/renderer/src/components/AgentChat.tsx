@@ -10,7 +10,7 @@ interface Proposal {
 }
 
 interface AgentSettings {
-  provider: 'stub' | 'anthropic' | 'anthropic-oauth' | 'openai' | 'cli' | 'codex';
+  provider: 'stub' | 'anthropic' | 'anthropic-oauth' | 'openai' | 'openai-oauth' | 'cli' | 'codex';
   model: string;
   autonomy: 'approval' | 'autonomous';
   dataExposure: 'metadata' | 'on_request' | 'unrestricted';
@@ -70,36 +70,59 @@ export const AgentChat: React.FC<AgentChatProps> = ({
   const [keyPresent, setKeyPresent] = useState<boolean | null>(null);
 
   const isCliProvider = (p: AgentSettings['provider']) => p === 'cli' || p === 'codex';
-  const isOAuthProvider = (p: AgentSettings['provider']) => p === 'anthropic-oauth';
+  const isOAuthProvider = (p: AgentSettings['provider']) => p === 'anthropic-oauth' || p === 'openai-oauth';
   const cliTool = settings.provider === 'codex' ? 'codex' : 'claude';
+  // The engine keychain provider key + which login flow this provider uses.
+  const oauthKey = settings.provider === 'openai-oauth' ? 'openai' : 'anthropic';
+  const isPasteFlow = settings.provider === 'anthropic-oauth'; // openai uses a loopback (no paste)
 
-  // Subscription OAuth (Claude). Tokens live in the keychain via the engine; here
-  // we track only login status + the in-progress paste-code flow.
+  // Subscription OAuth (Claude / ChatGPT). Tokens live in the keychain via the
+  // engine; here we track only login status + the in-progress login flow.
   const [oauthStatus, setOauthStatus] = useState<{ loading: boolean; loggedIn?: boolean } | null>(null);
-  const [oauthAwaitingCode, setOauthAwaitingCode] = useState(false);
+  const [oauthAwaitingCode, setOauthAwaitingCode] = useState(false); // anthropic paste-code
+  const [oauthWaiting, setOauthWaiting] = useState(false); // openai loopback in progress
   const [oauthCode, setOauthCode] = useState('');
   const [oauthError, setOauthError] = useState<string | null>(null);
+  const oauthPollRef = useRef(0);
 
   const refreshOAuthStatus = async () => {
     setOauthStatus({ loading: true });
-    const res = await window.electronAPI.agentOAuthStatus('anthropic');
+    const res = await window.electronAPI.agentOAuthStatus(oauthKey);
     setOauthStatus({ loading: false, loggedIn: res.success && res.data ? res.data.loggedIn : false });
   };
   const startOAuth = async () => {
     setOauthError(null);
-    const res = await window.electronAPI.agentOAuthStart('anthropic');
+    const res = await window.electronAPI.agentOAuthStart(oauthKey);
     if (!res.success) {
       setOauthError(res.error || '로그인을 시작하지 못했습니다.');
       return;
     }
-    setOauthAwaitingCode(true);
+    if (isPasteFlow) {
+      setOauthAwaitingCode(true);
+      return;
+    }
+    // Loopback flow: the engine catches the browser redirect; poll until logged in.
+    setOauthWaiting(true);
+    const token = ++oauthPollRef.current;
+    for (let i = 0; i < 80 && oauthPollRef.current === token; i++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const st = await window.electronAPI.agentOAuthStatus('openai');
+      if (st.success && st.data?.loggedIn) {
+        if (oauthPollRef.current === token) {
+          setOauthWaiting(false);
+          setOauthStatus({ loading: false, loggedIn: true });
+        }
+        return;
+      }
+    }
+    if (oauthPollRef.current === token) setOauthWaiting(false);
   };
   const completeOAuth = async () => {
     const code = oauthCode.trim();
     if (!code) return;
     setOauthError(null);
     setOauthStatus({ loading: true });
-    const res = await window.electronAPI.agentOAuthComplete('anthropic', code);
+    const res = await window.electronAPI.agentOAuthComplete(oauthKey, code);
     if (!res.success) {
       setOauthError(res.error || '인증에 실패했습니다.');
       setOauthStatus({ loading: false, loggedIn: false });
@@ -110,8 +133,10 @@ export const AgentChat: React.FC<AgentChatProps> = ({
     await refreshOAuthStatus();
   };
   const logoutOAuth = async () => {
-    await window.electronAPI.agentOAuthLogout('anthropic');
+    oauthPollRef.current++;
+    await window.electronAPI.agentOAuthLogout(oauthKey);
     setOauthAwaitingCode(false);
+    setOauthWaiting(false);
     setOauthCode('');
     await refreshOAuthStatus();
   };
@@ -167,6 +192,8 @@ export const AgentChat: React.FC<AgentChatProps> = ({
     // The Claude subscription (OAuth) path accepts the current Claude Code model
     // aliases (sonnet 4.6 / opus 4.7 / opus 4.8); pin a sensible default.
     else if (provider === 'anthropic-oauth') patch.model = 'claude-sonnet-4-6';
+    // ChatGPT subscription (Codex backend) accepts gpt-5.4 (verified live).
+    else if (provider === 'openai-oauth') patch.model = 'gpt-5.4';
     else if (provider === 'anthropic' && settings.model.startsWith('gpt')) patch.model = 'claude-sonnet-4-6';
     updateSettings(patch);
   };
@@ -261,13 +288,16 @@ export const AgentChat: React.FC<AgentChatProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings.provider]);
 
-  // Check Claude OAuth login status when that provider is active.
+  // Check subscription OAuth login status when an OAuth provider is active.
   useEffect(() => {
+    oauthPollRef.current++; // cancel any in-flight loopback poll
     if (!isOAuthProvider(settings.provider)) return;
     setOauthAwaitingCode(false);
+    setOauthWaiting(false);
     setOauthCode('');
     setOauthError(null);
     void refreshOAuthStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings.provider]);
 
   const send = async () => {
@@ -343,6 +373,7 @@ export const AgentChat: React.FC<AgentChatProps> = ({
               <option value="stub">Stub (offline)</option>
               <option value="anthropic">Anthropic API key</option>
               <option value="anthropic-oauth">Claude (구독 로그인 — API 키 불필요)</option>
+              <option value="openai-oauth">Codex / ChatGPT (구독 로그인 — API 키 불필요)</option>
               <option value="openai">OpenAI API key</option>
               <option value="cli">Local CLI — claude (uses your login)</option>
               <option value="codex">Local CLI — codex (uses your login)</option>
@@ -385,17 +416,25 @@ export const AgentChat: React.FC<AgentChatProps> = ({
           )}
           {isOAuthProvider(settings.provider) && (
             <div className="agent-cli-status">
-              <p className="agent-settings-note">Claude Pro/Max 구독으로 로그인합니다 — API 키가 필요 없습니다.</p>
+              <p className="agent-settings-note">
+                {settings.provider === 'openai-oauth' ? 'ChatGPT Plus/Pro' : 'Claude Pro/Max'} 구독으로 로그인합니다 — API 키가 필요
+                없습니다.
+              </p>
               {oauthStatus?.loading && <div className="cli-line">확인 중…</div>}
               {oauthStatus && !oauthStatus.loading && oauthStatus.loggedIn && (
                 <div className="cli-line ok">
                   <Check size={13} /> 로그인됨
                 </div>
               )}
-              {oauthStatus && !oauthStatus.loading && !oauthStatus.loggedIn && !oauthAwaitingCode && (
+              {oauthStatus && !oauthStatus.loading && !oauthStatus.loggedIn && !oauthAwaitingCode && !oauthWaiting && (
                 <div className="cli-line warn">
                   <AlertTriangle size={13} />
                   <span>로그인이 필요합니다.</span>
+                </div>
+              )}
+              {oauthWaiting && (
+                <div className="cli-line">
+                  <span className="spinner" /> 브라우저에서 로그인을 완료하세요…
                 </div>
               )}
               {oauthAwaitingCode && (
@@ -426,7 +465,7 @@ export const AgentChat: React.FC<AgentChatProps> = ({
                     완료
                   </button>
                 ) : (
-                  <button className="btn btn-primary btn-sm" onClick={() => void startOAuth()}>
+                  <button className="btn btn-primary btn-sm" onClick={() => void startOAuth()} disabled={oauthWaiting}>
                     로그인
                   </button>
                 )}
@@ -722,6 +761,9 @@ function modelOptions(provider: string, current: string): string[] {
   } else if (provider === 'anthropic-oauth') {
     // Models the Claude Code subscription exposes (verified live; 3.5/dated ids 404).
     presets = ['claude-sonnet-4-6', 'claude-opus-4-7', 'claude-opus-4-8'];
+  } else if (provider === 'openai-oauth') {
+    // ChatGPT subscription via the Codex backend (verified live).
+    presets = ['gpt-5.4'];
   } else {
     presets = ['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-4-6'];
   }
