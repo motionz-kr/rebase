@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/smlee/database-local-engine/engine/internal/domain"
+	"github.com/smlee/database-local-engine/engine/internal/ports"
 	_ "modernc.org/sqlite"
 )
 
@@ -80,5 +81,81 @@ func TestSQLite_GetTableDDL_GetViewDDL(t *testing.T) {
 	vddl, err := c.GetViewDDL(ctx, p, "", "test.db", "book_titles")
 	if err != nil || vddl == "" {
 		t.Fatalf("GetViewDDL = %q, err=%v", vddl, err)
+	}
+}
+
+func TestSQLite_DescribeTable(t *testing.T) {
+	c := NewSQLiteConnector()
+	p := sqliteProfile(seedDB(t), false)
+	d, err := c.DescribeTable(context.Background(), p, "", "test.db", "books")
+	if err != nil {
+		t.Fatalf("DescribeTable: %v", err)
+	}
+	if len(d.Columns) != 3 {
+		t.Fatalf("expected 3 columns, got %d (%+v)", len(d.Columns), d.Columns)
+	}
+	if d.Columns[0].Name != "id" || !d.Columns[0].PrimaryKey {
+		t.Fatalf("col0 should be id PK, got %+v", d.Columns[0])
+	}
+	if d.Columns[1].Name != "title" || d.Columns[1].Nullable {
+		t.Fatalf("title should be NOT NULL, got %+v", d.Columns[1])
+	}
+}
+
+func TestSQLite_ListColumns(t *testing.T) {
+	c := NewSQLiteConnector()
+	p := sqliteProfile(seedDB(t), false)
+	cols, err := c.ListColumns(context.Background(), p, "", "test.db")
+	if err != nil {
+		t.Fatalf("ListColumns: %v", err)
+	}
+	// 2 (authors) + 3 (books) = 5 column refs.
+	if len(cols) != 5 {
+		t.Fatalf("expected 5 column refs, got %d (%+v)", len(cols), cols)
+	}
+}
+
+func TestSQLite_ListForeignKeys(t *testing.T) {
+	c := NewSQLiteConnector()
+	p := sqliteProfile(seedDB(t), false)
+	fks, err := c.ListForeignKeys(context.Background(), p, "", "test.db", "books")
+	if err != nil {
+		t.Fatalf("ListForeignKeys: %v", err)
+	}
+	if len(fks) != 1 || fks[0].Column != "author_id" || fks[0].RefTable != "authors" || fks[0].RefColumn != "id" {
+		t.Fatalf("unexpected FKs: %+v", fks)
+	}
+}
+
+func TestSQLite_ListIndexes(t *testing.T) {
+	c := NewSQLiteConnector()
+	p := sqliteProfile(seedDB(t), false)
+	idx, err := c.ListIndexes(context.Background(), p, "", "test.db", "authors")
+	if err != nil {
+		t.Fatalf("ListIndexes: %v", err)
+	}
+	var found *ports.Index
+	for i := range idx {
+		if idx[i].Name == "idx_authors_name" {
+			found = &idx[i]
+		}
+	}
+	if found == nil || !found.Unique || len(found.Columns) != 1 || found.Columns[0] != "name" {
+		t.Fatalf("idx_authors_name not found/incorrect: %+v", idx)
+	}
+}
+
+func TestSQLite_GetSchemaGraph(t *testing.T) {
+	c := NewSQLiteConnector()
+	p := sqliteProfile(seedDB(t), false)
+	g, err := c.GetSchemaGraph(context.Background(), p, "", "test.db")
+	if err != nil {
+		t.Fatalf("GetSchemaGraph: %v", err)
+	}
+	if len(g.Tables) != 2 {
+		t.Fatalf("expected 2 tables, got %d", len(g.Tables))
+	}
+	if len(g.ForeignKeys) != 1 || g.ForeignKeys[0].FromTable != "books" || g.ForeignKeys[0].ToTable != "authors" {
+		t.Fatalf("unexpected FKs: %+v", g.ForeignKeys)
 	}
 }
