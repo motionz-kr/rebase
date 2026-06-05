@@ -45,9 +45,9 @@ func TestConnectionProfile_Validate(t *testing.T) {
 			profile: ConnectionProfile{
 				ID:        "p-123",
 				Name:      "Local DB",
-				Driver:    "sqlite", // Unsupported driver for connection profiles
+				Driver:    "mssql", // Unsupported driver for connection profiles
 				Host:      "127.0.0.1",
-				Port:      3306,
+				Port:      1433,
 				Database:  "mydb",
 				Username:  "root",
 				SecretRef: "s-123",
@@ -124,5 +124,19 @@ func TestConnectionProfile_Validate(t *testing.T) {
 				t.Errorf("ConnectionProfile.Validate() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestValidate_SQLiteAcceptsFilePathWithoutHostPort(t *testing.T) {
+	p := ConnectionProfile{Name: "local.db", Driver: "sqlite", Database: "/tmp/local.db"}
+	if err := p.Validate(); err != nil {
+		t.Fatalf("expected sqlite profile with a file path to be valid, got: %v", err)
+	}
+}
+
+func TestValidate_SQLiteRequiresDatabasePath(t *testing.T) {
+	p := ConnectionProfile{Name: "x", Driver: "sqlite", Database: ""}
+	if err := p.Validate(); err == nil {
+		t.Fatal("expected sqlite profile with empty Database (file path) to be invalid")
 	}
 }

@@ -6,15 +6,17 @@ import (
 )
 
 type ConnectionProfile struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Driver    string    `json:"driver"` // mysql, postgres, redis
-	Host      string    `json:"host"`
-	Port      int       `json:"port"`
-	Database  string    `json:"database"`
-	Username  string    `json:"username"`
-	SecretRef string    `json:"secretRef"`
-	TLSMode   string    `json:"tlsMode"` // none, prefer, require
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Driver    string `json:"driver"` // mysql, postgres, redis
+	Host      string `json:"host"`
+	Port      int    `json:"port"`
+	Database  string `json:"database"`
+	Username  string `json:"username"`
+	SecretRef string `json:"secretRef"`
+	TLSMode   string `json:"tlsMode"` // none, prefer, require
+	// ReadOnly opens the database read-only (currently used by sqlite: mode=ro).
+	ReadOnly bool `json:"readOnly"`
 	// MCP exposure for external AI clients (off by default).
 	McpEnabled      bool      `json:"mcpEnabled"`
 	McpDataExposure string    `json:"mcpDataExposure"` // metadata|on_request|unrestricted (default metadata)
@@ -26,8 +28,15 @@ func (p ConnectionProfile) Validate() error {
 	if p.Name == "" {
 		return errors.New("connection profile name is required")
 	}
-	if p.Driver != "mysql" && p.Driver != "postgres" && p.Driver != "redis" {
+	if p.Driver != "mysql" && p.Driver != "postgres" && p.Driver != "redis" && p.Driver != "sqlite" {
 		return errors.New("unsupported database driver: " + p.Driver)
+	}
+	// SQLite is a local file: the path lives in Database; host/port are unused.
+	if p.Driver == "sqlite" {
+		if p.Database == "" {
+			return errors.New("database file path is required for sqlite")
+		}
+		return nil
 	}
 	if p.Host == "" {
 		return errors.New("database host is required")
