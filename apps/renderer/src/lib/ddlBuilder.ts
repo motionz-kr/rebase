@@ -6,7 +6,7 @@
 
 // MySQL support targets MySQL 8.0+ (the app's connectors already assume 8.0).
 // Statements like RENAME COLUMN / RENAME TO are not available on MySQL 5.7.
-export type Driver = 'mysql' | 'postgres';
+export type Driver = 'mysql' | 'postgres' | 'sqlite';
 
 export interface ColumnSpec {
   name: string;
@@ -17,7 +17,7 @@ export interface ColumnSpec {
 
 // Quote an identifier for the driver, escaping the closing quote char.
 export function quoteIdent(driver: Driver, name: string): string {
-  if (driver === 'postgres') return '"' + name.replace(/"/g, '""') + '"';
+  if (driver === 'postgres' || driver === 'sqlite') return '"' + name.replace(/"/g, '""') + '"';
   return '`' + name.replace(/`/g, '``') + '`';
 }
 
@@ -58,6 +58,12 @@ export function buildModifyColumn(driver: Driver, table: string, before: ColumnS
   const nullChanged = before.nullable !== after.nullable;
   const defChanged = !sameDefault(before.defaultValue, after.defaultValue);
   if (!typeChanged && !nullChanged && !defChanged) return [];
+
+  if (driver === 'sqlite') {
+    throw new Error(
+      "SQLite cannot alter an existing column's type, nullability, or default. Recreate the table to change a column definition."
+    );
+  }
 
   if (driver === 'mysql') {
     // MySQL MODIFY must restate the whole definition.
@@ -107,6 +113,28 @@ export function buildCreateTable(driver: Driver, table: string, columns: CreateC
   if (cols.length === 0) return [];
   const q = (n: string) => quoteIdent(driver, n);
 
+  if (driver === 'sqlite') {
+    const aiCol = cols.find((c) => c.autoIncrement);
+    const lines = cols.map((c) => {
+      if (c.autoIncrement) {
+        // SQLite requires exactly this form; the column is the PK and is INTEGER.
+        return `${q(c.name)} INTEGER PRIMARY KEY AUTOINCREMENT`;
+      }
+      let s = `${q(c.name)} ${c.type.trim()}`;
+      if (!!c.primaryKey || !c.nullable) s += ' NOT NULL';
+      if (c.unique) s += ' UNIQUE';
+      if (c.defaultValue && c.defaultValue.trim() !== '') s += ' DEFAULT ' + c.defaultValue.trim();
+      return s;
+    });
+    // An AUTOINCREMENT column is already the PK inline, so skip the table-level PK then.
+    if (!aiCol) {
+      const pkCols = cols.filter((c) => c.primaryKey).map((c) => q(c.name));
+      if (pkCols.length > 0) lines.push(`PRIMARY KEY (${pkCols.join(', ')})`);
+    }
+    const body = lines.map((l) => '  ' + l).join(',\n');
+    return [`CREATE TABLE ${q(table)} (\n${body}\n)`];
+  }
+
   const lines = cols.map((c) => {
     const notNull = !!c.primaryKey || !c.nullable;
     let s = `${q(c.name)} ${c.type.trim()}`;
@@ -125,6 +153,7 @@ export function buildCreateTable(driver: Driver, table: string, columns: CreateC
 }
 
 export function buildTruncateTable(driver: Driver, table: string): string[] {
+  if (driver === 'sqlite') return [`DELETE FROM ${quoteIdent(driver, table)}`];
   return [`TRUNCATE TABLE ${quoteIdent(driver, table)}`];
 }
 

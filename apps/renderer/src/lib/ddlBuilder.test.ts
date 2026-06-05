@@ -191,6 +191,47 @@ describe('buildCreateTable', () => {
   });
 });
 
+describe('sqlite dialect', () => {
+  it('quotes identifiers with double quotes', () => {
+    expect(quoteIdent('sqlite', 'we"ird')).toBe('"we""ird"');
+  });
+  it('buildCreateTable uses INTEGER PRIMARY KEY AUTOINCREMENT for an autoincrement column', () => {
+    const sql = buildCreateTable('sqlite', 'todos', [
+      { name: 'id', type: 'INTEGER', nullable: false, primaryKey: true, autoIncrement: true },
+      { name: 'title', type: 'TEXT', nullable: false },
+    ])[0];
+    expect(sql).toContain('"id" INTEGER PRIMARY KEY AUTOINCREMENT');
+    expect(sql).not.toContain('AUTO_INCREMENT');
+    expect(sql).not.toContain('GENERATED');
+    expect(sql).toContain('"title" TEXT NOT NULL');
+    // no separate table-level PRIMARY KEY when an autoincrement column is present
+    expect(sql).not.toMatch(/PRIMARY KEY \(/);
+  });
+  it('buildCreateTable emits a table-level PRIMARY KEY when no autoincrement column', () => {
+    const sql = buildCreateTable('sqlite', 'kv', [
+      { name: 'k', type: 'TEXT', nullable: false, primaryKey: true },
+      { name: 'v', type: 'TEXT', nullable: true },
+    ])[0];
+    expect(sql).toContain('PRIMARY KEY ("k")');
+  });
+  it('buildTruncateTable uses DELETE FROM (sqlite has no TRUNCATE)', () => {
+    expect(buildTruncateTable('sqlite', 'logs')).toEqual(['DELETE FROM "logs"']);
+  });
+  it('buildModifyColumn throws for sqlite when there is a real change', () => {
+    expect(() =>
+      buildModifyColumn('sqlite', 't', { name: 'c', type: 'TEXT', nullable: true }, { name: 'c', type: 'INTEGER', nullable: true })
+    ).toThrow();
+  });
+  it('buildModifyColumn does NOT throw for sqlite when there is no change', () => {
+    expect(buildModifyColumn('sqlite', 't', { name: 'c', type: 'TEXT', nullable: true }, { name: 'c', type: 'TEXT', nullable: true })).toEqual([]);
+  });
+  it('buildAddColumn / buildRenameTable / buildDropColumn use double quotes for sqlite', () => {
+    expect(buildAddColumn('sqlite', 't', { name: 'x', type: 'TEXT', nullable: true })).toEqual(['ALTER TABLE "t" ADD COLUMN "x" TEXT']);
+    expect(buildRenameTable('sqlite', 'a', 'b')).toEqual(['ALTER TABLE "a" RENAME TO "b"']);
+    expect(buildDropColumn('sqlite', 't', 'x')).toEqual(['ALTER TABLE "t" DROP COLUMN "x"']);
+  });
+});
+
 describe('buildTableChanges', () => {
   const empty: TableChangeSet = {
     addColumns: [],
