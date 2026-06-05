@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/motionz-kr/rebase/compare/v0.7.1...v0.8.0) (2026-06-05)
+
+
+### Features
+
+* **ui:** table show/hide in connection Edit dialog; fix macOS self-update ([#80](https://github.com/motionz-kr/rebase/issues/80)) ([a870cc3](https://github.com/motionz-kr/rebase/commit/a870cc3b45ea5e9dbf8e10294c47d5289186fff1))
+
 ## [0.7.1](https://github.com/motionz-kr/rebase/compare/v0.7.0...v0.7.1) (2026-06-04)
 
 
