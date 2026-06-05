@@ -57,13 +57,18 @@ sign as before (so they launch).
   the smoke test. This avoids notarizing twice (notarization is slow).
 - **New step (mac only):** write `APPLE_API_KEY_P8` to `$RUNNER_TEMP/authkey.p8` and
   export `APPLE_API_KEY=<that path>` to `$GITHUB_ENV`.
-- **Publish step (mac):** add env `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_API_KEY`,
-  `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`, `APPLE_TEAM_ID`; set
-  `CSC_IDENTITY_AUTO_DISCOVERY: 'true'`; pass `--config.mac.notarize.teamId="$APPLE_TEAM_ID"`
-  (exact electron-builder notarize toggle confirmed against the installed v24.13 during
-  implementation). Keep the existing 3-attempt hdiutil retry loop. Windows job unchanged.
-- If the signing secrets are absent (forks), the Publish step still runs unsigned rather
-  than failing.
+- **Publish step (mac):** add env `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_API_KEY_ID`,
+  `APPLE_API_ISSUER` (plus `APPLE_API_KEY` path from the prep step); set
+  `CSC_IDENTITY_AUTO_DISCOVERY: 'true'`. No `notarize` config or `--config` flag is
+  needed: electron-builder v24.13.3 (`macPackager.getNotarizeOptions`) auto-notarizes via
+  notarytool whenever `APPLE_API_KEY`/`APPLE_API_KEY_ID`/`APPLE_API_ISSUER` are all set,
+  unless `mac.notarize === false`. `APPLE_TEAM_ID` is not required for the API-key path.
+  Keep the existing 3-attempt hdiutil retry loop. Windows job unchanged.
+- **Per-platform scoping (critical):** `CSC_LINK`/`CSC_KEY_PASSWORD`/`CSC_IDENTITY_AUTO_DISCOVERY`
+  are generic (mac AND win) electron-builder vars. They are gated with
+  `${{ matrix.platform == 'mac' && secrets.X || '' }}` so the Windows build never receives
+  the mac `.p12` (which would break Windows signing). With empty `CSC_LINK`, win stays
+  unsigned as before. Secret-less/fork builds also fall through to unsigned, not failing.
 
 ### 5. `apps/desktop/src/main/updatePolicy.ts`
 Flip `MAC_SELF_UPDATE` to `true`. `resolveUpdateAction(darwin, signed=true, packaged)` then

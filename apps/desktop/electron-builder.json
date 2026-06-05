@@ -40,7 +40,10 @@
   "mac": {
     "category": "public.app-category.developer-tools",
     "target": ["dmg", "zip"],
-    "identity": null
+    "hardenedRuntime": true,
+    "gatekeeperAssess": false,
+    "entitlements": "build/entitlements.mac.plist",
+    "entitlementsInherit": "build/entitlements.mac.plist"
   },
   "win": {
     "target": ["nsis", "zip"],

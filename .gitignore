@@ -11,6 +11,11 @@ dist-ssr/
 build/
 out/
 
+# electron-builder buildResources (signing entitlements, icons) live in this
+# `build/` dir — it's source, not output, so keep it tracked despite `build/`.
+!apps/desktop/build/
+!apps/desktop/build/**
+
 # Compiled Go engine binary (produced by `pnpm build:engine`)
 apps/desktop/bin/
 
