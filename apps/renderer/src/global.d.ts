@@ -199,6 +199,10 @@ declare global {
       agentKeyStatus: (provider: string) => Promise<ResultWrapper<{ present: boolean }>>;
       agentKeySet: (provider: string, key: string) => Promise<ResultWrapper<{ ok: boolean }>>;
       agentKeyClear: (provider: string) => Promise<ResultWrapper<{ ok: boolean }>>;
+      agentOAuthStart: (provider: string) => Promise<ResultWrapper<{ authorizeUrl: string }>>;
+      agentOAuthComplete: (provider: string, code: string) => Promise<ResultWrapper<{ ok: boolean }>>;
+      agentOAuthStatus: (provider: string) => Promise<ResultWrapper<{ loggedIn: boolean; expiresAt?: number }>>;
+      agentOAuthLogout: (provider: string) => Promise<ResultWrapper<{ ok: boolean }>>;
       onAgentStreamChunk: (callback: (runId: string, chunk: AgentStreamChunk) => void) => () => void;
       redisScan: (profileId: string, pattern: string, cursor: number, count: number) => Promise<ResultWrapper<RedisKeyspaceInfo>>;
       redisValue: (profileId: string, key: string) => Promise<ResultWrapper<RedisValueInfo>>;

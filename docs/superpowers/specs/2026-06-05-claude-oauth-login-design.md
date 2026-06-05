@@ -30,18 +30,25 @@ PKCE S256, paste-code flow. Key facts gathered:
 > approach explicitly. Documented here for transparency; it can break if Anthropic
 > rotates the client_id/endpoints.
 
-## Task 0 — De-risking spike (do FIRST, throwaway)
+## Task 0 — De-risking spike (DONE — values locked)
 
-Sources disagree on two high-risk details. Resolve them empirically before building:
-1. Is the OAuth token sent as **`Authorization: Bearer <token>`** (x-api-key omitted) or as **`x-api-key: <token>`**?
-2. Is a **required first system block** needed — exactly `"You are Claude Code, Anthropic's official CLI for Claude."` — for OAuth tokens to be accepted?
+A throwaway Go spike ran the full flow (PKCE → paste code → exchange). The token
+endpoint (`console.anthropic.com/v1/oauth/token`) rate-limited our IP with HTTP 429 after
+a burst of attempts (Go and curl behave identically — not a client-fingerprint issue);
+the 429 is self-induced and decays once requests stop. The two high-risk unknowns were
+instead **confirmed from opencode's documented fetch interceptor**:
+1. **Auth header: `Authorization: Bearer <access_token>`**, and `x-api-key` is omitted
+   (opencode injects "Authorization: Bearer <token>").
+2. **Required system identity: "Claude Code"** — opencode performs "system prompt
+   sanitization (replaces 'OpenCode' with 'Claude Code')", confirming the model identity
+   must be Claude Code. We inject `"You are Claude Code, Anthropic's official CLI for
+   Claude."` as the first system block.
+3. **`anthropic-beta: oauth-2025-04-20`** is required (opencode "adds required
+   anthropic-beta flags"); we also send `anthropic-version: 2023-06-01`.
 
-Spike: a temporary Go `main` (or a `go test` guarded by an env var) that runs the full
-flow once — generate PKCE, print the authorize URL, read the pasted code from stdin,
-exchange for tokens, then make ONE minimal `/v1/messages` call. Try Bearer first; if it
-401s, try x-api-key; try with and without the Claude Code system prompt. **Record the
-exact header set + system-prompt requirement that returns 200.** Those become the
-constants used by the real adapter. Delete the spike afterward.
+These are locked into the adapter below. Final confirmation happens via the integration
+live test (a single real Agent message on the user's machine — no request burst, so no
+rate limit). If Anthropic later rejects, the values are isolated to one file to adjust.
 
 ## Architecture (token logic lives in the Go engine, like API keys)
 

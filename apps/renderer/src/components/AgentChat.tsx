@@ -10,7 +10,7 @@ interface Proposal {
 }
 
 interface AgentSettings {
-  provider: 'stub' | 'anthropic' | 'openai' | 'cli' | 'codex';
+  provider: 'stub' | 'anthropic' | 'anthropic-oauth' | 'openai' | 'cli' | 'codex';
   model: string;
   autonomy: 'approval' | 'autonomous';
   dataExposure: 'metadata' | 'on_request' | 'unrestricted';
@@ -70,7 +70,51 @@ export const AgentChat: React.FC<AgentChatProps> = ({
   const [keyPresent, setKeyPresent] = useState<boolean | null>(null);
 
   const isCliProvider = (p: AgentSettings['provider']) => p === 'cli' || p === 'codex';
+  const isOAuthProvider = (p: AgentSettings['provider']) => p === 'anthropic-oauth';
   const cliTool = settings.provider === 'codex' ? 'codex' : 'claude';
+
+  // Subscription OAuth (Claude). Tokens live in the keychain via the engine; here
+  // we track only login status + the in-progress paste-code flow.
+  const [oauthStatus, setOauthStatus] = useState<{ loading: boolean; loggedIn?: boolean } | null>(null);
+  const [oauthAwaitingCode, setOauthAwaitingCode] = useState(false);
+  const [oauthCode, setOauthCode] = useState('');
+  const [oauthError, setOauthError] = useState<string | null>(null);
+
+  const refreshOAuthStatus = async () => {
+    setOauthStatus({ loading: true });
+    const res = await window.electronAPI.agentOAuthStatus('anthropic');
+    setOauthStatus({ loading: false, loggedIn: res.success && res.data ? res.data.loggedIn : false });
+  };
+  const startOAuth = async () => {
+    setOauthError(null);
+    const res = await window.electronAPI.agentOAuthStart('anthropic');
+    if (!res.success) {
+      setOauthError(res.error || '로그인을 시작하지 못했습니다.');
+      return;
+    }
+    setOauthAwaitingCode(true);
+  };
+  const completeOAuth = async () => {
+    const code = oauthCode.trim();
+    if (!code) return;
+    setOauthError(null);
+    setOauthStatus({ loading: true });
+    const res = await window.electronAPI.agentOAuthComplete('anthropic', code);
+    if (!res.success) {
+      setOauthError(res.error || '인증에 실패했습니다.');
+      setOauthStatus({ loading: false, loggedIn: false });
+      return;
+    }
+    setOauthAwaitingCode(false);
+    setOauthCode('');
+    await refreshOAuthStatus();
+  };
+  const logoutOAuth = async () => {
+    await window.electronAPI.agentOAuthLogout('anthropic');
+    setOauthAwaitingCode(false);
+    setOauthCode('');
+    await refreshOAuthStatus();
+  };
 
   const refreshCliStatus = async () => {
     setCliStatus({ loading: true });
@@ -120,7 +164,8 @@ export const AgentChat: React.FC<AgentChatProps> = ({
   const setProvider = (provider: AgentSettings['provider']) => {
     const patch: Partial<AgentSettings> = { provider };
     if (provider === 'openai' && settings.model.startsWith('claude')) patch.model = 'gpt-4o';
-    if (provider === 'anthropic' && settings.model.startsWith('gpt')) patch.model = 'claude-sonnet-4-6';
+    if ((provider === 'anthropic' || provider === 'anthropic-oauth') && settings.model.startsWith('gpt'))
+      patch.model = 'claude-sonnet-4-6';
     updateSettings(patch);
   };
 
@@ -214,6 +259,15 @@ export const AgentChat: React.FC<AgentChatProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings.provider]);
 
+  // Check Claude OAuth login status when that provider is active.
+  useEffect(() => {
+    if (!isOAuthProvider(settings.provider)) return;
+    setOauthAwaitingCode(false);
+    setOauthCode('');
+    setOauthError(null);
+    void refreshOAuthStatus();
+  }, [settings.provider]);
+
   const send = async () => {
     const text = input.trim();
     if (!text || busy || !profileId) return;
@@ -286,6 +340,7 @@ export const AgentChat: React.FC<AgentChatProps> = ({
             <select value={settings.provider} onChange={(e) => setProvider(e.target.value as AgentSettings['provider'])}>
               <option value="stub">Stub (offline)</option>
               <option value="anthropic">Anthropic API key</option>
+              <option value="anthropic-oauth">Claude (구독 로그인 — API 키 불필요)</option>
               <option value="openai">OpenAI API key</option>
               <option value="cli">Local CLI — claude (uses your login)</option>
               <option value="codex">Local CLI — codex (uses your login)</option>
@@ -322,6 +377,59 @@ export const AgentChat: React.FC<AgentChatProps> = ({
                 )}
                 <button className="btn btn-secondary btn-sm" onClick={() => void refreshCliStatus()} disabled={cliStatus?.loading}>
                   Re-check
+                </button>
+              </div>
+            </div>
+          )}
+          {isOAuthProvider(settings.provider) && (
+            <div className="agent-cli-status">
+              <p className="agent-settings-note">Claude Pro/Max 구독으로 로그인합니다 — API 키가 필요 없습니다.</p>
+              {oauthStatus?.loading && <div className="cli-line">확인 중…</div>}
+              {oauthStatus && !oauthStatus.loading && oauthStatus.loggedIn && (
+                <div className="cli-line ok">
+                  <Check size={13} /> 로그인됨
+                </div>
+              )}
+              {oauthStatus && !oauthStatus.loading && !oauthStatus.loggedIn && !oauthAwaitingCode && (
+                <div className="cli-line warn">
+                  <AlertTriangle size={13} />
+                  <span>로그인이 필요합니다.</span>
+                </div>
+              )}
+              {oauthAwaitingCode && (
+                <div className="agent-oauth-paste">
+                  <p className="agent-settings-note">브라우저에서 로그인·승인 후 표시되는 인증 코드를 붙여넣으세요.</p>
+                  <input
+                    type="text"
+                    value={oauthCode}
+                    onChange={(e) => setOauthCode(e.target.value)}
+                    placeholder="인증 코드 (code#state)"
+                    autoFocus
+                  />
+                </div>
+              )}
+              {oauthError && (
+                <div className="cli-line warn">
+                  <AlertTriangle size={13} />
+                  <span>{oauthError}</span>
+                </div>
+              )}
+              <div className="cli-actions">
+                {oauthStatus?.loggedIn ? (
+                  <button className="btn btn-secondary btn-sm" onClick={() => void logoutOAuth()}>
+                    로그아웃
+                  </button>
+                ) : oauthAwaitingCode ? (
+                  <button className="btn btn-primary btn-sm" onClick={() => void completeOAuth()} disabled={!oauthCode.trim()}>
+                    완료
+                  </button>
+                ) : (
+                  <button className="btn btn-primary btn-sm" onClick={() => void startOAuth()}>
+                    로그인
+                  </button>
+                )}
+                <button className="btn btn-secondary btn-sm" onClick={() => void refreshOAuthStatus()} disabled={oauthStatus?.loading}>
+                  다시 확인
                 </button>
               </div>
             </div>
