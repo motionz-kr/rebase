@@ -19,12 +19,17 @@ describe('updateReducer', () => {
     const s = updateReducer(initialUpdateState, { kind: 'available', version: '0.2.0' });
     expect(updateReducer(s, { kind: 'not-available' })).toEqual({ phase: 'idle' });
   });
-  it('progress keeps version from the available state and sets percent', () => {
+  it('progress keeps version from the available state and carries size + speed', () => {
     const s = updateReducer(initialUpdateState, { kind: 'available', version: '0.2.0' });
-    expect(updateReducer(s, { kind: 'progress', percent: 50 })).toEqual({
+    expect(
+      updateReducer(s, { kind: 'progress', percent: 50, transferred: 500, total: 1000, bytesPerSecond: 250 })
+    ).toEqual({
       phase: 'downloading',
       version: '0.2.0',
       percent: 50,
+      transferred: 500,
+      total: 1000,
+      bytesPerSecond: 250,
     });
   });
   it('downloaded → downloaded with version', () => {

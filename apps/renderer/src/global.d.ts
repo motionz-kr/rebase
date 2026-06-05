@@ -33,7 +33,7 @@ export type UpdateStatus =
   | { kind: 'checking' }
   | { kind: 'available'; version: string; notes?: string }
   | { kind: 'not-available' }
-  | { kind: 'progress'; percent: number }
+  | { kind: 'progress'; percent: number; transferred: number; total: number; bytesPerSecond: number }
   | { kind: 'downloaded'; version: string }
   | { kind: 'error'; message: string };
 

@@ -5,6 +5,9 @@ export interface UpdateUiState {
   version?: string;
   notes?: string;
   percent?: number;
+  transferred?: number;
+  total?: number;
+  bytesPerSecond?: number;
   message?: string;
 }
 
@@ -19,7 +22,14 @@ export function updateReducer(state: UpdateUiState, s: UpdateStatus): UpdateUiSt
     case 'not-available':
       return { phase: 'idle' };
     case 'progress':
-      return { phase: 'downloading', version: state.version, percent: s.percent };
+      return {
+        phase: 'downloading',
+        version: state.version,
+        percent: s.percent,
+        transferred: s.transferred,
+        total: s.total,
+        bytesPerSecond: s.bytesPerSecond,
+      };
     case 'downloaded':
       return { phase: 'downloaded', version: s.version };
     case 'error':
