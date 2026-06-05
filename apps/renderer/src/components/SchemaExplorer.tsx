@@ -408,19 +408,27 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
             <KeyRound size={13} /> 인덱스 관리…
           </button>
           <div className="ctx-sep" />
-          <button className="ctx-item" onClick={() => { setEdit({ db: menu.db, table: menu.table, focusNewColumn: false }); setMenu(null); }}>
-            <Pencil size={13} /> 테이블 수정…
-          </button>
-          <button className="ctx-item" onClick={() => { setEdit({ db: menu.db, table: menu.table, focusNewColumn: true }); setMenu(null); }}>
-            <PlusSquare size={13} /> 컬럼 추가…
-          </button>
+          {/* SQLite cannot ALTER column types or TRUNCATE, so those DDL edits are
+              hidden for sqlite (deferred — needs table-rebuild logic). */}
+          {driver !== 'sqlite' && (
+            <>
+              <button className="ctx-item" onClick={() => { setEdit({ db: menu.db, table: menu.table, focusNewColumn: false }); setMenu(null); }}>
+                <Pencil size={13} /> 테이블 수정…
+              </button>
+              <button className="ctx-item" onClick={() => { setEdit({ db: menu.db, table: menu.table, focusNewColumn: true }); setMenu(null); }}>
+                <PlusSquare size={13} /> 컬럼 추가…
+              </button>
+            </>
+          )}
           <button className="ctx-item" onClick={() => { setTableAction({ db: menu.db, table: menu.table, action: 'rename' }); setMenu(null); }}>
             <Type size={13} /> 테이블 이름 변경…
           </button>
           <div className="ctx-sep" />
-          <button className="ctx-item" onClick={() => { setTableAction({ db: menu.db, table: menu.table, action: 'truncate' }); setMenu(null); }}>
-            <Eraser size={13} /> 테이블 비우기…
-          </button>
+          {driver !== 'sqlite' && (
+            <button className="ctx-item" onClick={() => { setTableAction({ db: menu.db, table: menu.table, action: 'truncate' }); setMenu(null); }}>
+              <Eraser size={13} /> 테이블 비우기…
+            </button>
+          )}
           <button className="ctx-item danger" onClick={() => { setTableAction({ db: menu.db, table: menu.table, action: 'drop' }); setMenu(null); }}>
             <Trash2 size={13} /> 테이블 삭제…
           </button>
@@ -478,10 +486,16 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
 
       {dbMenu && (
         <div className="ctx-menu" style={{ top: dbMenu.y, left: dbMenu.x }} onClick={(e) => e.stopPropagation()}>
-          <button className="ctx-item" onClick={() => { setCreate({ db: dbMenu.db }); setDbMenu(null); }}>
-            <FilePlus size={13} /> 테이블 추가…
-          </button>
-          {(driver === 'mysql' || driver === 'postgres') && (
+          {/* Create-table DDL uses AUTO_INCREMENT (MySQL) / IDENTITY (Postgres),
+              not SQLite's AUTOINCREMENT — hidden for sqlite (deferred). */}
+          {driver !== 'sqlite' && (
+            <button className="ctx-item" onClick={() => { setCreate({ db: dbMenu.db }); setDbMenu(null); }}>
+              <FilePlus size={13} /> 테이블 추가…
+            </button>
+          )}
+          {/* The schema graph is computed by the engine for sqlite too, so the
+              ER diagram works across mysql/postgres/sqlite. */}
+          {driver !== 'redis' && (
             <button className="ctx-item" onClick={() => { onOpenErDiagram?.(dbMenu.db); setDbMenu(null); }}>
               <Network size={13} /> ER 다이어그램
             </button>

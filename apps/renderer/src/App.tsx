@@ -669,7 +669,7 @@ function App() {
                       <div className="conn-row-text">
                         <span className="conn-row-name">{p.name}</span>
                         <span className="conn-row-host">
-                          {p.host}:{p.port}
+                          {p.driver === 'sqlite' ? (p.database.split('/').pop() || p.database) : `${p.host}:${p.port}`}
                         </span>
                       </div>
                       <span className="conn-row-actions">
@@ -842,6 +842,7 @@ function App() {
                       key={`${openTable[id]!.db}.${openTable[id]!.table}.${openTable[id]!.filter?.value ?? ''}`}
                       profileId={id}
                       driver={profile.driver as 'mysql' | 'postgres'}
+                      readOnly={profile.readOnly ?? false}
                       database={openTable[id]!.db}
                       table={openTable[id]!.table}
                       onClose={() => setOpenTable((prev) => ({ ...prev, [id]: null }))}
