@@ -232,6 +232,32 @@ describe('sqlite dialect', () => {
   });
 });
 
+describe('sqlserver dialect', () => {
+  it('quotes identifiers with brackets', () => {
+    expect(quoteIdent('sqlserver', 'we]ird')).toBe('[we]]ird]');
+  });
+  it('buildCreateTable uses IDENTITY(1,1) and a table-level PRIMARY KEY', () => {
+    const sql = buildCreateTable('sqlserver', 'todos', [
+      { name: 'id', type: 'int', nullable: false, primaryKey: true, autoIncrement: true },
+      { name: 'title', type: 'nvarchar(255)', nullable: false },
+    ])[0];
+    expect(sql).toContain('[id] int IDENTITY(1,1)');
+    expect(sql).toContain('[title] nvarchar(255) NOT NULL');
+    expect(sql).toContain('PRIMARY KEY ([id])');
+    expect(sql).not.toContain('AUTO_INCREMENT');
+    expect(sql).not.toContain('AUTOINCREMENT');
+  });
+  it('buildTruncateTable uses TRUNCATE TABLE', () => {
+    expect(buildTruncateTable('sqlserver', 't')).toEqual(['TRUNCATE TABLE [t]']);
+  });
+  it('buildModifyColumn uses ALTER COLUMN', () => {
+    const out = buildModifyColumn('sqlserver', 't',
+      { name: 'c', type: 'int', nullable: true },
+      { name: 'c', type: 'bigint', nullable: false });
+    expect(out[0]).toBe('ALTER TABLE [t] ALTER COLUMN [c] bigint NOT NULL');
+  });
+});
+
 describe('buildTableChanges', () => {
   const empty: TableChangeSet = {
     addColumns: [],

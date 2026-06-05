@@ -6,6 +6,12 @@ import { quoteIdent, type Driver } from './ddlBuilder';
 // unordered LIMIT.
 export function buildRecentRowsQuery(driver: Driver, table: string, pkColumn: string | null, limit = 500): string {
   const t = quoteIdent(driver, table);
+  if (driver === 'sqlserver') {
+    // T-SQL has no LIMIT; use TOP n.
+    return pkColumn
+      ? `SELECT TOP ${limit} * FROM ${t} ORDER BY ${quoteIdent(driver, pkColumn)} DESC`
+      : `SELECT TOP ${limit} * FROM ${t}`;
+  }
   if (pkColumn) {
     return `SELECT * FROM ${t} ORDER BY ${quoteIdent(driver, pkColumn)} DESC LIMIT ${limit}`;
   }

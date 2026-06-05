@@ -20,4 +20,8 @@ describe('buildRecentRowsQuery', () => {
       'SELECT * FROM `users` ORDER BY `id` DESC LIMIT 100'
     );
   });
+  it('buildRecentRowsQuery sqlserver uses TOP', () => {
+    expect(buildRecentRowsQuery('sqlserver', 't', 'id', 500)).toBe('SELECT TOP 500 * FROM [t] ORDER BY [id] DESC');
+    expect(buildRecentRowsQuery('sqlserver', 't', null, 500)).toBe('SELECT TOP 500 * FROM [t]');
+  });
 });

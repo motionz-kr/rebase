@@ -49,4 +49,10 @@ describe('buildSelectPage', () => {
       buildSelectPage('mysql', 'users', { filters: [{ col: 'name', value: 'ab' }], orderBy: { col: 'name', dir: 'asc' }, limit: 10, offset: 0 })
     ).toBe("SELECT * FROM `users` WHERE `name` LIKE '%ab%' ESCAPE '!' ORDER BY `name` ASC LIMIT 10 OFFSET 0");
   });
+  it('buildSelectPage sqlserver uses OFFSET/FETCH with an ORDER BY', () => {
+    const sql = buildSelectPage('sqlserver', 't', { limit: 10, offset: 20 });
+    expect(sql).toContain('OFFSET 20 ROWS FETCH NEXT 10 ROWS ONLY');
+    expect(sql).toMatch(/ORDER BY/);
+    expect(sql).not.toContain('LIMIT');
+  });
 });

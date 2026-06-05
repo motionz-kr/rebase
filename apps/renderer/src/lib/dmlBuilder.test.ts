@@ -31,6 +31,13 @@ describe('sqlLiteral sqlite booleans', () => {
   });
 });
 
+describe('sqlLiteral sqlserver', () => {
+  it('renders booleans as 1/0', () => {
+    expect(sqlLiteral('sqlserver', true)).toBe('1');
+    expect(sqlLiteral('sqlserver', false)).toBe('0');
+  });
+});
+
 describe('buildUpdate', () => {
   it('builds an UPDATE with SET and PK WHERE (mysql)', () => {
     expect(
