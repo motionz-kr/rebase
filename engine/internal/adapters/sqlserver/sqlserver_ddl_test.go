@@ -2,10 +2,6 @@ package sqlserver
 
 import (
 	"testing"
-
-	// Anchor the mssql driver as a tracked module dependency so it survives
-	// `go mod tidy`. The connector (later tasks) registers it for real.
-	_ "github.com/microsoft/go-mssqldb"
 )
 
 func TestBuildCreateTableDDL(t *testing.T) {
