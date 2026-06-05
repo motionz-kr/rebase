@@ -1912,6 +1912,11 @@
   overflow-x: hidden;
   padding-right: 4px;
 }
+/* With tabs, fix the body height so switching tabs never resizes the modal —
+   shorter tabs leave whitespace, longer ones (schema tree) scroll internally. */
+.conn-modal-body.tabbed {
+  height: 60vh;
+}
 .conn-modal-resizer {
   position: absolute;
   top: 0;

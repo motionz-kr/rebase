@@ -467,7 +467,7 @@ function App() {
                     </button>
                   </div>
                 )}
-                <div className="conn-modal-body">
+                <div className={`conn-modal-body${editingId && (formDriver === 'mysql' || formDriver === 'postgres') ? ' tabbed' : ''}`}>
                   {formTab === 'basic' && (
                   <form className="conn-form" onSubmit={handleCreateProfile}>
               <div>
