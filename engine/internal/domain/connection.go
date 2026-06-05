@@ -29,7 +29,7 @@ func (p ConnectionProfile) Validate() error {
 	if p.Name == "" {
 		return errors.New("connection profile name is required")
 	}
-	if p.Driver != "mysql" && p.Driver != "postgres" && p.Driver != "redis" && p.Driver != "sqlite" {
+	if p.Driver != "mysql" && p.Driver != "postgres" && p.Driver != "redis" && p.Driver != "sqlite" && p.Driver != "sqlserver" {
 		return errors.New("unsupported database driver: " + p.Driver)
 	}
 	// SQLite is a local file: the path lives in Database; host/port are unused.
@@ -45,7 +45,7 @@ func (p ConnectionProfile) Validate() error {
 	if p.Port <= 0 || p.Port > 65535 {
 		return errors.New("invalid database port")
 	}
-	if (p.Driver == "mysql" || p.Driver == "postgres") && p.Database == "" {
+	if (p.Driver == "mysql" || p.Driver == "postgres" || p.Driver == "sqlserver") && p.Database == "" {
 		return errors.New("database name is required for relational databases")
 	}
 	return nil
