@@ -164,9 +164,9 @@ export const AgentChat: React.FC<AgentChatProps> = ({
   const setProvider = (provider: AgentSettings['provider']) => {
     const patch: Partial<AgentSettings> = { provider };
     if (provider === 'openai' && settings.model.startsWith('claude')) patch.model = 'gpt-4o';
-    // The Claude subscription (OAuth) path only accepts Claude 4 dated model ids,
-    // so pin a known-good one when switching to it.
-    else if (provider === 'anthropic-oauth') patch.model = 'claude-sonnet-4-5-20250929';
+    // The Claude subscription (OAuth) path accepts the current Claude Code model
+    // aliases (sonnet 4.6 / opus 4.7 / opus 4.8); pin a sensible default.
+    else if (provider === 'anthropic-oauth') patch.model = 'claude-sonnet-4-6';
     else if (provider === 'anthropic' && settings.model.startsWith('gpt')) patch.model = 'claude-sonnet-4-6';
     updateSettings(patch);
   };
@@ -720,8 +720,8 @@ function modelOptions(provider: string, current: string): string[] {
   if (provider === 'openai') {
     presets = ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1'];
   } else if (provider === 'anthropic-oauth') {
-    // Claude subscription accepts only Claude 4 dated ids (3.5 ids 404).
-    presets = ['claude-sonnet-4-5-20250929', 'claude-sonnet-4-20250514', 'claude-opus-4-1-20250805'];
+    // Models the Claude Code subscription exposes (verified live; 3.5/dated ids 404).
+    presets = ['claude-sonnet-4-6', 'claude-opus-4-7', 'claude-opus-4-8'];
   } else {
     presets = ['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-4-6'];
   }
