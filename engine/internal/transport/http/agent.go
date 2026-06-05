@@ -101,7 +101,7 @@ func (h *AgentHandler) getConnector(driver string) (ports.SQLConnector, error) {
 	case "sqlserver":
 		return h.sqlserverConnector, nil
 	default:
-		return nil, fmtError("agent mode currently supports SQL drivers (mysql, postgres); got: " + driver)
+		return nil, fmtError("agent mode currently supports SQL drivers (mysql, postgres, sqlite, sqlserver); got: " + driver)
 	}
 }
 

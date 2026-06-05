@@ -31,4 +31,7 @@ describe('buildDropIndex', () => {
   it('postgres: index name only', () => {
     expect(buildDropIndex('postgres', { table: 'users', name: 'idx_email' })).toBe('DROP INDEX "idx_email"');
   });
+  it('sqlserver: needs the table (like mysql)', () => {
+    expect(buildDropIndex('sqlserver', { table: 'users', name: 'idx_email' })).toBe('DROP INDEX [idx_email] ON [users]');
+  });
 });

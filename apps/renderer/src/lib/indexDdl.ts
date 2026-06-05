@@ -14,9 +14,10 @@ export function buildCreateIndex(driver: Driver, spec: CreateIndexSpec): string 
   return `CREATE ${unique}INDEX ${quoteIdent(driver, spec.name)} ON ${quoteIdent(driver, spec.table)} (${cols})`;
 }
 
-// DROP INDEX. MySQL scopes by table; PostgreSQL drops by index name alone.
+// DROP INDEX. MySQL and SQL Server scope by table (DROP INDEX name ON table);
+// PostgreSQL and SQLite drop by index name alone.
 export function buildDropIndex(driver: Driver, spec: { table: string; name: string }): string {
-  if (driver === 'mysql') {
+  if (driver === 'mysql' || driver === 'sqlserver') {
     return `DROP INDEX ${quoteIdent(driver, spec.name)} ON ${quoteIdent(driver, spec.table)}`;
   }
   return `DROP INDEX ${quoteIdent(driver, spec.name)}`;
