@@ -32,3 +32,17 @@ export function hiddenCount(all: string[], hidden: string[]): number {
   const h = new Set(hidden);
   return all.filter((t) => h.has(t)).length;
 }
+
+// Toggle one table's membership in a db's hidden list (immutably).
+export function toggleHidden(hidden: string[], table: string): string[] {
+  return hidden.includes(table) ? hidden.filter((t) => t !== table) : [...hidden, table];
+}
+
+// Tri-state for a database's parent checkbox: are all/none/some of its tables
+// visible? Stale hidden entries (tables that no longer exist) are ignored.
+export function dbVisibilityState(all: string[], hidden: string[]): 'all' | 'none' | 'some' {
+  const hiddenExisting = hiddenCount(all, hidden);
+  if (hiddenExisting === 0) return 'all';
+  if (hiddenExisting === all.length) return 'none';
+  return 'some';
+}
