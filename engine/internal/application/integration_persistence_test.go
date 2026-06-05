@@ -47,6 +47,7 @@ func TestIntegration_Persistence(t *testing.T) {
 					tls_mode TEXT NOT NULL,
 					mcp_enabled INTEGER NOT NULL DEFAULT 0,
 					mcp_data_exposure TEXT NOT NULL DEFAULT 'metadata',
+					read_only INTEGER NOT NULL DEFAULT 0,
 					created_at DATETIME NOT NULL,
 					updated_at DATETIME NOT NULL
 				);
