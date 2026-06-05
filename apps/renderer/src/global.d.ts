@@ -153,6 +153,7 @@ declare global {
       checkEngineHealth: () => Promise<HealthResult>;
       listProfiles: () => Promise<ResultWrapper<ConnectionProfile[]>>;
       createProfile: (profile: ConnectionProfile, password?: string) => Promise<ResultWrapper<ConnectionProfile>>;
+      pickSqliteFile: () => Promise<string | null>;
       updateProfile: (profile: ConnectionProfile, password?: string) => Promise<ResultWrapper<ConnectionProfile>>;
       deleteProfile: (id: string) => Promise<ResultWrapper<{ success: boolean }>>;
       testConnection: (profile: ConnectionProfile, password?: string) => Promise<ResultWrapper<{ success: boolean }>>;

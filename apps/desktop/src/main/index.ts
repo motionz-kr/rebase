@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, shell, dialog } from 'electron';
 import * as path from 'path';
 import * as http from 'http';
 import * as crypto from 'crypto';
@@ -278,6 +278,18 @@ app.whenReady().then(() => {
     } catch (err: any) {
       return { success: false, error: err.message };
     }
+  });
+
+  ipcMain.handle('pick-sqlite-file', async () => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openFile'],
+      filters: [
+        { name: 'SQLite Databases', extensions: ['db', 'sqlite', 'sqlite3', 'db3'] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0];
   });
 
   ipcMain.handle('update-profile', async (event, profile, password) => {
