@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/smlee/database-local-engine/engine/internal/domain"
@@ -157,5 +158,95 @@ func TestSQLite_GetSchemaGraph(t *testing.T) {
 	}
 	if len(g.ForeignKeys) != 1 || g.ForeignKeys[0].FromTable != "books" || g.ForeignKeys[0].ToTable != "authors" {
 		t.Fatalf("unexpected FKs: %+v", g.ForeignKeys)
+	}
+}
+
+func TestSQLite_ExecuteQueryStream_Select(t *testing.T) {
+	c := NewSQLiteConnector()
+	p := sqliteProfile(seedDB(t), false)
+	var cols []string
+	var rowCount int
+	n, err := c.ExecuteQueryStream(context.Background(), p, "",
+		"SELECT id, name FROM authors ORDER BY id", true,
+		nil,
+		func(h []string) error { cols = h; return nil },
+		func(r []any) error { rowCount++; return nil },
+	)
+	if err != nil {
+		t.Fatalf("ExecuteQueryStream: %v", err)
+	}
+	if len(cols) != 2 || cols[0] != "id" || cols[1] != "name" {
+		t.Fatalf("header = %+v", cols)
+	}
+	if rowCount != 2 || n != 2 {
+		t.Fatalf("rowCount=%d n=%d", rowCount, n)
+	}
+}
+
+func TestSQLite_ReadOnlyRejectsWrite(t *testing.T) {
+	c := NewSQLiteConnector()
+	p := sqliteProfile(seedDB(t), true) // ReadOnly profile
+	_, err := c.ExecuteQueryStream(context.Background(), p, "",
+		"INSERT INTO authors (id, name) VALUES (3, 'Cara')", false,
+		nil, func([]string) error { return nil }, func([]any) error { return nil })
+	if err == nil {
+		t.Fatal("expected a read-only write to be rejected")
+	}
+	if !strings.Contains(err.Error(), "read-only") {
+		t.Fatalf("expected a read-only error, got: %v", err)
+	}
+}
+
+func TestSQLite_ExecuteBatch_AtomicRollback(t *testing.T) {
+	c := NewSQLiteConnector()
+	path := seedDB(t)
+	p := sqliteProfile(path, false)
+	ctx := context.Background()
+	// 2nd statement violates the PK → whole batch rolls back.
+	_, failedIndex, err := c.ExecuteBatch(ctx, p, "", []string{
+		"INSERT INTO authors (id, name) VALUES (10, 'X')",
+		"INSERT INTO authors (id, name) VALUES (1, 'dup-pk')",
+	})
+	if err == nil || failedIndex != 1 {
+		t.Fatalf("expected failedIndex=1 with error, got idx=%d err=%v", failedIndex, err)
+	}
+	// Assert the first insert was rolled back (id=10 absent).
+	var cnt int
+	_, qerr := c.ExecuteQueryStream(ctx, p, "", "SELECT count(*) FROM authors WHERE id = 10", true,
+		nil, func([]string) error { return nil },
+		func(r []any) error { cnt = int(toI64(r[0])); return nil })
+	if qerr != nil {
+		t.Fatalf("verify query: %v", qerr)
+	}
+	if cnt != 0 {
+		t.Fatalf("expected rollback (id=10 absent), found %d", cnt)
+	}
+}
+
+func TestSQLite_ExecuteBatch_CommitsOnSuccess(t *testing.T) {
+	c := NewSQLiteConnector()
+	p := sqliteProfile(seedDB(t), false)
+	ctx := context.Background()
+	total, failedIndex, err := c.ExecuteBatch(ctx, p, "", []string{
+		"INSERT INTO authors (id, name) VALUES (20, 'Y')",
+		"UPDATE authors SET name = 'Y2' WHERE id = 20",
+	})
+	if err != nil || failedIndex != -1 {
+		t.Fatalf("expected success, got idx=%d err=%v", failedIndex, err)
+	}
+	if total < 2 {
+		t.Fatalf("expected >=2 rows affected, got %d", total)
+	}
+}
+
+// toI64 coerces a scanned numeric cell to int64 (SQLite returns int64 for counts).
+func toI64(v any) int64 {
+	switch n := v.(type) {
+	case int64:
+		return n
+	case int:
+		return int64(n)
+	default:
+		return 0
 	}
 }

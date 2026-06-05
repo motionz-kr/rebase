@@ -296,6 +296,132 @@ func (c *SQLiteConnector) GetSchemaGraph(ctx context.Context, p domain.Connectio
 	return g, nil
 }
 
+func (c *SQLiteConnector) register(cancel context.CancelFunc) int64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.nextID++
+	id := c.nextID
+	c.sessions[id] = cancel
+	return id
+}
+
+func (c *SQLiteConnector) deregister(id int64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.sessions, id)
+}
+
+func (c *SQLiteConnector) ExecuteQueryStream(
+	ctx context.Context,
+	p domain.ConnectionProfile,
+	password string,
+	query string,
+	readOnly bool,
+	onSessionStart func(sessionID int64),
+	onHeader func(columns []string) error,
+	onRow func(row []any) error,
+) (int64, error) {
+	db, err := c.open(p, readOnly)
+	if err != nil {
+		return 0, err
+	}
+	defer db.Close()
+
+	// SQLite has no server-side KILL; cancellation is via context. Register the
+	// cancel func under a session id so CancelSession can abort an in-flight query.
+	qctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	id := c.register(cancel)
+	defer c.deregister(id)
+	if onSessionStart != nil {
+		onSessionStart(id)
+	}
+
+	rows, err := db.QueryContext(qctx, query)
+	if err != nil {
+		return 0, c.normalizeError(err)
+	}
+	defer rows.Close()
+
+	cols, err := rows.Columns()
+	if err != nil {
+		return 0, c.normalizeError(err)
+	}
+	if err := onHeader(cols); err != nil {
+		return 0, err
+	}
+
+	values := make([]any, len(cols))
+	valuePtrs := make([]any, len(cols))
+	for i := range values {
+		valuePtrs[i] = &values[i]
+	}
+
+	var rowsAffected int64
+	for rows.Next() {
+		if err := rows.Scan(valuePtrs...); err != nil {
+			return rowsAffected, c.normalizeError(err)
+		}
+		row := make([]any, len(values))
+		for i, val := range values {
+			if b, ok := val.([]byte); ok {
+				row[i] = string(b)
+			} else {
+				row[i] = val
+			}
+		}
+		if err := onRow(row); err != nil {
+			return rowsAffected, err
+		}
+		rowsAffected++
+	}
+	return rowsAffected, c.normalizeError(rows.Err())
+}
+
+func (c *SQLiteConnector) CancelSession(ctx context.Context, p domain.ConnectionProfile, password string, sessionID int64) error {
+	c.mu.Lock()
+	cancel := c.sessions[sessionID]
+	c.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	return nil
+}
+
+// ExecuteBatch runs all statements in a single transaction. On the first failure
+// it rolls back and returns the 0-based failed index; on success it commits and
+// returns total rows affected with failedIndex -1.
+func (c *SQLiteConnector) ExecuteBatch(ctx context.Context, p domain.ConnectionProfile, password string, statements []string) (int64, int, error) {
+	db, err := c.open(p, false)
+	if err != nil {
+		return 0, -1, err
+	}
+	defer db.Close()
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, -1, c.normalizeError(err)
+	}
+	var total int64
+	for i, stmt := range statements {
+		res, execErr := tx.ExecContext(ctx, stmt)
+		if execErr != nil {
+			_ = tx.Rollback()
+			return total, i, c.normalizeError(execErr)
+		}
+		if n, aerr := res.RowsAffected(); aerr == nil {
+			total += n
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return total, -1, c.normalizeError(err)
+	}
+	return total, -1, nil
+}
+
+// Compile-time assertion that SQLiteConnector satisfies the full SQL port.
+var _ ports.SQLConnector = (*SQLiteConnector)(nil)
+
 func (c *SQLiteConnector) normalizeError(err error) error {
 	if err == nil {
 		return nil
