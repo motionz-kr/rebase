@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.11.0](https://github.com/motionz-kr/rebase/compare/v0.10.0...v0.11.0) (2026-06-05)
+
+
+### Features
+
+* **agent:** subscription OAuth login — Claude + Codex/ChatGPT (no API key, no CLI) ([#90](https://github.com/motionz-kr/rebase/issues/90)) ([7fb7378](https://github.com/motionz-kr/rebase/commit/7fb7378c91421084382a461fda205a5154a75582))
+* **ui:** split the connection modal into tabs ([#89](https://github.com/motionz-kr/rebase/issues/89)) ([7f7f552](https://github.com/motionz-kr/rebase/commit/7f7f55262f4d0bcd80f9715906e69baa50e3ec62))
+
 ## [0.10.0](https://github.com/motionz-kr/rebase/compare/v0.9.1...v0.10.0) (2026-06-05)
 
 
