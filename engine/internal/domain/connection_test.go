@@ -140,3 +140,18 @@ func TestValidate_SQLiteRequiresDatabasePath(t *testing.T) {
 		t.Fatal("expected sqlite profile with empty Database (file path) to be invalid")
 	}
 }
+
+func TestValidate_SQLServerAcceptedLikeRelational(t *testing.T) {
+	p := ConnectionProfile{Name: "ms", Driver: "sqlserver", Host: "h", Port: 1433, Database: "db", Username: "sa"}
+	if err := p.Validate(); err != nil {
+		t.Fatalf("expected sqlserver profile to be valid, got: %v", err)
+	}
+}
+func TestValidate_SQLServerRequiresHostPortDatabase(t *testing.T) {
+	if (ConnectionProfile{Name: "x", Driver: "sqlserver", Host: "", Port: 1433, Database: "db"}).Validate() == nil {
+		t.Fatal("expected missing host to be invalid")
+	}
+	if (ConnectionProfile{Name: "x", Driver: "sqlserver", Host: "h", Port: 1433, Database: ""}).Validate() == nil {
+		t.Fatal("expected missing database to be invalid")
+	}
+}

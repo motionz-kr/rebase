@@ -19,6 +19,7 @@ import (
 	"github.com/smlee/database-local-engine/engine/internal/adapters/mysql"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/postgres"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/sqlite"
+	"github.com/smlee/database-local-engine/engine/internal/adapters/sqlserver"
 	"github.com/smlee/database-local-engine/engine/internal/agent"
 	"github.com/smlee/database-local-engine/engine/internal/application"
 	"github.com/smlee/database-local-engine/engine/internal/ports"
@@ -361,6 +362,8 @@ func runMCPServer(svc *application.ConnectionService, profileID string) {
 		conn = postgres.NewPostgreSQLConnector()
 	case "sqlite":
 		conn = sqlite.NewSQLiteConnector()
+	case "sqlserver":
+		conn = sqlserver.NewSQLServerConnector()
 	default:
 		log.Fatalf("mcp: unsupported driver %q (SQL drivers only)", profile.Driver)
 	}

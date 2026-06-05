@@ -13,7 +13,14 @@ export interface ColValue {
 export function sqlLiteral(driver: Driver, value: CellValue): string {
   if (value === null) return 'NULL';
   if (typeof value === 'number') return String(value);
-  if (typeof value === 'boolean') return (driver === 'mysql' || driver === 'sqlite') ? (value ? '1' : '0') : value ? 'TRUE' : 'FALSE';
+  if (typeof value === 'boolean')
+    return driver === 'mysql' || driver === 'sqlite' || driver === 'sqlserver'
+      ? value
+        ? '1'
+        : '0'
+      : value
+        ? 'TRUE'
+        : 'FALSE';
   let s = value.replace(/'/g, "''");
   if (driver === 'mysql') s = s.replace(/\\/g, '\\\\');
   return `'${s}'`;

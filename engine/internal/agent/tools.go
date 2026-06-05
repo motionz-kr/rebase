@@ -45,6 +45,9 @@ type sqlReader interface {
 
 // quoteIdent quotes a SQL identifier for the given driver.
 func quoteIdent(driver, ident string) string {
+	if driver == "sqlserver" {
+		return "[" + strings.ReplaceAll(ident, "]", "]]") + "]"
+	}
 	if driver == "postgres" || driver == "sqlite" {
 		return `"` + strings.ReplaceAll(ident, `"`, `""`) + `"`
 	}
@@ -313,6 +316,8 @@ func NewSQLRegistry(conn sqlReader, p domain.ConnectionProfile, password, databa
 					"WHERE c.relname = " + lit + " AND n.nspname = current_schema()"
 			} else if p.Driver == "sqlite" {
 				sql = "SELECT (SELECT COUNT(*) FROM " + quoteIdent(p.Driver, table) + ") AS rows, 0 AS bytes"
+			} else if p.Driver == "sqlserver" {
+				sql = "SELECT SUM(p.rows) AS rows, 0 AS bytes FROM sys.partitions p JOIN sys.tables t ON t.object_id = p.object_id WHERE t.name = " + lit + " AND p.index_id IN (0,1)"
 			} else {
 				sql = "SELECT table_rows AS rows, data_length + index_length AS bytes " +
 					"FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = " + lit

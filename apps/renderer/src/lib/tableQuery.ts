@@ -42,9 +42,17 @@ export function buildSelectPage(driver: Driver, table: string, q: PageQuery): st
   const parts = [`SELECT * FROM ${quoteIdent(driver, table)}`];
   const where = buildWhere(driver, q.filters ?? []);
   if (where) parts.push(where);
-  if (q.orderBy) {
-    parts.push(`ORDER BY ${quoteIdent(driver, q.orderBy.col)} ${q.orderBy.dir === 'asc' ? 'ASC' : 'DESC'}`);
+  const orderBy = q.orderBy
+    ? `${quoteIdent(driver, q.orderBy.col)} ${q.orderBy.dir === 'asc' ? 'ASC' : 'DESC'}`
+    : null;
+  if (driver === 'sqlserver') {
+    // T-SQL has no LIMIT/OFFSET; paginate with OFFSET ... FETCH, which requires
+    // an ORDER BY. When the caller has no explicit order, use a stable no-op.
+    parts.push(`ORDER BY ${orderBy ?? '(SELECT NULL)'}`);
+    parts.push(`OFFSET ${q.offset} ROWS FETCH NEXT ${q.limit} ROWS ONLY`);
+    return parts.join(' ');
   }
+  if (orderBy) parts.push(`ORDER BY ${orderBy}`);
   parts.push(`LIMIT ${q.limit} OFFSET ${q.offset}`);
   return parts.join(' ');
 }
