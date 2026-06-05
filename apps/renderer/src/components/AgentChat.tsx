@@ -429,13 +429,19 @@ export const AgentChat: React.FC<AgentChatProps> = ({
               </div>
               <label className="agent-oauth-model">
                 모델
-                <select value={settings.model} onChange={(e) => updateSettings({ model: e.target.value })}>
+                <input
+                  type="text"
+                  list="agent-oauth-models"
+                  value={settings.model}
+                  onChange={(e) => updateSettings({ model: e.target.value })}
+                  placeholder="모델 이름 입력 또는 선택"
+                />
+                <datalist id="agent-oauth-models">
                   {modelOptions(settings.provider, settings.model).map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
+                    <option key={m} value={m} />
                   ))}
-                </select>
+                </datalist>
+                <span className="agent-settings-note">최신 모델명을 직접 입력할 수도 있습니다.</span>
               </label>
             </div>
           )}
@@ -712,10 +718,11 @@ function modelOptions(provider: string, current: string): string[] {
   if (provider === 'openai') {
     presets = ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1'];
   } else if (provider === 'anthropic-oauth') {
-    // Models the Claude Code subscription exposes (verified live; 3.5/dated ids 404).
-    presets = ['claude-sonnet-4-6', 'claude-opus-4-7', 'claude-opus-4-8'];
+    // Claude Code subscription models, newest first (verified live). The field is
+    // free-text, so newer ids can be typed even if not listed here.
+    presets = ['claude-opus-4-8', 'claude-opus-4-7', 'claude-sonnet-4-6'];
   } else if (provider === 'openai-oauth') {
-    // ChatGPT subscription via the Codex backend (verified live).
+    // ChatGPT subscription via the Codex backend (gpt-5.4 verified live).
     presets = ['gpt-5.4'];
   } else {
     presets = ['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-4-6'];
