@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.0](https://github.com/motionz-kr/rebase/compare/v0.11.0...v0.12.0) (2026-06-05)
+
+
+### Features
+
+* **update:** 시작 시 자동 업데이트 다운로드 (진행바·용량·ETA) ([#92](https://github.com/motionz-kr/rebase/issues/92)) ([adb5335](https://github.com/motionz-kr/rebase/commit/adb53356b98ec0e9ffc5e8b133e02b6c0d791875))
+
 ## [0.11.0](https://github.com/motionz-kr/rebase/compare/v0.10.0...v0.11.0) (2026-06-05)
 
 
