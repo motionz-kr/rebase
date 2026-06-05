@@ -427,22 +427,6 @@ export const AgentChat: React.FC<AgentChatProps> = ({
                   다시 확인
                 </button>
               </div>
-              <label className="agent-oauth-model">
-                모델
-                <input
-                  type="text"
-                  list="agent-oauth-models"
-                  value={settings.model}
-                  onChange={(e) => updateSettings({ model: e.target.value })}
-                  placeholder="모델 이름 입력 또는 선택"
-                />
-                <datalist id="agent-oauth-models">
-                  {modelOptions(settings.provider, settings.model).map((m) => (
-                    <option key={m} value={m} />
-                  ))}
-                </datalist>
-                <span className="agent-settings-note">최신 모델명을 직접 입력할 수도 있습니다.</span>
-              </label>
             </div>
           )}
           {needsApiKey(settings.provider) && (
@@ -489,10 +473,6 @@ export const AgentChat: React.FC<AgentChatProps> = ({
                   )}
                 </div>
               )}
-              <label>
-                Model
-                <input type="text" value={settings.model} onChange={(e) => updateSettings({ model: e.target.value })} />
-              </label>
               <p className="agent-settings-note">
                 The key is stored in your OS keychain via the local engine, then sent only to the{' '}
                 {settings.provider === 'openai' ? 'OpenAI' : 'Anthropic'} API.
@@ -675,31 +655,19 @@ export const AgentChat: React.FC<AgentChatProps> = ({
             disabled={busy || !profileId}
           />
           <div className="agent-composer-bar">
+          {/* Provider/LLM is chosen in Settings; here you only pick the model. */}
           <select
             className="agent-pick"
-            title="Provider"
-            value={settings.provider}
-            onChange={(e) => setProvider(e.target.value as AgentSettings['provider'])}
+            title="Model"
+            value={settings.model}
+            onChange={(e) => updateSettings({ model: e.target.value })}
           >
-            <option value="anthropic-oauth">Claude (구독)</option>
-            <option value="openai-oauth">Codex (구독)</option>
-            <option value="anthropic">Anthropic API</option>
-            <option value="openai">OpenAI API</option>
+            {modelOptions(settings.provider, settings.model).map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
           </select>
-          {needsApiKey(settings.provider) && (
-            <select
-              className="agent-pick"
-              title="Model"
-              value={settings.model}
-              onChange={(e) => updateSettings({ model: e.target.value })}
-            >
-              {modelOptions(settings.provider, settings.model).map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-            </select>
-          )}
           <span className="agent-composer-spacer" />
           <button className="btn btn-primary btn-sm" onClick={send} disabled={busy || !profileId || !input.trim()} title="Send (Enter)">
             <CornerDownLeft size={13} /> Send
@@ -722,8 +690,8 @@ function modelOptions(provider: string, current: string): string[] {
     // free-text, so newer ids can be typed even if not listed here.
     presets = ['claude-opus-4-8', 'claude-opus-4-7', 'claude-sonnet-4-6'];
   } else if (provider === 'openai-oauth') {
-    // ChatGPT subscription via the Codex backend (gpt-5.4 verified live).
-    presets = ['gpt-5.4'];
+    // ChatGPT subscription via the Codex backend.
+    presets = ['gpt-5.5', 'gpt-5.4'];
   } else {
     presets = ['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-4-6'];
   }
