@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.0](https://github.com/motionz-kr/rebase/compare/v0.13.0...v0.14.0) (2026-06-05)
+
+
+### Features
+
+* SQL Server 연결 지원 (engine expansion [#34](https://github.com/motionz-kr/rebase/issues/34)) ([#98](https://github.com/motionz-kr/rebase/issues/98)) ([7f93f3d](https://github.com/motionz-kr/rebase/commit/7f93f3d13b88ab631b255be8e191ab25159bd1e7))
+
 ## [0.13.0](https://github.com/motionz-kr/rebase/compare/v0.12.1...v0.13.0) (2026-06-05)
 
 
