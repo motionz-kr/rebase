@@ -392,6 +392,21 @@
 .field-shrink {
   flex: 1.4;
 }
+.field-check {
+  margin: 8px 0;
+}
+.field-check label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+}
+.field-check input[type='checkbox'] {
+  width: auto;
+  margin: 0;
+}
 .form-actions {
   display: flex;
   gap: 8px;

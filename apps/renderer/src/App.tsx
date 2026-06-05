@@ -34,13 +34,14 @@ import './App.css';
 export interface ConnectionProfile {
   id?: string;
   name: string;
-  driver: 'mysql' | 'postgres' | 'redis';
+  driver: 'mysql' | 'postgres' | 'redis' | 'sqlite';
   host: string;
   port: number;
   database: string;
   username: string;
   secretRef?: string;
   tlsMode: 'none' | 'prefer' | 'require';
+  readOnly?: boolean;
   mcpEnabled?: boolean;
   mcpDataExposure?: string;
   createdAt?: string;
@@ -54,7 +55,7 @@ export interface HealthResult {
   error?: string;
 }
 
-const DRIVER_LABEL: Record<string, string> = { mysql: 'MY', postgres: 'PG', redis: 'RS' };
+const DRIVER_LABEL: Record<string, string> = { mysql: 'MY', postgres: 'PG', redis: 'RS', sqlite: 'SQ' };
 
 function App() {
   const [status, setStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking');
@@ -131,7 +132,7 @@ function App() {
   const [erTab, setErTab] = useState<Record<string, { db: string } | null>>({});
 
   // Create form state
-  const [formDriver, setFormDriver] = useState<'mysql' | 'postgres' | 'redis'>('mysql');
+  const [formDriver, setFormDriver] = useState<'mysql' | 'postgres' | 'redis' | 'sqlite'>('mysql');
   const [formName, setFormName] = useState('');
   const [formHost, setFormHost] = useState('127.0.0.1');
   const [formPort, setFormPort] = useState(3306);
@@ -139,6 +140,7 @@ function App() {
   const [formUsername, setFormUsername] = useState('');
   const [formPassword, setFormPassword] = useState('');
   const [formTlsMode, setFormTlsMode] = useState<'none' | 'prefer' | 'require'>('none');
+  const [formReadOnly, setFormReadOnly] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
   // Per-connection hidden-tables map, lifted here so both the schema explorer
@@ -181,7 +183,7 @@ function App() {
     }
   };
 
-  const handleDriverChange = (driver: 'mysql' | 'postgres' | 'redis') => {
+  const handleDriverChange = (driver: 'mysql' | 'postgres' | 'redis' | 'sqlite') => {
     setFormDriver(driver);
     if (driver === 'mysql') {
       setFormPort(3306);
@@ -191,6 +193,10 @@ function App() {
       setFormPort(5432);
       setFormDatabase('postgres');
       setFormUsername('postgres');
+    } else if (driver === 'sqlite') {
+      setFormPort(0);
+      setFormDatabase('');
+      setFormUsername('');
     } else {
       setFormPort(6379);
       setFormDatabase('');
@@ -202,6 +208,7 @@ function App() {
     setFormName('');
     handleDriverChange('mysql');
     setFormPassword('');
+    setFormReadOnly(false);
     setEditingId(null);
     setFormTab('basic');
   };
@@ -216,6 +223,7 @@ function App() {
     setFormUsername(p.username);
     setFormPassword(''); // blank keeps the existing password
     setFormTlsMode(p.tlsMode);
+    setFormReadOnly(p.readOnly ?? false);
     setEditingId(p.id!);
     setConnectionError(null);
     setFormTab('basic');
@@ -227,11 +235,12 @@ function App() {
     const profile: ConnectionProfile = {
       name: formName || 'Test Profile',
       driver: formDriver,
-      host: formHost,
-      port: formPort,
+      host: formDriver === 'sqlite' ? '' : formHost,
+      port: formDriver === 'sqlite' ? 0 : formPort,
       database: formDatabase,
-      username: formUsername,
+      username: formDriver === 'sqlite' ? '' : formUsername,
       tlsMode: formTlsMode,
+      readOnly: formReadOnly,
     };
     try {
       const res = await window.electronAPI.testConnection(profile, formPassword);
@@ -252,11 +261,12 @@ function App() {
     const profile: ConnectionProfile = {
       name: formName,
       driver: formDriver,
-      host: formHost,
-      port: formPort,
+      host: formDriver === 'sqlite' ? '' : formHost,
+      port: formDriver === 'sqlite' ? 0 : formPort,
       database: formDatabase,
-      username: formUsername,
+      username: formDriver === 'sqlite' ? '' : formUsername,
       tlsMode: formTlsMode,
+      readOnly: formReadOnly,
     };
     try {
       const res = editingId
@@ -488,16 +498,51 @@ function App() {
                   <form className="conn-form" onSubmit={handleCreateProfile}>
               <div>
                 <label>Database type</label>
-                <select value={formDriver} onChange={(e) => handleDriverChange(e.target.value as 'mysql' | 'postgres' | 'redis')}>
+                <select value={formDriver} onChange={(e) => handleDriverChange(e.target.value as 'mysql' | 'postgres' | 'redis' | 'sqlite')}>
                   <option value="mysql">MySQL</option>
                   <option value="postgres">PostgreSQL</option>
                   <option value="redis">Redis</option>
+                  <option value="sqlite">SQLite</option>
                 </select>
               </div>
               <div>
                 <label>Profile name</label>
                 <input type="text" placeholder="e.g. Prod DB" value={formName} onChange={(e) => setFormName(e.target.value)} required />
               </div>
+              {formDriver === 'sqlite' ? (
+                <>
+                  <div>
+                    <label>Database file</label>
+                    <div className="field-row">
+                      <input
+                        className="field-grow"
+                        type="text"
+                        value={formDatabase}
+                        onChange={(e) => setFormDatabase(e.target.value)}
+                        placeholder="/path/to/database.db"
+                        required
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={async () => {
+                          const path = await window.electronAPI.pickSqliteFile();
+                          if (path) setFormDatabase(path);
+                        }}
+                      >
+                        찾아보기
+                      </button>
+                    </div>
+                  </div>
+                  <div className="field-check">
+                    <label>
+                      <input type="checkbox" checked={formReadOnly} onChange={(e) => setFormReadOnly(e.target.checked)} />
+                      읽기 전용 (read-only)
+                    </label>
+                  </div>
+                </>
+              ) : (
+                <>
               <div className="field-row">
                 <div className="field-grow">
                   <label>Host</label>
@@ -542,6 +587,8 @@ function App() {
                   <option value="require">Require (encrypted)</option>
                 </select>
               </div>
+                </>
+              )}
               <div className="form-actions">
                 <button type="button" className="btn btn-secondary btn-sm" onClick={handleTestConnection}>
                   Test

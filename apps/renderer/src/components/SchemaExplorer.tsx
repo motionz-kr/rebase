@@ -11,7 +11,7 @@ import type { ColumnInfo } from '../global';
 
 interface SchemaExplorerProps {
   profileId: string;
-  driver: 'mysql' | 'postgres' | 'redis';
+  driver: 'mysql' | 'postgres' | 'redis' | 'sqlite';
   hiddenStore: HiddenStore;
   onDisconnect: () => void;
   onSchemaChanged?: () => void;

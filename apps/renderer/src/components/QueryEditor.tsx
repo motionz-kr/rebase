@@ -57,7 +57,7 @@ interface QueryTab {
 
 interface QueryEditorProps {
   profileId: string;
-  driver: 'mysql' | 'postgres' | 'redis';
+  driver: 'mysql' | 'postgres' | 'redis' | 'sqlite';
   database: string;
   connectionName: string;
   onQueryExecuted?: () => void;

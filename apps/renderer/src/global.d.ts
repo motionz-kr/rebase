@@ -83,13 +83,14 @@ export interface QueryHistoryEntry {
 export interface ConnectionProfile {
   id?: string;
   name: string;
-  driver: 'mysql' | 'postgres' | 'redis';
+  driver: 'mysql' | 'postgres' | 'redis' | 'sqlite';
   host: string;
   port: number;
   database: string;
   username: string;
   secretRef?: string;
   tlsMode: 'none' | 'prefer' | 'require';
+  readOnly?: boolean;
   mcpEnabled?: boolean;
   mcpDataExposure?: string;
   createdAt?: string;
