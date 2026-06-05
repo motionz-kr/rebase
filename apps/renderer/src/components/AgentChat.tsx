@@ -164,8 +164,10 @@ export const AgentChat: React.FC<AgentChatProps> = ({
   const setProvider = (provider: AgentSettings['provider']) => {
     const patch: Partial<AgentSettings> = { provider };
     if (provider === 'openai' && settings.model.startsWith('claude')) patch.model = 'gpt-4o';
-    if ((provider === 'anthropic' || provider === 'anthropic-oauth') && settings.model.startsWith('gpt'))
-      patch.model = 'claude-sonnet-4-6';
+    // The Claude subscription (OAuth) path only accepts Claude 4 dated model ids,
+    // so pin a known-good one when switching to it.
+    else if (provider === 'anthropic-oauth') patch.model = 'claude-sonnet-4-5-20250929';
+    else if (provider === 'anthropic' && settings.model.startsWith('gpt')) patch.model = 'claude-sonnet-4-6';
     updateSettings(patch);
   };
 
@@ -714,9 +716,14 @@ export const AgentChat: React.FC<AgentChatProps> = ({
 // modelOptions lists a few common Anthropic models plus whatever the user has
 // configured (so a custom model typed in settings is never lost from the picker).
 function modelOptions(provider: string, current: string): string[] {
-  const presets =
-    provider === 'openai'
-      ? ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1']
-      : ['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-4-6'];
+  let presets: string[];
+  if (provider === 'openai') {
+    presets = ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1'];
+  } else if (provider === 'anthropic-oauth') {
+    // Claude subscription accepts only Claude 4 dated ids (3.5 ids 404).
+    presets = ['claude-sonnet-4-5-20250929', 'claude-sonnet-4-20250514', 'claude-opus-4-1-20250805'];
+  } else {
+    presets = ['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-4-6'];
+  }
   return Array.from(new Set(current ? [current, ...presets] : presets));
 }
