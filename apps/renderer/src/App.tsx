@@ -115,6 +115,8 @@ function App() {
   const [agentPopped, setAgentPopped] = useState(false);
 
   const [showCreateForm, setShowCreateForm] = useState(false);
+  // Active tab inside the connection modal: basic info / schema (table visibility) / MCP.
+  const [formTab, setFormTab] = useState<'basic' | 'schema' | 'mcp'>('basic');
   const [connectionError, setConnectionError] = useState<string | null>(null);
 
   // Focused connection's secondary sidebar panel (saved/history)
@@ -185,6 +187,7 @@ function App() {
     handleDriverChange('mysql');
     setFormPassword('');
     setEditingId(null);
+    setFormTab('basic');
   };
 
   const startEdit = (p: ConnectionProfile, e: React.MouseEvent) => {
@@ -199,6 +202,7 @@ function App() {
     setFormTlsMode(p.tlsMode);
     setEditingId(p.id!);
     setConnectionError(null);
+    setFormTab('basic');
     setShowCreateForm(true);
   };
 
@@ -450,7 +454,21 @@ function App() {
                     <X size={15} />
                   </button>
                 </div>
-                <div className="conn-modal-body">
+                {editingId && (formDriver === 'mysql' || formDriver === 'postgres') && (
+                  <div className="seg-tabs conn-modal-tabs">
+                    <button type="button" className={`seg-tab ${formTab === 'basic' ? 'active' : ''}`} onClick={() => setFormTab('basic')}>
+                      기본 정보
+                    </button>
+                    <button type="button" className={`seg-tab ${formTab === 'schema' ? 'active' : ''}`} onClick={() => setFormTab('schema')}>
+                      스키마
+                    </button>
+                    <button type="button" className={`seg-tab ${formTab === 'mcp' ? 'active' : ''}`} onClick={() => setFormTab('mcp')}>
+                      MCP
+                    </button>
+                  </div>
+                )}
+                <div className={`conn-modal-body${editingId && (formDriver === 'mysql' || formDriver === 'postgres') ? ' tabbed' : ''}`}>
+                  {formTab === 'basic' && (
                   <form className="conn-form" onSubmit={handleCreateProfile}>
               <div>
                 <label>Database type</label>
@@ -523,8 +541,9 @@ function App() {
                 </div>
               )}
                   </form>
+                  )}
 
-                  {editingId && (formDriver === 'mysql' || formDriver === 'postgres') && (
+                  {formTab === 'mcp' && editingId && (formDriver === 'mysql' || formDriver === 'postgres') && (
                     <McpConnectPanel
                       connId={editingId}
                       connName={formName}
@@ -533,7 +552,7 @@ function App() {
                     />
                   )}
 
-                  {editingId && (formDriver === 'mysql' || formDriver === 'postgres') && (
+                  {formTab === 'schema' && editingId && (formDriver === 'mysql' || formDriver === 'postgres') && (
                     <div className="ctp-section">
                       <div className="ctp-head">표시할 테이블</div>
                       <p className="ctp-hint">체크한 테이블만 스키마 트리에 표시됩니다.</p>

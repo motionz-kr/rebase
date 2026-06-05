@@ -10,6 +10,7 @@ import { analyzeEditableQuery, type EditableQuery } from '../lib/editableQuery';
 import { TableDataView } from './TableDataView';
 import { ExecStatusBar, type ExecInfo } from './ExecStatusBar';
 import type { SchemaInfo } from '../lib/sqlCompletion';
+import { clampEditorHeight, EDITOR_DEFAULT, loadNum, saveNum } from '../lib/uiPrefs';
 
 loader.config({ monaco });
 
@@ -122,6 +123,27 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
 
   // The Monaco editor + monaco namespace, exposed for the custom autocomplete.
   const [editorInstance, setEditorInstance] = useState<monaco.editor.IStandaloneCodeEditor | null>(null);
+
+  // Drag-resizable SQL editor height (the splitter below it grows/shrinks the
+  // results area inversely). Persisted across sessions.
+  const [editorHeight, setEditorHeight] = useState(() => clampEditorHeight(loadNum('rebase.ui.editorHeight', EDITOR_DEFAULT)));
+  useEffect(() => saveNum('rebase.ui.editorHeight', editorHeight), [editorHeight]);
+  const startEditorResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startH = editorHeight;
+    const onMove = (ev: MouseEvent) => setEditorHeight(clampEditorHeight(startH + (ev.clientY - startY)));
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.body.style.cursor = 'ns-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  };
 
   // Load this connection's schema (tables + columns) for autocompletion.
   const [schema, setSchema] = useState<SchemaInfo>({ tables: [] });
@@ -571,7 +593,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
       {/* Monaco */}
       <div className="monaco-host">
         <MonacoEditor
-          height="220px"
+          height={`${editorHeight}px`}
           language="sql"
           theme="vs-dark"
           value={activeTab.query}
@@ -622,6 +644,14 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
         />
         <SqlAutocomplete editor={editorInstance} monaco={monaco} schema={schema} />
       </div>
+
+      {/* Drag handle to resize the editor vs. the results area */}
+      <div
+        className="editor-vsplit"
+        onMouseDown={startEditorResize}
+        onDoubleClick={() => setEditorHeight(EDITOR_DEFAULT)}
+        title="드래그하여 높이 조절 · 더블클릭으로 초기화"
+      />
 
       {/* Toolbar */}
       <div className="editor-toolbar">
