@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"net"
 	"net/http"
@@ -231,7 +232,9 @@ func RunCodexLoopback(ctx context.Context, login CodexLogin, onToken func(OAuthT
 
 func writeLoopbackPage(w http.ResponseWriter, msg string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = io.WriteString(w, "<!doctype html><meta charset=utf-8><body style=\"font-family:sans-serif;padding:40px\"><h2>Rebase</h2><p>"+msg+"</p></body>")
+	// msg can embed attacker-controlled callback query values (e.g. ?error=),
+	// so HTML-escape it to avoid reflected XSS on the loopback page.
+	_, _ = io.WriteString(w, "<!doctype html><meta charset=utf-8><body style=\"font-family:sans-serif;padding:40px\"><h2>Rebase</h2><p>"+html.EscapeString(msg)+"</p></body>")
 }
 
 // ---- Responses API request builder (verified via spike) ----
