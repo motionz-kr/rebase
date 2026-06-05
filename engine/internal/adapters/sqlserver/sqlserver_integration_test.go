@@ -284,5 +284,87 @@ func TestSQLServer_GetTableDDL(t *testing.T) {
 	}
 }
 
+func TestSQLServer_ExecuteQueryStream_Select(t *testing.T) {
+	p, pw, _ := sqlserverProfile(t)
+	c := NewSQLServerConnector()
+	seedDB(t, p, pw)
+	pr := p
+	pr.Database = "rebase_test"
+	var cols []string
+	var n int
+	got, err := c.ExecuteQueryStream(context.Background(), pr, pw,
+		"SELECT id, name FROM authors ORDER BY id", true, nil,
+		func(h []string) error { cols = h; return nil },
+		func(r []any) error { n++; return nil })
+	if err != nil {
+		t.Fatalf("stream: %v", err)
+	}
+	if len(cols) != 2 || cols[0] != "id" || cols[1] != "name" {
+		t.Fatalf("header=%+v", cols)
+	}
+	if n != 2 || got != 2 {
+		t.Fatalf("rows n=%d got=%d", n, got)
+	}
+}
+
+func TestSQLServer_ExecuteBatch_AtomicRollback(t *testing.T) {
+	p, pw, _ := sqlserverProfile(t)
+	c := NewSQLServerConnector()
+	seedDB(t, p, pw)
+	pr := p
+	pr.Database = "rebase_test"
+	ctx := context.Background()
+	_, failedIndex, err := c.ExecuteBatch(ctx, pr, pw, []string{
+		"INSERT INTO authors (name) VALUES ('Cara')",
+		"INSERT INTO authors (name) VALUES ('Ann')", // UNIQUE violation on idx_authors_name
+	})
+	if err == nil || failedIndex != 1 {
+		t.Fatalf("want failedIndex=1 with error, got idx=%d err=%v", failedIndex, err)
+	}
+	// Cara must have been rolled back.
+	var cnt int
+	_, qerr := c.ExecuteQueryStream(ctx, pr, pw, "SELECT COUNT(*) FROM authors WHERE name='Cara'", true, nil,
+		func([]string) error { return nil },
+		func(r []any) error { cnt = toInt(r[0]); return nil })
+	if qerr != nil {
+		t.Fatalf("verify: %v", qerr)
+	}
+	if cnt != 0 {
+		t.Fatalf("expected rollback (Cara absent), found %d", cnt)
+	}
+}
+
+func TestSQLServer_ExecuteBatch_CommitsOnSuccess(t *testing.T) {
+	p, pw, _ := sqlserverProfile(t)
+	c := NewSQLServerConnector()
+	seedDB(t, p, pw)
+	pr := p
+	pr.Database = "rebase_test"
+	total, failedIndex, err := c.ExecuteBatch(context.Background(), pr, pw, []string{
+		"INSERT INTO authors (name) VALUES ('Dee')",
+		"UPDATE authors SET name='Dee2' WHERE name='Dee'",
+	})
+	if err != nil || failedIndex != -1 {
+		t.Fatalf("want success, idx=%d err=%v", failedIndex, err)
+	}
+	if total < 2 {
+		t.Fatalf("want >=2 rows affected, got %d", total)
+	}
+}
+
+// toInt coerces a scanned numeric cell to int (mssql returns int64/int32 for COUNT).
+func toInt(v any) int {
+	switch n := v.(type) {
+	case int64:
+		return int(n)
+	case int32:
+		return int(n)
+	case int:
+		return n
+	default:
+		return 0
+	}
+}
+
 // compile-time assurance the test file's sql import is used even if helpers change.
 var _ = sql.ErrNoRows

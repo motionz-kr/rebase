@@ -497,6 +497,141 @@ func buildTypeString(dataType string, charMaxLen, numPrec, numScale sql.NullInt6
 	}
 }
 
+// ExecuteQueryStream runs a single operator-authored query, streaming the header
+// and each row via callbacks, and returns the row count. It first records the
+// server session id (@@SPID) so the query can be cancelled out-of-band.
+func (c *SQLServerConnector) ExecuteQueryStream(
+	ctx context.Context,
+	p domain.ConnectionProfile,
+	password string,
+	query string,
+	readOnly bool,
+	onSessionStart func(sessionID int64),
+	onHeader func(columns []string) error,
+	onRow func(row []any) error,
+) (int64, error) {
+	db, err := c.connect(p, password, p.Database)
+	if err != nil {
+		return 0, err
+	}
+	defer db.Close()
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return 0, c.normalizeError(err)
+	}
+	defer conn.Close()
+
+	// 1. Record the server session id (@@SPID, a smallint) for cancellation.
+	var spid int64
+	if err := conn.QueryRowContext(ctx, "SELECT @@SPID").Scan(&spid); err != nil {
+		return 0, c.normalizeError(err)
+	}
+	if onSessionStart != nil {
+		onSessionStart(spid)
+	}
+
+	// SQL Server has no session-level read-only transaction mode (unlike MySQL's
+	// SET SESSION TRANSACTION READ ONLY), so the readOnly flag is accepted but not
+	// enforced here; the application policy gate is the read-only guard.
+	_ = readOnly
+
+	// 2. Execute the query. This is operator-authored SQL — the core of the
+	// feature — identical to the mysql/postgres/sqlite connectors. (CodeQL may
+	// flag this as SQL injection; it is dismissed at PR time as won't-fix.)
+	rows, err := conn.QueryContext(ctx, query)
+	if err != nil {
+		return 0, c.normalizeError(err)
+	}
+	defer rows.Close()
+
+	// 3. Header.
+	cols, err := rows.Columns()
+	if err != nil {
+		return 0, c.normalizeError(err)
+	}
+	if err := onHeader(cols); err != nil {
+		return 0, err
+	}
+
+	// 4. Rows: scan into []any and convert []byte cells to string.
+	values := make([]any, len(cols))
+	valuePtrs := make([]any, len(cols))
+	for i := range values {
+		valuePtrs[i] = &values[i]
+	}
+
+	var rowsAffected int64
+	for rows.Next() {
+		if err := rows.Scan(valuePtrs...); err != nil {
+			return rowsAffected, c.normalizeError(err)
+		}
+		row := make([]any, len(values))
+		for i, val := range values {
+			if b, ok := val.([]byte); ok {
+				row[i] = string(b)
+			} else {
+				row[i] = val
+			}
+		}
+		if err := onRow(row); err != nil {
+			return rowsAffected, err
+		}
+		rowsAffected++
+	}
+	return rowsAffected, c.normalizeError(rows.Err())
+}
+
+// CancelSession terminates a running session by its server session id (@@SPID)
+// using a fresh connection and the T-SQL KILL command. The spid is an integer
+// returned by the server, not user input, so formatting it into the statement
+// is safe.
+func (c *SQLServerConnector) CancelSession(ctx context.Context, p domain.ConnectionProfile, password string, sessionID int64) error {
+	db, err := c.connect(p, password, p.Database)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	_, err = db.ExecContext(ctx, fmt.Sprintf("KILL %d", sessionID))
+	return c.normalizeError(err)
+}
+
+// ExecuteBatch runs all statements inside a single transaction. On the first
+// failure it rolls back and returns the 0-based index of the failed statement;
+// on success it commits and returns the total rows affected with failedIndex -1.
+func (c *SQLServerConnector) ExecuteBatch(ctx context.Context, p domain.ConnectionProfile, password string, statements []string) (int64, int, error) {
+	db, err := c.connect(p, password, p.Database)
+	if err != nil {
+		return 0, -1, err
+	}
+	defer db.Close()
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, -1, c.normalizeError(err)
+	}
+
+	var total int64
+	for i, stmt := range statements {
+		// Operator-authored SQL — the core of the feature, identical to the
+		// mysql/postgres/sqlite connectors. (CodeQL may flag this as SQL
+		// injection; it is dismissed at PR time as won't-fix.)
+		res, execErr := tx.ExecContext(ctx, stmt)
+		if execErr != nil {
+			_ = tx.Rollback()
+			return total, i, c.normalizeError(execErr)
+		}
+		if n, aerr := res.RowsAffected(); aerr == nil {
+			total += n
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return total, -1, c.normalizeError(err)
+	}
+	return total, -1, nil
+}
+
 // normalizeError maps driver/server errors to friendly sentinels.
 func (c *SQLServerConnector) normalizeError(err error) error {
 	if err == nil {
@@ -514,3 +649,7 @@ func (c *SQLServerConnector) normalizeError(err error) error {
 		return err
 	}
 }
+
+// Compile-time assertion that SQLServerConnector satisfies the full SQLConnector
+// port.
+var _ ports.SQLConnector = (*SQLServerConnector)(nil)
