@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/motionz-kr/rebase/compare/v0.8.0...v0.9.0) (2026-06-05)
+
+
+### Features
+
+* **update:** sign + notarize macOS build, enable in-app self-update ([#83](https://github.com/motionz-kr/rebase/issues/83)) ([f1dc7ae](https://github.com/motionz-kr/rebase/commit/f1dc7ae5612ee5a4c35185aef152e1731827ec51))
+
 ## [0.8.0](https://github.com/motionz-kr/rebase/compare/v0.7.1...v0.8.0) (2026-06-05)
 
 
