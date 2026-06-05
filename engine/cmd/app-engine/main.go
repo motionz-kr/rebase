@@ -161,6 +161,14 @@ func main() {
 			`,
 			Checksum: "profile-mcp-settings-v1",
 		},
+		{
+			Version: 4,
+			Name:    "add_profile_read_only",
+			SQL: `
+				ALTER TABLE connection_profiles ADD COLUMN read_only INTEGER NOT NULL DEFAULT 0;
+			`,
+			Checksum: "profile-read-only-v1",
+		},
 	}
 	if err := migrationRunner.Run(migrations); err != nil {
 		log.Fatalf("failed to run migrations: %v", err)
