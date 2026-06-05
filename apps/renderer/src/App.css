@@ -663,7 +663,6 @@
 
 .monaco-host {
   position: relative;
-  border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   background: var(--bg);
 }
@@ -813,6 +812,20 @@
 }
 
 /* Results area */
+/* Horizontal splitter between the SQL editor and the results area */
+.editor-vsplit {
+  height: 6px;
+  flex-shrink: 0;
+  cursor: ns-resize;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  transition: background 0.12s;
+}
+.editor-vsplit:hover {
+  background: var(--accent);
+  opacity: 0.5;
+}
+
 .results {
   flex: 1;
   min-height: 0;
@@ -820,6 +833,7 @@
   flex-direction: column;
   padding: 12px;
   overflow: hidden;
+  background: var(--bg-panel);
 }
 
 /* ============================================================

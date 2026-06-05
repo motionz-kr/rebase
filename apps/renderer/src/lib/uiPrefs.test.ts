@@ -8,6 +8,10 @@ import {
   MODAL_DEFAULT,
   MODAL_MIN,
   MODAL_MAX,
+  clampEditorHeight,
+  EDITOR_DEFAULT,
+  EDITOR_MIN,
+  EDITOR_MAX,
 } from './uiPrefs';
 
 describe('clampSidebarWidth', () => {
@@ -34,5 +38,18 @@ describe('clampModalWidth', () => {
   it('falls back to default for non-finite', () => {
     expect(clampModalWidth(NaN)).toBe(MODAL_DEFAULT);
     expect(clampModalWidth(Infinity)).toBe(MODAL_DEFAULT);
+  });
+});
+
+describe('clampEditorHeight', () => {
+  it('clamps below min and above max', () => {
+    expect(clampEditorHeight(20)).toBe(EDITOR_MIN);
+    expect(clampEditorHeight(5000)).toBe(EDITOR_MAX);
+  });
+  it('passes through an in-range value, rounded', () => {
+    expect(clampEditorHeight(300.7)).toBe(301);
+  });
+  it('falls back to default for non-finite', () => {
+    expect(clampEditorHeight(NaN)).toBe(EDITOR_DEFAULT);
   });
 });

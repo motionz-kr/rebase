@@ -18,6 +18,16 @@ export function clampModalWidth(px: number): number {
   return Math.min(MODAL_MAX, Math.max(MODAL_MIN, Math.round(px)));
 }
 
+export const EDITOR_MIN = 100;
+export const EDITOR_MAX = 600;
+export const EDITOR_DEFAULT = 220;
+
+// Clamp the SQL editor pane height to [MIN, MAX], rounding; NaN/Infinity → default.
+export function clampEditorHeight(px: number): number {
+  if (!Number.isFinite(px)) return EDITOR_DEFAULT;
+  return Math.min(EDITOR_MAX, Math.max(EDITOR_MIN, Math.round(px)));
+}
+
 // Read a single number under a key, swallowing storage/parse errors.
 export function loadNum(key: string, fallback: number): number {
   try {
