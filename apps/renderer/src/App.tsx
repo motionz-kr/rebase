@@ -13,7 +13,7 @@ import {
   Bot,
   DownloadCloud,
 } from 'lucide-react';
-import { clampSidebarWidth, SIDEBAR_DEFAULT, loadNum, saveNum } from './lib/uiPrefs';
+import { clampSidebarWidth, SIDEBAR_DEFAULT, clampModalWidth, MODAL_DEFAULT, loadNum, saveNum } from './lib/uiPrefs';
 import { loadHidden, saveHidden, type HiddenStore } from './lib/tableVisibility';
 import { SchemaExplorer } from './components/SchemaExplorer';
 import { ConnectionTablePrefs } from './components/ConnectionTablePrefs';
@@ -76,6 +76,27 @@ function App() {
       document.body.style.userSelect = '';
     };
     document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  };
+
+  // Connection form modal width — drag the modal's edge to resize. Centered, so
+  // the edge follows the cursor when width grows by 2× the horizontal delta.
+  const [modalWidth, setModalWidth] = useState(() => clampModalWidth(loadNum('rebase.ui.connModalWidth', MODAL_DEFAULT)));
+  useEffect(() => saveNum('rebase.ui.connModalWidth', modalWidth), [modalWidth]);
+  const startModalResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = modalWidth;
+    const onMove = (ev: MouseEvent) => setModalWidth(clampModalWidth(startW + (ev.clientX - startX) * 2));
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.body.style.cursor = 'ew-resize';
     document.body.style.userSelect = 'none';
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
@@ -420,8 +441,17 @@ function App() {
             </button>
           </div>
 
-          {showCreateForm ? (
-            <form className="conn-form" onSubmit={handleCreateProfile}>
+          {showCreateForm && (
+            <div className="modal-overlay" onClick={() => setShowCreateForm(false)}>
+              <div className="modal conn-modal" style={{ width: modalWidth }} onClick={(e) => e.stopPropagation()}>
+                <div className="modal-head">
+                  <h3>{editingId ? '연결 수정' : '새 연결'}</h3>
+                  <button className="icon-btn" onClick={() => setShowCreateForm(false)} aria-label="닫기">
+                    <X size={15} />
+                  </button>
+                </div>
+                <div className="conn-modal-body">
+                  <form className="conn-form" onSubmit={handleCreateProfile}>
               <div>
                 <label>Database type</label>
                 <select value={formDriver} onChange={(e) => handleDriverChange(e.target.value as 'mysql' | 'postgres' | 'redis')}>
@@ -492,32 +522,40 @@ function App() {
                   <span>{connectionError}</span>
                 </div>
               )}
-            </form>
-          ) : null}
+                  </form>
 
-          {showCreateForm && editingId && (formDriver === 'mysql' || formDriver === 'postgres') && (
-            <McpConnectPanel
-              connId={editingId}
-              connName={formName}
-              initialEnabled={profiles.find((p) => p.id === editingId)?.mcpEnabled ?? false}
-              initialExposure={profiles.find((p) => p.id === editingId)?.mcpDataExposure ?? 'metadata'}
-            />
-          )}
+                  {editingId && (formDriver === 'mysql' || formDriver === 'postgres') && (
+                    <McpConnectPanel
+                      connId={editingId}
+                      connName={formName}
+                      initialEnabled={profiles.find((p) => p.id === editingId)?.mcpEnabled ?? false}
+                      initialExposure={profiles.find((p) => p.id === editingId)?.mcpDataExposure ?? 'metadata'}
+                    />
+                  )}
 
-          {showCreateForm && editingId && (formDriver === 'mysql' || formDriver === 'postgres') && (
-            <div className="ctp-section">
-              <div className="ctp-head">표시할 테이블</div>
-              <p className="ctp-hint">체크한 테이블만 스키마 트리에 표시됩니다.</p>
-              {conns.byId[editingId]?.status === 'connected' ? (
-                <ConnectionTablePrefs profileId={editingId} store={hiddenStore} onChange={updateHidden} />
-              ) : (
-                <div className="ctp-status muted">먼저 이 연결에 접속하면 테이블 목록이 표시됩니다.</div>
-              )}
+                  {editingId && (formDriver === 'mysql' || formDriver === 'postgres') && (
+                    <div className="ctp-section">
+                      <div className="ctp-head">표시할 테이블</div>
+                      <p className="ctp-hint">체크한 테이블만 스키마 트리에 표시됩니다.</p>
+                      {conns.byId[editingId]?.status === 'connected' ? (
+                        <ConnectionTablePrefs profileId={editingId} store={hiddenStore} onChange={updateHidden} />
+                      ) : (
+                        <div className="ctp-status muted">먼저 이 연결에 접속하면 테이블 목록이 표시됩니다.</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <div
+                  className="conn-modal-resizer"
+                  onMouseDown={startModalResize}
+                  onDoubleClick={() => setModalWidth(MODAL_DEFAULT)}
+                  title="드래그하여 너비 조절 · 더블클릭으로 초기화"
+                />
+              </div>
             </div>
           )}
 
-          {!showCreateForm && (
-            <div className="conn-list">
+          <div className="conn-list">
               {profiles.length === 0 && (
                 <div className="empty-state">
                   <div className="es-icon">
@@ -600,10 +638,9 @@ function App() {
                 );
               })}
             </div>
-          )}
 
           {/* Focused SQL connection: saved queries / history */}
-          {focusedProfile && focusedProfile.driver !== 'redis' && conns.byId[focusedProfile.id!]?.status === 'connected' && !showCreateForm && (
+          {focusedProfile && focusedProfile.driver !== 'redis' && conns.byId[focusedProfile.id!]?.status === 'connected' && (
             <div className="sidebar-focused-panel">
               <div className="seg-tabs">
                 <button className={`seg-tab ${sideTab === 'saved' ? 'active' : ''}`} onClick={() => setSideTab('saved')}>

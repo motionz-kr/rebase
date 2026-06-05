@@ -8,6 +8,16 @@ export function clampSidebarWidth(px: number): number {
   return Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, Math.round(px)));
 }
 
+export const MODAL_MIN = 380;
+export const MODAL_MAX = 900;
+export const MODAL_DEFAULT = 560;
+
+// Clamp a dialog width to [MIN, MAX], rounding; NaN/Infinity → default.
+export function clampModalWidth(px: number): number {
+  if (!Number.isFinite(px)) return MODAL_DEFAULT;
+  return Math.min(MODAL_MAX, Math.max(MODAL_MIN, Math.round(px)));
+}
+
 // Read a single number under a key, swallowing storage/parse errors.
 export function loadNum(key: string, fallback: number): number {
   try {

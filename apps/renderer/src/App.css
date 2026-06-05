@@ -1893,6 +1893,34 @@
 .modal-wide {
   width: 640px;
 }
+
+/* Connection create/edit modal — width is drag-resizable (see .conn-modal-resizer).
+   Header stays fixed; the body (form + MCP + table prefs) scrolls. */
+.conn-modal {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  max-height: 88vh;
+  padding: 18px 20px;
+}
+.conn-modal-body {
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 4px;
+}
+.conn-modal-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 8px;
+  height: 100%;
+  cursor: ew-resize;
+  border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
+}
+.conn-modal-resizer:hover {
+  background: var(--accent);
+  opacity: 0.45;
+}
 .modal-head {
   display: flex;
   align-items: center;
