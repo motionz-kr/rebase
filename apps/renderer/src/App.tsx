@@ -34,7 +34,7 @@ import './App.css';
 export interface ConnectionProfile {
   id?: string;
   name: string;
-  driver: 'mysql' | 'postgres' | 'redis' | 'sqlite';
+  driver: 'mysql' | 'postgres' | 'redis' | 'sqlite' | 'sqlserver';
   host: string;
   port: number;
   database: string;
@@ -55,7 +55,7 @@ export interface HealthResult {
   error?: string;
 }
 
-const DRIVER_LABEL: Record<string, string> = { mysql: 'MY', postgres: 'PG', redis: 'RS', sqlite: 'SQ' };
+const DRIVER_LABEL: Record<string, string> = { mysql: 'MY', postgres: 'PG', redis: 'RS', sqlite: 'SQ', sqlserver: 'MS' };
 
 function App() {
   const [status, setStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking');
@@ -132,7 +132,7 @@ function App() {
   const [erTab, setErTab] = useState<Record<string, { db: string } | null>>({});
 
   // Create form state
-  const [formDriver, setFormDriver] = useState<'mysql' | 'postgres' | 'redis' | 'sqlite'>('mysql');
+  const [formDriver, setFormDriver] = useState<'mysql' | 'postgres' | 'redis' | 'sqlite' | 'sqlserver'>('mysql');
   const [formName, setFormName] = useState('');
   const [formHost, setFormHost] = useState('127.0.0.1');
   const [formPort, setFormPort] = useState(3306);
@@ -183,7 +183,7 @@ function App() {
     }
   };
 
-  const handleDriverChange = (driver: 'mysql' | 'postgres' | 'redis' | 'sqlite') => {
+  const handleDriverChange = (driver: 'mysql' | 'postgres' | 'redis' | 'sqlite' | 'sqlserver') => {
     setFormDriver(driver);
     if (driver === 'mysql') {
       setFormPort(3306);
@@ -193,6 +193,10 @@ function App() {
       setFormPort(5432);
       setFormDatabase('postgres');
       setFormUsername('postgres');
+    } else if (driver === 'sqlserver') {
+      setFormPort(1433);
+      setFormDatabase('master');
+      setFormUsername('sa');
     } else if (driver === 'sqlite') {
       setFormPort(0);
       setFormDatabase('');
@@ -498,9 +502,10 @@ function App() {
                   <form className="conn-form" onSubmit={handleCreateProfile}>
               <div>
                 <label>Database type</label>
-                <select value={formDriver} onChange={(e) => handleDriverChange(e.target.value as 'mysql' | 'postgres' | 'redis' | 'sqlite')}>
+                <select value={formDriver} onChange={(e) => handleDriverChange(e.target.value as 'mysql' | 'postgres' | 'redis' | 'sqlite' | 'sqlserver')}>
                   <option value="mysql">MySQL</option>
                   <option value="postgres">PostgreSQL</option>
+                  <option value="sqlserver">SQL Server</option>
                   <option value="redis">Redis</option>
                   <option value="sqlite">SQLite</option>
                 </select>
@@ -841,7 +846,7 @@ function App() {
                     <TableDataView
                       key={`${openTable[id]!.db}.${openTable[id]!.table}.${openTable[id]!.filter?.value ?? ''}`}
                       profileId={id}
-                      driver={profile.driver as 'mysql' | 'postgres' | 'sqlite'}
+                      driver={profile.driver as 'mysql' | 'postgres' | 'sqlite' | 'sqlserver'}
                       readOnly={profile.readOnly ?? false}
                       database={openTable[id]!.db}
                       table={openTable[id]!.table}

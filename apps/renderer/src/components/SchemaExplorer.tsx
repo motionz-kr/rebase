@@ -12,7 +12,7 @@ import type { ColumnInfo } from '../global';
 
 interface SchemaExplorerProps {
   profileId: string;
-  driver: 'mysql' | 'postgres' | 'redis' | 'sqlite';
+  driver: 'mysql' | 'postgres' | 'redis' | 'sqlite' | 'sqlserver';
   hiddenStore: HiddenStore;
   onDisconnect: () => void;
   onSchemaChanged?: () => void;
