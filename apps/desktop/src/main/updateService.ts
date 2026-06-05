@@ -13,13 +13,21 @@ export class UpdateService {
 
   constructor() {
     autoUpdater.autoDownload = false;
-    autoUpdater.autoInstallOnAppQuit = false;
+    // Once an update is downloaded, apply it silently when the app quits — so even
+    // if the user defers ("나중에"), the next launch is already on the new version.
+    autoUpdater.autoInstallOnAppQuit = true;
     const forward = (event: string, payload?: unknown) => {
       const status = mapUpdaterEvent(event, payload);
       if (status) this.emit(status);
     };
     autoUpdater.on('checking-for-update', () => forward('checking-for-update'));
-    autoUpdater.on('update-available', (i) => forward('update-available', i));
+    autoUpdater.on('update-available', (i) => {
+      forward('update-available', i);
+      // Auto-download in the background when in-app self-update is supported, so
+      // the user sees progress without clicking. (open-download-page providers —
+      // unsigned macOS — must NOT auto-open a browser, hence the guard.)
+      if (this.action() === 'self-update') void this.download();
+    });
     autoUpdater.on('update-not-available', (i) => forward('update-not-available', i));
     autoUpdater.on('download-progress', (p) => forward('download-progress', p));
     autoUpdater.on('update-downloaded', (i) => forward('update-downloaded', i));

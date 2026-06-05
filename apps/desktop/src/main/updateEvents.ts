@@ -2,7 +2,7 @@ export type UpdateStatus =
   | { kind: 'checking' }
   | { kind: 'available'; version: string; notes?: string }
   | { kind: 'not-available' }
-  | { kind: 'progress'; percent: number }
+  | { kind: 'progress'; percent: number; transferred: number; total: number; bytesPerSecond: number }
   | { kind: 'downloaded'; version: string }
   | { kind: 'error'; message: string };
 
@@ -12,7 +12,14 @@ function notesToString(notes: unknown): string | undefined {
 }
 
 export function mapUpdaterEvent(event: string, payload: unknown): UpdateStatus | null {
-  const p = (payload ?? {}) as { version?: string; releaseNotes?: unknown; percent?: number };
+  const p = (payload ?? {}) as {
+    version?: string;
+    releaseNotes?: unknown;
+    percent?: number;
+    transferred?: number;
+    total?: number;
+    bytesPerSecond?: number;
+  };
   switch (event) {
     case 'checking-for-update':
       return { kind: 'checking' };
@@ -21,7 +28,13 @@ export function mapUpdaterEvent(event: string, payload: unknown): UpdateStatus |
     case 'update-not-available':
       return { kind: 'not-available' };
     case 'download-progress':
-      return { kind: 'progress', percent: Math.round(p.percent ?? 0) };
+      return {
+        kind: 'progress',
+        percent: Math.round(p.percent ?? 0),
+        transferred: p.transferred ?? 0,
+        total: p.total ?? 0,
+        bytesPerSecond: p.bytesPerSecond ?? 0,
+      };
     case 'update-downloaded':
       return { kind: 'downloaded', version: p.version ?? '' };
     case 'error':
