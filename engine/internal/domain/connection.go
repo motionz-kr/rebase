@@ -2,6 +2,7 @@ package domain
 
 import (
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -18,6 +19,12 @@ type ConnectionProfile struct {
 	// ReadOnly is a general read-only intent for the connection; currently the
 	// sqlite connector honors it (opens mode=ro). Other drivers ignore it today.
 	ReadOnly bool `json:"readOnly"`
+	// SafeMode marks a connection as a production DB: risky statements are
+	// hard-blocked and require explicit acknowledgement before they run.
+	SafeMode bool `json:"safeMode"`
+	// TenantColumns is a comma-separated list of tenant-scope key columns
+	// (e.g. "hospitalId,tenantId"). Empty falls back to the default set.
+	TenantColumns string `json:"tenantColumns"`
 	// ConnectionURI is an optional full connection string (e.g. for mongodb,
 	// "mongodb+srv://..."). When set it takes precedence over host/port.
 	ConnectionURI string `json:"connectionUri"`
@@ -26,6 +33,25 @@ type ConnectionProfile struct {
 	McpDataExposure string    `json:"mcpDataExposure"` // metadata|on_request|unrestricted (default metadata)
 	CreatedAt       time.Time `json:"createdAt"`
 	UpdatedAt       time.Time `json:"updatedAt"`
+}
+
+// TenantColumnList returns the configured tenant-scope columns, falling back to
+// the default set ("hospitalId", "tenantId") when none are configured. Blank
+// entries are dropped and surrounding whitespace trimmed.
+func (p ConnectionProfile) TenantColumnList() []string {
+	if strings.TrimSpace(p.TenantColumns) == "" {
+		return []string{"hospitalId", "tenantId"}
+	}
+	var out []string
+	for _, part := range strings.Split(p.TenantColumns, ",") {
+		if t := strings.TrimSpace(part); t != "" {
+			out = append(out, t)
+		}
+	}
+	if len(out) == 0 {
+		return []string{"hospitalId", "tenantId"}
+	}
+	return out
 }
 
 func (p ConnectionProfile) Validate() error {

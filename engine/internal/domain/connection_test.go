@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"reflect"
 	"testing"
 )
 
@@ -171,5 +172,23 @@ func TestValidate_MongoConnectionURI(t *testing.T) {
 func TestValidate_MongoNeedsHostOrURI(t *testing.T) {
 	if (ConnectionProfile{Name: "m", Driver: "mongodb"}).Validate() == nil {
 		t.Fatal("mongo with neither host nor uri should be invalid")
+	}
+}
+
+func TestTenantColumnList_DefaultsWhenEmpty(t *testing.T) {
+	p := ConnectionProfile{TenantColumns: ""}
+	got := p.TenantColumnList()
+	want := []string{"hospitalId", "tenantId"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("default tenant columns: got %v want %v", got, want)
+	}
+}
+
+func TestTenantColumnList_ParsesAndTrims(t *testing.T) {
+	p := ConnectionProfile{TenantColumns: " org_id , hospitalId ,"}
+	got := p.TenantColumnList()
+	want := []string{"org_id", "hospitalId"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("parsed tenant columns: got %v want %v", got, want)
 	}
 }
