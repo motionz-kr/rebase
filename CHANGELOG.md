@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.0](https://github.com/motionz-kr/rebase/compare/v0.15.0...v0.16.0) (2026-06-06)
+
+
+### Features
+
+* Redis·MongoDB에 내보내기·저장쿼리/히스토리·AI 어시스턴트 추가 ([#110](https://github.com/motionz-kr/rebase/issues/110)) ([2aee90e](https://github.com/motionz-kr/rebase/commit/2aee90e6c34637edf175d8267f823232677ada1d))
+
 ## [0.15.0](https://github.com/motionz-kr/rebase/compare/v0.14.1...v0.15.0) (2026-06-06)
 
 
