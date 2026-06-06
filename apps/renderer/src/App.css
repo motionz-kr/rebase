@@ -3567,3 +3567,59 @@
   font-size: 12.5px;
   box-sizing: border-box;
 }
+
+/* Settings popover + theme segmented control */
+.settings-popover-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.settings-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 50;
+  min-width: 210px;
+  padding: 10px;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-pop);
+}
+.settings-popover-label {
+  font-size: 11px;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+}
+.theme-segmented {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.theme-seg {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12px;
+  font-family: var(--sans);
+  cursor: pointer;
+}
+.theme-seg:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.theme-seg.selected {
+  background: var(--accent);
+  color: #fff;
+}
