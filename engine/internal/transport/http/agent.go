@@ -10,8 +10,10 @@ import (
 	"time"
 
 	"github.com/smlee/database-local-engine/engine/internal/adapters/llm"
+	"github.com/smlee/database-local-engine/engine/internal/adapters/mongo"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/mysql"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/postgres"
+	"github.com/smlee/database-local-engine/engine/internal/adapters/redis"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/sqlite"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/sqlserver"
 	"github.com/smlee/database-local-engine/engine/internal/agent"
@@ -69,6 +71,8 @@ type AgentHandler struct {
 	postgresConnector  *postgres.PostgreSQLConnector
 	sqliteConnector    *sqlite.SQLiteConnector
 	sqlserverConnector *sqlserver.SQLServerConnector
+	redisConnector     *redis.RedisConnector
+	mongoConnector     *mongo.MongoConnector
 
 	oauthMu      sync.Mutex
 	pendingOAuth map[string]llm.PKCEParams // provider -> in-flight PKCE attempt
@@ -82,6 +86,8 @@ func NewAgentHandler(token string, service *application.ConnectionService) *Agen
 		postgresConnector:  postgres.NewPostgreSQLConnector(),
 		sqliteConnector:    sqlite.NewSQLiteConnector(),
 		sqlserverConnector: sqlserver.NewSQLServerConnector(),
+		redisConnector:     redis.NewRedisConnector(),
+		mongoConnector:     mongo.NewMongoConnector(),
 		pendingOAuth:       make(map[string]llm.PKCEParams),
 	}
 }
@@ -207,12 +213,6 @@ func (h *AgentHandler) Run() http.Handler {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		conn, err := h.getConnector(profile.Driver)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-
 		// Resolve the API key: prefer an explicit per-request key, else fall back
 		// to the one stored in the OS keychain (issue #10: "key in keychain").
 		apiKey := body.APIKey
@@ -258,7 +258,20 @@ func (h *AgentHandler) Run() http.Handler {
 			provider = llm.NewStubProvider()
 		}
 
-		registry := agent.NewSQLRegistry(conn, *profile, password, profile.Database)
+		var registry *agent.Registry
+		switch profile.Driver {
+		case "redis":
+			registry = agent.NewRedisRegistry(h.redisConnector, *profile, password)
+		case "mongodb":
+			registry = agent.NewMongoRegistry(h.mongoConnector, *profile, password, profile.Database)
+		default:
+			conn, cerr := h.getConnector(profile.Driver)
+			if cerr != nil {
+				http.Error(w, cerr.Error(), http.StatusBadRequest)
+				return
+			}
+			registry = agent.NewSQLRegistry(conn, *profile, password, profile.Database)
+		}
 		svc := agent.NewAgentService(provider, registry, 16)
 		svc.SetPolicy(agent.Policy{DataExposure: body.DataExposure})
 		// Never let the connection password / secret ref reach the provider.
