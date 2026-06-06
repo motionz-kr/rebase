@@ -81,6 +81,38 @@ contextBridge.exposeInMainWorld('electronAPI', {
   redisExpire: (profileId: string, key: string, seconds: number) => ipcRenderer.invoke('redis-expire', profileId, key, seconds),
   redisRename: (profileId: string, key: string, newKey: string) => ipcRenderer.invoke('redis-rename', profileId, key, newKey),
   redisCommand: (profileId: string, args: string[]) => ipcRenderer.invoke('redis-command', profileId, args),
+  mongoDatabases: (profileId: string) => ipcRenderer.invoke('mongo-databases', profileId),
+  mongoCollections: (profileId: string, database: string) => ipcRenderer.invoke('mongo-collections', profileId, database),
+  mongoFind: (
+    profileId: string,
+    database: string,
+    collection: string,
+    opts?: { filter?: string; projection?: string; sort?: string; skip?: number; limit?: number },
+  ) => ipcRenderer.invoke('mongo-find', profileId, database, collection, opts),
+  mongoAggregate: (profileId: string, database: string, collection: string, pipeline: string, limit?: number) =>
+    ipcRenderer.invoke('mongo-aggregate', profileId, database, collection, pipeline, limit),
+  mongoCount: (profileId: string, database: string, collection: string, filter?: string) =>
+    ipcRenderer.invoke('mongo-count', profileId, database, collection, filter),
+  mongoInsert: (profileId: string, database: string, collection: string, document: string) =>
+    ipcRenderer.invoke('mongo-insert', profileId, database, collection, document),
+  mongoReplace: (profileId: string, database: string, collection: string, id: string, document: string) =>
+    ipcRenderer.invoke('mongo-replace', profileId, database, collection, id, document),
+  mongoDelete: (profileId: string, database: string, collection: string, id: string) =>
+    ipcRenderer.invoke('mongo-delete', profileId, database, collection, id),
+  mongoIndexes: (profileId: string, database: string, collection: string) =>
+    ipcRenderer.invoke('mongo-indexes', profileId, database, collection),
+  mongoCreateIndex: (
+    profileId: string,
+    database: string,
+    collection: string,
+    keys: string,
+    unique?: boolean,
+    name?: string,
+  ) => ipcRenderer.invoke('mongo-create-index', profileId, database, collection, keys, unique, name),
+  mongoDropIndex: (profileId: string, database: string, collection: string, name: string) =>
+    ipcRenderer.invoke('mongo-drop-index', profileId, database, collection, name),
+  mongoSchema: (profileId: string, database: string, collection: string, sampleSize?: number) =>
+    ipcRenderer.invoke('mongo-schema', profileId, database, collection, sampleSize),
   listSavedQueries: (workspaceId: string) => ipcRenderer.invoke('list-saved-queries', workspaceId),
   saveQuery: (savedQuery: any) => ipcRenderer.invoke('save-query', savedQuery),
   deleteSavedQuery: (id: string) => ipcRenderer.invoke('delete-saved-query', id),
