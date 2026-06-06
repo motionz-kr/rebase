@@ -500,6 +500,19 @@ app.whenReady().then(() => {
     }
   });
 
+  ipcMain.handle('analyze-query', async (_event, profileId, query, database) => {
+    try {
+      const data = await requestEngine({
+        method: 'POST',
+        path: '/query/analyze',
+        body: { profileId, query, database },
+      });
+      return { success: true, data };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
   ipcMain.handle('execute-query-stream', async (event, queryId, profileId, query, options) => {
     try {
       if (!engineManager || engineManager.getPort() === null) {
@@ -515,6 +528,7 @@ app.whenReady().then(() => {
         confirmDestructive: options?.confirmDestructive ?? false,
         maxRows: options?.maxRows ?? 0,
         fetchAll: options?.fetchAll ?? false,
+        acknowledged: options?.acknowledged ?? false,
       });
 
       const req = http.request(

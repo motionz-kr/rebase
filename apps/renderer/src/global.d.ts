@@ -166,6 +166,22 @@ export interface ResultWrapper<T> {
   error?: string;
 }
 
+export interface AnalyzeResult {
+  level: 'safe' | 'warn' | 'medium' | 'high';
+  verb: string;
+  reasons: string[];
+  table: string;
+  hasWhere: boolean;
+  tenantMissing: boolean;
+  parseable: boolean;
+  affectedRows: number | null;
+  previewSql: string;
+  previewCols: string[] | null;
+  previewRows: any[][] | null;
+  rollbackSql: string;
+  rollbackNote: string;
+}
+
 declare global {
   interface Window {
     electronAPI: {
@@ -186,8 +202,9 @@ declare global {
       getViewDDL: (profileId: string, database: string, view: string) => Promise<ResultWrapper<{ ddl: string }>>;
       getSchemaCompletion: (profileId: string, database: string) => Promise<ResultWrapper<{ tables: { name: string; columns: { name: string; type: string }[] }[] }>>;
       getSchemaGraph: (profileId: string, database: string) => Promise<ResultWrapper<SchemaGraph>>;
-      executeQueryStream: (queryId: string, profileId: string, query: string, options?: { allowWrite?: boolean; confirmDestructive?: boolean; maxRows?: number; fetchAll?: boolean }) => Promise<ResultWrapper<{ success: boolean }>>;
+      executeQueryStream: (queryId: string, profileId: string, query: string, options?: { allowWrite?: boolean; confirmDestructive?: boolean; maxRows?: number; fetchAll?: boolean; acknowledged?: boolean }) => Promise<ResultWrapper<{ success: boolean }>>;
       cancelQuery: (queryId: string) => Promise<ResultWrapper<{ success: boolean }>>;
+      analyzeQuery: (profileId: string, query: string, database: string) => Promise<ResultWrapper<AnalyzeResult>>;
       executeBatch: (
         profileId: string,
         statements: string[]
