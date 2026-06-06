@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Settings, Sun, Moon, Monitor } from 'lucide-react';
-import { useTheme } from '../lib/ThemeContext';
+import { useTheme } from '../lib/theme-context';
 import type { ThemeSource } from '../lib/theme';
 
 const OPTIONS: { value: ThemeSource; label: string; icon: React.ReactNode }[] = [

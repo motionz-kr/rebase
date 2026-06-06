@@ -1,13 +1,6 @@
-import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { parseInjectedTheme, type ResolvedTheme, type ThemeSource } from './theme';
-
-interface ThemeContextValue {
-  source: ThemeSource;
-  resolved: ResolvedTheme;
-  setSource: (next: ThemeSource) => void;
-}
-
-const ThemeContext = createContext<ThemeContextValue | null>(null);
+import { ThemeContext } from './theme-context';
 
 function applyResolved(resolved: ResolvedTheme): void {
   document.documentElement.setAttribute('data-theme', resolved);
@@ -53,11 +46,3 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     </ThemeContext.Provider>
   );
 };
-
-export function useTheme(): ThemeContextValue {
-  const ctx = useContext(ThemeContext);
-  if (!ctx) {
-    throw new Error('useTheme must be used within a ThemeProvider');
-  }
-  return ctx;
-}

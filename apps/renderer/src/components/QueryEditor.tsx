@@ -11,7 +11,7 @@ import { TableDataView } from './TableDataView';
 import { ExecStatusBar, type ExecInfo } from './ExecStatusBar';
 import type { SchemaInfo } from '../lib/sqlCompletion';
 import { clampEditorHeight, EDITOR_DEFAULT, loadNum, saveNum } from '../lib/uiPrefs';
-import { useTheme } from '../lib/ThemeContext';
+import { useTheme } from '../lib/theme-context';
 
 loader.config({ monaco });
 
