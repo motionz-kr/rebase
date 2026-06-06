@@ -251,6 +251,7 @@ func main() {
 	mux.Handle("/query/execute", queryHandler.ExecuteQuery())
 	mux.Handle("/query/execute-batch", queryHandler.ExecuteBatch())
 	mux.Handle("/query/cancel", queryHandler.CancelQuery())
+	mux.Handle("/query/analyze", queryHandler.AnalyzeQuery())
 
 	redisHandler := internalHttp.NewRedisHandler(*token, connectionService)
 	mux.Handle("/redis/scan", redisHandler.ScanKeys())
