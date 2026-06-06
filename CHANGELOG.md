@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.17.0](https://github.com/motionz-kr/rebase/compare/v0.16.0...v0.17.0) (2026-06-06)
+
+
+### Features
+
+* 앱 로고·아이콘 + 라이트/다크/시스템 테마 ([#112](https://github.com/motionz-kr/rebase/issues/112)) ([1d96a44](https://github.com/motionz-kr/rebase/commit/1d96a444afb74b60ec5e56ab9ca45b018f7b8727))
+* 운영 DB 안전 실행 모드 ([#102](https://github.com/motionz-kr/rebase/issues/102)) ([#114](https://github.com/motionz-kr/rebase/issues/114)) ([58084ca](https://github.com/motionz-kr/rebase/commit/58084cadb2d7edd0466f7db75093464c420cf512))
+
 ## [0.16.0](https://github.com/motionz-kr/rebase/compare/v0.15.0...v0.16.0) (2026-06-06)
 
 
