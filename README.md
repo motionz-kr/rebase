@@ -2,10 +2,12 @@
 
 # Rebase
 
-**A fast, local-first desktop database manager for MySQL, PostgreSQL & Redis.**
+**A fast, local-first desktop database manager for MySQL, PostgreSQL, SQL Server, SQLite, Redis & MongoDB.**
 
-Browse schemas, write SQL with autocomplete, and edit data inline — backed by a Go
-query engine that streams results to a keyboard-friendly Electron UI.
+Browse schemas, write SQL with autocomplete, and edit data inline — with a
+**safe execution mode** that analyzes risky statements before they run and a
+read-only **AI assistant**. Backed by a Go query engine that streams results to a
+keyboard-friendly Electron UI.
 
 ![Rebase](docs/screenshot.png)
 
@@ -16,8 +18,17 @@ query engine that streams results to a keyboard-friendly Electron UI.
 ## ✨ Features
 
 **Connections**
-- Create, edit, and delete connection profiles (MySQL · PostgreSQL · Redis)
+- Six engines: **MySQL · PostgreSQL · SQL Server · SQLite · Redis · MongoDB**
+- SQLite opens a local file (native file picker); MongoDB connects via host/port or a full connection URI
 - TLS modes; passwords stored in the OS keychain (never in plaintext)
+- Per-connection **read-only** and **safe mode (production DB)** flags
+
+**Safe execution mode** 🆕
+- Detects risky statements before they run — `UPDATE`/`DELETE` without `WHERE`, `TRUNCATE`, `DROP`, `ALTER`, and missing tenant-scope conditions (e.g. `hospitalId`)
+- Shows the **expected affected-row count**, a **SELECT preview** of the targeted rows, and generates **Rollback SQL** from a before-image snapshot
+- On a safe-mode connection, high-risk statements are hard-blocked until you explicitly acknowledge — the engine enforces this server-side, so the gate can't be bypassed
+
+![Safe execution mode — a risky DELETE is intercepted with its risk level, affected-row count, missing tenant-scope warning, SELECT preview, and generated Rollback SQL](docs/safe-execution-mode.png)
 
 **Schema explorer**
 - Tables, views, indexes, and foreign keys; **resizable sidebar** (drag to resize, double-click to reset)
@@ -27,11 +38,11 @@ query engine that streams results to a keyboard-friendly Electron UI.
 
 **SQL editor**
 - Monaco editor with schema-aware autocomplete and one-click formatting
-- `EXPLAIN`, multi-statement scripts (one result tab each), and query history
+- `EXPLAIN`, multi-statement scripts (one result tab each), **saved queries**, and **query history**
 - Streaming results with a row cap (opt-in "fetch all")
 
 **Result grid**
-- Sort, per-column filter chips, export (CSV / JSON)
+- Sort, per-column filter chips, export (CSV / JSON / TSV)
 - Full keyboard navigation, **pin/freeze columns**, **resize column widths** (persisted) and **drag to reorder**, copy selection
 - One-click **"recent 500 rows"** from any table
 
@@ -40,12 +51,21 @@ query engine that streams results to a keyboard-friendly Electron UI.
 - **⌘/Ctrl+Enter to submit** pending edits (DataGrip-style)
 - Execution status bar — last statement, time, and rows affected (click to expand)
 
+**MongoDB** 🆕
+- Collection explorer with document browsing and pagination
+- View, edit, insert, and delete documents (CRUD) with Extended JSON
+- **mongosh-style** read queries (`find` / `aggregate` / `count`), index manager, and schema inference
+
 **Redis**
 - Keyspace explorer with pattern scan, live key count, and DB-index selection
 - Value inspector for all types; **edit** string values, set/clear TTL, rename, and delete (with a confirm gate)
 - **Command console** — run any Redis command with history, inline errors, and a guard on destructive commands
 
-**More** — CSV import, foreign-key navigation, EXPLAIN plans, themed IntelliJ-style dark UI.
+**AI assistant & MCP** 🆕
+- Built-in **read-only** natural-language assistant that explores your schema and runs safe read queries to answer questions (across SQL, Redis, and MongoDB)
+- Optional **MCP server** to expose a connection to external AI clients — see [`docs/mcp-server.md`](docs/mcp-server.md)
+
+**More** — CSV import, foreign-key navigation, `EXPLAIN` plans, **light / dark / system themes**, and in-app auto-update.
 
 ## ⌨️ Keyboard shortcuts
 
@@ -74,8 +94,12 @@ rebase/
 - **Electron 28** desktop shell; the renderer talks to the engine only through a
   preload IPC bridge.
 - **Go 1.25** engine exposes a localhost HTTP API and streams query rows (NDJSON).
-  DB drivers live behind a `SQLConnector` port — adding a database means adding an
+  Drivers live behind ports — `SQLConnector` (MySQL/PostgreSQL/SQL Server/SQLite),
+  `RedisConnector`, and `MongoConnector` — so adding a database means adding an
   adapter, not touching the UI.
+- Risk analysis for safe execution mode is a pure engine package
+  (`engine/internal/analyzer`); the execution policy gate is enforced in the
+  engine, never the renderer.
 - Connection profiles persist in a local SQLite store; secrets go to the OS keychain.
 
 > Layering, policies, and testing rules are documented in
@@ -94,7 +118,8 @@ pnpm dev          # starts the Vite renderer + Electron (which spawns the Go eng
 
 ```bash
 pnpm --filter renderer test      # renderer unit tests (vitest)
-cd engine && go test ./...       # engine unit + integration tests (integration needs local DBs)
+cd engine && go test ./...       # engine unit tests
+go test -tags=integration ./...  # engine integration tests (need local DBs)
 pnpm --filter desktop test:e2e   # Playwright Electron E2E (auto-skips if no local MySQL)
 ```
 
@@ -107,10 +132,12 @@ actually driving the running app (Playwright / CDP) — see `AGENTS.md`.
 pnpm build                                   # engine + renderer + desktop
 cd apps/desktop \
   && CSC_IDENTITY_AUTO_DISCOVERY=false pnpm exec electron-builder --mac
-# → apps/desktop/dist/installers/Rebase-<version>-arm64.dmg
+# → apps/desktop/release/Rebase-<version>-arm64.dmg
 ```
 
-The unsigned build runs locally (ad-hoc signed). To distribute to other Macs either:
+Use `--win` (or `--linux`) to package other targets; CI builds macOS and Windows
+installers for every release. The unsigned macOS build runs locally (ad-hoc
+signed). To distribute to other Macs either:
 
 - **Personal / internal:** recipients clear the quarantine flag once —
   `xattr -cr /Applications/Rebase.app` — or use *System Settings → Privacy &
