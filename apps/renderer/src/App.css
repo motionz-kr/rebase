@@ -1250,6 +1250,12 @@
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
+.inspector-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
 .inspector-key {
   display: flex;
   align-items: center;
@@ -2123,6 +2129,11 @@
 }
 .grid-export {
   position: relative;
+}
+.mongo-export {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
 }
 .grid-export-menu {
   position: absolute;

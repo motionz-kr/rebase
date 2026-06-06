@@ -115,7 +115,7 @@ export const MongoQueryEditor: React.FC<Props> = ({ profileId, view }) => {
         ) : countResult !== null ? (
           <div className="mongo-count-result mono">count: {countResult}</div>
         ) : ran ? (
-          <MongoResultView documents={documents} view={display} />
+          <MongoResultView documents={documents} view={display} collectionName={view?.collection} />
         ) : (
           <div className="muted mongo-empty">mongosh 읽기 명령을 입력하고 실행하세요. 예: {PLACEHOLDER}</div>
         )}

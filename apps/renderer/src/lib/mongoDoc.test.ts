@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { flattenDocument, columnsFor, formatExtJson } from './mongoDoc';
+import { flattenDocument, columnsFor, formatExtJson, documentsToCsv } from './mongoDoc';
 
 const DOC = '{"_id":{"$oid":"abc"},"name":"Ann","tags":["a","b"],"meta":{"x":1}}';
 
@@ -35,6 +35,22 @@ describe('columnsFor', () => {
   });
   it('ignores unparseable docs', () => {
     expect(columnsFor(['not json', '{"a":1}'])).toEqual(['a']);
+  });
+});
+
+describe('documentsToCsv', () => {
+  it('builds a CSV with the column union as header and one row per doc', () => {
+    const csv = documentsToCsv(['{"_id":1,"name":"Ann"}', '{"_id":2,"name":"Bob","age":3}']);
+    expect(csv).toBe('_id,name,age\n1,Ann,\n2,Bob,3');
+  });
+  it('leaves missing fields empty and quotes values needing escaping', () => {
+    const csv = documentsToCsv(['{"a":"x,y","b":1}', '{"a":"z"}']);
+    expect(csv).toBe('a,b\n"x,y",1\nz,');
+  });
+  it('serializes nested objects/arrays as compact JSON cells', () => {
+    expect(documentsToCsv([DOC])).toBe(
+      '_id,name,tags,meta\n"{""$oid"":""abc""}",Ann,"[""a"",""b""]","{""x"":1}"',
+    );
   });
 });
 

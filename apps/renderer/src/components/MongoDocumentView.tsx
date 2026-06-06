@@ -142,7 +142,7 @@ export const MongoDocumentView: React.FC<Props> = ({ profileId, database, collec
             <span className="spinner" /> 조회 중…
           </div>
         ) : (
-          <MongoResultView documents={documents} view={display} onEdit={onEdit} onDelete={onDelete} />
+          <MongoResultView documents={documents} view={display} collectionName={collection} onEdit={onEdit} onDelete={onDelete} />
         )}
       </div>
 

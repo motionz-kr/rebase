@@ -1,6 +1,8 @@
 // Pure helpers for the MongoDB document grid / JSON view.
 // No IO / DOM — fully unit-testable.
 
+import { toCsv } from './gridExport';
+
 /**
  * Parse a (possibly Extended-) JSON document string and return a top-level
  * field → cell map for the grid. Nested objects/arrays become compact JSON
@@ -70,6 +72,21 @@ export function formatExtJson(s: string): string {
   } catch {
     return s;
   }
+}
+
+/**
+ * Build a CSV string from an array of doc JSON strings. Columns are the union of
+ * top-level keys (via `columnsFor`); each row is the document's cells in column
+ * order (via `flattenDocument`), with missing fields left empty. Delegates CSV
+ * escaping to `toCsv`.
+ */
+export function documentsToCsv(docs: string[]): string {
+  const columns = columnsFor(docs);
+  const rows = docs.map((doc) => {
+    const flat = flattenDocument(doc);
+    return columns.map((col) => (col in flat ? flat[col] : ''));
+  });
+  return toCsv(columns, rows);
 }
 
 /**
