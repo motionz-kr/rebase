@@ -39,6 +39,8 @@ func newProfileRepo(t *testing.T) *SQLiteProfileRepository {
 					mcp_data_exposure TEXT NOT NULL DEFAULT 'metadata',
 					read_only INTEGER NOT NULL DEFAULT 0,
 					connection_uri TEXT NOT NULL DEFAULT '',
+					safe_mode INTEGER NOT NULL DEFAULT 0,
+					tenant_columns TEXT NOT NULL DEFAULT '',
 					created_at DATETIME NOT NULL,
 					updated_at DATETIME NOT NULL
 				);
@@ -77,6 +79,31 @@ func TestProfileRepository_ReadOnlyRoundTrips(t *testing.T) {
 	}
 	if got.ConnectionURI != "mongodb://x" {
 		t.Fatalf("expected ConnectionURI to round-trip, got %q", got.ConnectionURI)
+	}
+}
+
+func TestProfileRepository_SafeModeRoundTrips(t *testing.T) {
+	repo := newProfileRepo(t)
+	ctx := context.Background()
+
+	p := &domain.ConnectionProfile{
+		ID: "sm1", Name: "prod", Driver: "mysql", Host: "h", Port: 3306,
+		Database: "d", Username: "u", SecretRef: "s", TLSMode: "none",
+		SafeMode: true, TenantColumns: "hospitalId,orgId",
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	if err := repo.Create(ctx, p); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	got, err := repo.GetByID(ctx, "sm1")
+	if err != nil {
+		t.Fatalf("getByID: %v", err)
+	}
+	if !got.SafeMode {
+		t.Fatalf("expected SafeMode=true to round-trip")
+	}
+	if got.TenantColumns != "hospitalId,orgId" {
+		t.Fatalf("expected TenantColumns to round-trip, got %q", got.TenantColumns)
 	}
 }
 

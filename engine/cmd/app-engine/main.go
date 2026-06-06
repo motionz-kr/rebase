@@ -178,6 +178,15 @@ func main() {
 			`,
 			Checksum: "profile-connection-uri-v1",
 		},
+		{
+			Version: 6,
+			Name:    "add_profile_safe_mode",
+			SQL: `
+				ALTER TABLE connection_profiles ADD COLUMN safe_mode INTEGER NOT NULL DEFAULT 0;
+				ALTER TABLE connection_profiles ADD COLUMN tenant_columns TEXT NOT NULL DEFAULT '';
+			`,
+			Checksum: "profile-safe-mode-v1",
+		},
 	}
 	if err := migrationRunner.Run(migrations); err != nil {
 		log.Fatalf("failed to run migrations: %v", err)
