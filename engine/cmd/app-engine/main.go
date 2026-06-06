@@ -252,6 +252,9 @@ func main() {
 	mux.Handle("/redis/rename", redisHandler.RenameKey())
 	mux.Handle("/redis/command", redisHandler.RunCommand())
 
+	mongoHandler := internalHttp.NewMongoHandler(*token, connectionService)
+	mux.Handle("/mongo/", mongoHandler.Routes())
+
 	agentHandler := internalHttp.NewAgentHandler(*token, connectionService)
 	mux.Handle("/agent/run", agentHandler.Run())
 	mux.Handle("/agent/key", agentHandler.Key())
