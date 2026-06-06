@@ -23,6 +23,8 @@ func TestFormatLiteral(t *testing.T) {
 		{"postgres", true, "TRUE"},
 		{"postgres", false, "FALSE"},
 		{"sqlserver", true, "1"},
+		{"mysql", uint64(18446744073709551615), "18446744073709551615"},
+		{"mysql", uint(7), "7"},
 	}
 	for _, c := range cases {
 		if got := FormatLiteral(c.driver, c.val); got != c.want {

@@ -41,3 +41,10 @@ func TestBuildRollbackSQL_UpdateNoPK(t *testing.T) {
 		t.Error("UPDATE without PK must not produce rollback")
 	}
 }
+
+func TestBuildRollbackSQL_UpdatePKInSet(t *testing.T) {
+	p := ParsedDML{Verb: "UPDATE", Table: "User", SetCols: []string{"id"}}
+	if _, ok := BuildRollbackSQL("mysql", p, []string{"id"}, []string{"id"}, [][]any{{int64(5)}}); ok {
+		t.Error("UPDATE that changes the PK must not produce rollback (snapshot can't locate post-DML row)")
+	}
+}

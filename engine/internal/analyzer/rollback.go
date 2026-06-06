@@ -46,6 +46,17 @@ func buildDeleteRollback(driver string, p ParsedDML, cols []string, rows [][]any
 }
 
 func buildUpdateRollback(driver string, p ParsedDML, cols, pkCols []string, rows [][]any) (string, bool) {
+	// If a primary-key column is itself being updated, the before-image snapshot
+	// (keyed on the old PK) cannot locate the row after the DML runs, so a
+	// generated rollback would silently match zero rows. Refuse rather than
+	// produce a misleading "rollback".
+	for _, pk := range pkCols {
+		for _, sc := range p.SetCols {
+			if strings.EqualFold(pk, sc) {
+				return "", false
+			}
+		}
+	}
 	idx := map[string]int{}
 	for i, c := range cols {
 		idx[strings.ToLower(c)] = i

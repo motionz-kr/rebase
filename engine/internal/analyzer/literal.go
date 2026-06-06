@@ -22,6 +22,10 @@ func FormatLiteral(driver string, v any) string {
 		return strconv.FormatInt(x, 10)
 	case int:
 		return strconv.Itoa(x)
+	case uint64:
+		return strconv.FormatUint(x, 10)
+	case uint:
+		return strconv.FormatUint(uint64(x), 10)
 	case float64:
 		return strconv.FormatFloat(x, 'g', -1, 64)
 	case float32:
