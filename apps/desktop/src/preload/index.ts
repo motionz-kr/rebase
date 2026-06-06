@@ -1,5 +1,20 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
+function readThemeArg(key: string): string | undefined {
+  const prefix = `--${key}=`;
+  const hit = process.argv.find((a) => a.startsWith(prefix));
+  return hit ? hit.slice(prefix.length) : undefined;
+}
+
+const injectedSource = readThemeArg('theme-source');
+contextBridge.exposeInMainWorld('__THEME__', {
+  source:
+    injectedSource === 'light' || injectedSource === 'dark' || injectedSource === 'system'
+      ? injectedSource
+      : 'dark',
+  resolved: readThemeArg('theme') === 'light' ? 'light' : 'dark',
+});
+
 contextBridge.exposeInMainWorld('electronAPI', {
   checkEngineHealth: () => ipcRenderer.invoke('check-engine-health'),
   listProfiles: () => ipcRenderer.invoke('list-profiles'),
@@ -49,6 +64,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('update-status', listener);
     return () => {
       ipcRenderer.removeListener('update-status', listener);
+    };
+  },
+  getTheme: () => ipcRenderer.invoke('theme-get'),
+  setThemeSource: (source: string) => ipcRenderer.invoke('theme-set-source', source),
+  onThemeUpdated: (
+    callback: (payload: { source: string; resolved: string }) => void,
+  ) => {
+    const listener = (_event: any, payload: any) => callback(payload);
+    ipcRenderer.on('theme-updated', listener);
+    return () => {
+      ipcRenderer.removeListener('theme-updated', listener);
     };
   },
   agentKeyStatus: (provider: string) => ipcRenderer.invoke('agent-key-status', provider),
