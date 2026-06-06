@@ -2038,11 +2038,22 @@
 .ddl-col-head,
 .ddl-col-row {
   display: grid;
-  grid-template-columns: 1.4fr 1.4fr 44px 1.2fr 32px;
+  /* minmax(0, …fr) so the fr columns ignore the inputs' min-content width and
+     compute identically in the (label) header and the (input) rows — otherwise
+     the text inputs blow the fr columns out and the header labels drift away
+     from the fields below them. */
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.4fr) 44px minmax(0, 1.2fr) 32px;
   gap: 8px;
   align-items: center;
 }
-.ddl-col-head { font-size: 11px; color: var(--text-3); padding: 0 2px; }
+.ddl-col-head { font-size: 11px; color: var(--text-3); }
+/* Let the grid columns drive the input width (inputs default to a ~20ch min). */
+.ddl-col-row .input { min-width: 0; }
+/* Center checkboxes (and their header labels) within their fixed-width columns. */
+.ddl-col-head input[type='checkbox'],
+.ddl-col-row input[type='checkbox'] { justify-self: center; }
+/* NULL is the 3rd column in both the edit and create headers — center its label. */
+.ddl-col-head > span:nth-child(3) { text-align: center; }
 .ddl-col-row.removed input { text-decoration: line-through; opacity: 0.5; }
 
 .ddl-preview { margin-top: 12px; }
@@ -2061,7 +2072,14 @@
 /* Create-table dialog: 8-column grid (name, type, NULL, default, PK, AI, UQ, remove) */
 .ddl-col-head-create,
 .ddl-col-row-create {
-  grid-template-columns: 1.3fr 1.3fr 40px 1.1fr 30px 30px 30px 30px;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1.3fr) 40px minmax(0, 1.1fr) 30px 30px 30px 30px;
+}
+/* Center the create dialog's PK/AI/UQ header labels over their checkboxes.
+   (NULL — the 3rd column — is centered by the shared .ddl-col-head rule.) */
+.ddl-col-head-create > span:nth-child(5),
+.ddl-col-head-create > span:nth-child(6),
+.ddl-col-head-create > span:nth-child(7) {
+  text-align: center;
 }
 
 .ddl-sql-edit {
