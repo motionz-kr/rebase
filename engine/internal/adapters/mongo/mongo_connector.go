@@ -214,6 +214,89 @@ func (c *MongoConnector) CountDocuments(ctx context.Context, p domain.Connection
 	return n, nil
 }
 
+// InsertDocument inserts a single document (ext-JSON) and returns the inserted
+// _id as an ext-JSON scalar (e.g. {"$oid":"..."} for an ObjectId).
+func (c *MongoConnector) InsertDocument(ctx context.Context, p domain.ConnectionProfile, password, database, collection, documentJSON string) (string, error) {
+	client, err := c.client(p, password)
+	if err != nil {
+		return "", err
+	}
+	defer client.Disconnect(ctx)
+
+	var doc bson.D
+	if err := bson.UnmarshalExtJSON([]byte(documentJSON), false, &doc); err != nil {
+		return "", normalizeError(err)
+	}
+
+	coll := client.Database(database).Collection(collection)
+	res, err := coll.InsertOne(ctx, doc)
+	if err != nil {
+		return "", normalizeError(err)
+	}
+
+	// Marshal {"_id": <id>} then slice out just the scalar value so the caller
+	// gets an ext-JSON scalar consistent with what extractID produces.
+	wrap, err := bson.MarshalExtJSON(bson.D{{Key: "_id", Value: res.InsertedID}}, false, false)
+	if err != nil {
+		return "", normalizeError(err)
+	}
+	s := string(wrap)
+	idx := strings.Index(s, ":")
+	if idx < 0 {
+		return s, nil
+	}
+	return strings.TrimSpace(s[idx+1 : len(s)-1]), nil
+}
+
+// ReplaceDocument replaces the document whose _id matches idJSON (an ext-JSON
+// scalar) with the given ext-JSON document.
+func (c *MongoConnector) ReplaceDocument(ctx context.Context, p domain.ConnectionProfile, password, database, collection, idJSON, documentJSON string) error {
+	client, err := c.client(p, password)
+	if err != nil {
+		return err
+	}
+	defer client.Disconnect(ctx)
+
+	var doc bson.D
+	if err := bson.UnmarshalExtJSON([]byte(documentJSON), false, &doc); err != nil {
+		return normalizeError(err)
+	}
+
+	var wrap bson.D
+	if err := bson.UnmarshalExtJSON([]byte(`{"_id":`+idJSON+`}`), false, &wrap); err != nil {
+		return normalizeError(err)
+	}
+	filter := bson.D{{Key: "_id", Value: wrap[0].Value}}
+
+	coll := client.Database(database).Collection(collection)
+	if _, err := coll.ReplaceOne(ctx, filter, doc); err != nil {
+		return normalizeError(err)
+	}
+	return nil
+}
+
+// DeleteDocument deletes the document whose _id matches idJSON (an ext-JSON
+// scalar).
+func (c *MongoConnector) DeleteDocument(ctx context.Context, p domain.ConnectionProfile, password, database, collection, idJSON string) error {
+	client, err := c.client(p, password)
+	if err != nil {
+		return err
+	}
+	defer client.Disconnect(ctx)
+
+	var wrap bson.D
+	if err := bson.UnmarshalExtJSON([]byte(`{"_id":`+idJSON+`}`), false, &wrap); err != nil {
+		return normalizeError(err)
+	}
+	filter := bson.D{{Key: "_id", Value: wrap[0].Value}}
+
+	coll := client.Database(database).Collection(collection)
+	if _, err := coll.DeleteOne(ctx, filter); err != nil {
+		return normalizeError(err)
+	}
+	return nil
+}
+
 // normalizeError maps common low-level driver errors to friendly messages.
 func normalizeError(err error) error {
 	if err == nil {
