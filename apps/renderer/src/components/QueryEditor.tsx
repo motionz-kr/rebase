@@ -4,12 +4,15 @@ import * as monaco from 'monaco-editor';
 import { Play, Square, Save, Plus, X, Lock, Pencil, AlertTriangle, ShieldAlert, AlignLeft, ListTree } from 'lucide-react';
 import { ResultGrid } from './ResultGrid';
 import { SqlAutocomplete } from './SqlAutocomplete';
+import { RiskConfirmDialog } from './RiskConfirmDialog';
 import { formatSql } from '../lib/formatSql';
 import { splitStatements } from '../lib/splitStatements';
+import { classifyStatement } from '../lib/sqlDanger';
 import { analyzeEditableQuery, type EditableQuery } from '../lib/editableQuery';
 import { TableDataView } from './TableDataView';
 import { ExecStatusBar, type ExecInfo } from './ExecStatusBar';
 import type { SchemaInfo } from '../lib/sqlCompletion';
+import type { AnalyzeResult } from '../global';
 import { clampEditorHeight, EDITOR_DEFAULT, loadNum, saveNum } from '../lib/uiPrefs';
 import { useTheme } from '../lib/theme-context';
 
@@ -61,6 +64,7 @@ interface QueryEditorProps {
   driver: 'mysql' | 'postgres' | 'redis' | 'sqlite' | 'sqlserver';
   database: string;
   connectionName: string;
+  safeMode?: boolean;
   onQueryExecuted?: () => void;
   loadTriggerQuery?: string;
   // A request to load a SQL into the active tab AND run it immediately (one-click
@@ -91,7 +95,7 @@ const newTab = (id: string, name: string, query: string): QueryTab => ({
   lastExec: null,
 });
 
-export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, database, connectionName, onQueryExecuted, loadTriggerQuery, runQueryRequest, schemaVersion }) => {
+export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, database, connectionName, safeMode = false, onQueryExecuted, loadTriggerQuery, runQueryRequest, schemaVersion }) => {
   const [tabs, setTabs] = useState<QueryTab[]>([
     newTab(
       'tab-1',
@@ -114,6 +118,11 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [saveQueryName, setSaveQueryName] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+
+  // Analyze gate: when a risky statement is intercepted, hold the pending
+  // continuation here and show the RiskConfirmDialog.
+  const [riskResult, setRiskResult] = useState<AnalyzeResult | null>(null);
+  const pendingRunRef = useRef<null | (() => void)>(null);
 
   useEffect(() => {
     if (loadTriggerQuery) {
@@ -397,17 +406,25 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     );
   };
 
+  // Returns true for statements that should go through the analyze gate.
+  const isRiskyStatement = (stmt: string): boolean => {
+    if (classifyStatement(stmt).risk === 'dangerous') return true;
+    return /^\s*(UPDATE|DELETE|INSERT|TRUNCATE|DROP|ALTER|REPLACE|MERGE)\b/i.test(stmt);
+  };
+
   const executeQuery = async (override?: {
     allowWrite?: boolean;
     confirmDestructive?: boolean;
     fetchAll?: boolean;
     sqlOverride?: string;
+    acknowledged?: boolean;
   }) => {
     if (activeTab.loading) return;
 
     const allowWrite = override?.allowWrite ?? writeMode;
     const confirmDestructive = override?.confirmDestructive ?? false;
     const fetchAll = override?.fetchAll ?? false;
+    const acknowledged = override?.acknowledged ?? false;
     const sql = override?.sqlOverride ?? activeTab.query;
 
     // A script of several statements runs sequentially with one result set each
@@ -428,6 +445,26 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
       return;
     }
     setEditView(null);
+
+    // Analyze gate: for risky single statements (DML/DDL), call analyzeQuery and
+    // show the RiskConfirmDialog before streaming. If analysis fails, fall through.
+    if (!acknowledged && isRiskyStatement(sql)) {
+      try {
+        const analyzeRes = await window.electronAPI.analyzeQuery(profileId, sql, database);
+        if (analyzeRes.success && analyzeRes.data) {
+          // Capture the run continuation — will be called when user confirms.
+          pendingRunRef.current = () => {
+            setRiskResult(null);
+            void executeQuery({ ...override, sqlOverride: sql, acknowledged: true });
+          };
+          setRiskResult(analyzeRes.data);
+          return; // halt until user acts
+        }
+        // analyzeQuery failed (engine unreachable, parse error, etc.) → fall through
+      } catch {
+        // ignore analysis errors — never block execution
+      }
+    }
 
     const queryId = `query-${crypto.randomUUID()}`;
     const startTime = Date.now();
@@ -459,6 +496,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
         allowWrite,
         confirmDestructive,
         fetchAll,
+        acknowledged,
       });
       if (!res.success) {
         setTabs((prev) =>
@@ -892,6 +930,16 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
             </form>
           </div>
         </div>
+      )}
+
+      {/* Risk confirm dialog — shown before executing a risky statement */}
+      {riskResult && (
+        <RiskConfirmDialog
+          result={riskResult}
+          safeMode={safeMode}
+          onRun={() => pendingRunRef.current?.()}
+          onCancel={() => { setRiskResult(null); pendingRunRef.current = null; }}
+        />
       )}
     </div>
   );

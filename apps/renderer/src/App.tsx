@@ -49,6 +49,8 @@ export interface ConnectionProfile {
   secretRef?: string;
   tlsMode: 'none' | 'prefer' | 'require';
   readOnly?: boolean;
+  safeMode?: boolean;
+  tenantColumns?: string;
   mcpEnabled?: boolean;
   mcpDataExposure?: string;
   createdAt?: string;
@@ -155,6 +157,8 @@ function App() {
   const [formPassword, setFormPassword] = useState('');
   const [formTlsMode, setFormTlsMode] = useState<'none' | 'prefer' | 'require'>('none');
   const [formReadOnly, setFormReadOnly] = useState(false);
+  const [formSafeMode, setFormSafeMode] = useState(false);
+  const [formTenantColumns, setFormTenantColumns] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
 
   // Per-connection hidden-tables map, lifted here so both the schema explorer
@@ -232,6 +236,8 @@ function App() {
     setFormConnectionUri('');
     setFormPassword('');
     setFormReadOnly(false);
+    setFormSafeMode(false);
+    setFormTenantColumns('');
     setEditingId(null);
     setFormTab('basic');
   };
@@ -248,6 +254,8 @@ function App() {
     setFormPassword(''); // blank keeps the existing password
     setFormTlsMode(p.tlsMode);
     setFormReadOnly(p.readOnly ?? false);
+    setFormSafeMode(p.safeMode ?? false);
+    setFormTenantColumns(p.tenantColumns ?? '');
     setEditingId(p.id!);
     setConnectionError(null);
     setFormTab('basic');
@@ -266,6 +274,8 @@ function App() {
       connectionUri: formConnectionUri,
       tlsMode: formTlsMode,
       readOnly: formReadOnly,
+      safeMode: formSafeMode,
+      tenantColumns: formTenantColumns,
     };
     try {
       const res = await window.electronAPI.testConnection(profile, formPassword);
@@ -293,6 +303,8 @@ function App() {
       connectionUri: formConnectionUri,
       tlsMode: formTlsMode,
       readOnly: formReadOnly,
+      safeMode: formSafeMode,
+      tenantColumns: formTenantColumns,
     };
     try {
       const res = editingId
@@ -575,6 +587,23 @@ function App() {
                       읽기 전용 (read-only)
                     </label>
                   </div>
+                  <div className="field-check">
+                    <label>
+                      <input type="checkbox" checked={formSafeMode} onChange={(e) => setFormSafeMode(e.target.checked)} />
+                      안전 모드 (운영 DB)
+                    </label>
+                  </div>
+                  {formSafeMode && (
+                    <div>
+                      <label>tenant 스코프 컬럼 (쉼표 구분)</label>
+                      <input
+                        type="text"
+                        placeholder="hospitalId,tenantId"
+                        value={formTenantColumns}
+                        onChange={(e) => setFormTenantColumns(e.target.value)}
+                      />
+                    </div>
+                  )}
                 </>
               ) : (
                 <>
@@ -634,6 +663,23 @@ function App() {
                   {formConnectionUri.trim() !== '' && (
                     <p className="dialog-hint">연결 문자열이 설정되어 host/port·인증 정보보다 우선 적용됩니다.</p>
                   )}
+                </div>
+              )}
+              <div className="field-check">
+                <label>
+                  <input type="checkbox" checked={formSafeMode} onChange={(e) => setFormSafeMode(e.target.checked)} />
+                  안전 모드 (운영 DB)
+                </label>
+              </div>
+              {formSafeMode && (
+                <div>
+                  <label>tenant 스코프 컬럼 (쉼표 구분)</label>
+                  <input
+                    type="text"
+                    placeholder="hospitalId,tenantId"
+                    value={formTenantColumns}
+                    onChange={(e) => setFormTenantColumns(e.target.value)}
+                  />
                 </div>
               )}
                 </>
@@ -999,6 +1045,7 @@ function App() {
                       driver={profile.driver as 'mysql' | 'postgres' | 'redis' | 'sqlite' | 'sqlserver'}
                       database={profile.database}
                       connectionName={profile.name}
+                      safeMode={profile.safeMode ?? false}
                       onQueryExecuted={() => setHistoryTrigger((n) => n + 1)}
                       loadTriggerQuery={focused ? selectedQueryText : ''}
                       runQueryRequest={focused && runReq?.profileId === id ? { sql: runReq.sql, nonce: runReq.nonce } : undefined}

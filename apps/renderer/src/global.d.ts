@@ -92,6 +92,8 @@ export interface ConnectionProfile {
   secretRef?: string;
   tlsMode: 'none' | 'prefer' | 'require';
   readOnly?: boolean;
+  safeMode?: boolean;
+  tenantColumns?: string;
   mcpEnabled?: boolean;
   mcpDataExposure?: string;
   createdAt?: string;
