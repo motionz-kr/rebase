@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.0](https://github.com/motionz-kr/rebase/compare/v0.14.1...v0.15.0) (2026-06-06)
+
+
+### Features
+
+* MongoDB 연결 지원 (engine expansion [#34](https://github.com/motionz-kr/rebase/issues/34)) ([#108](https://github.com/motionz-kr/rebase/issues/108)) ([0ccf08b](https://github.com/motionz-kr/rebase/commit/0ccf08bea862fa1df5056b7b36312c83ba7e458b))
+
 ## [0.14.1](https://github.com/motionz-kr/rebase/compare/v0.14.0...v0.14.1) (2026-06-06)
 
 
