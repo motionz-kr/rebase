@@ -92,8 +92,108 @@ func (h *QueryHandler) AnalyzeQuery() http.Handler {
 }
 
 // enrichReport fills DB-derived fields (affected count, preview, rollback).
-// Implemented in Task 10.
 func (h *QueryHandler) enrichReport(ctx context.Context, connector ports.SQLConnector, profile domain.ConnectionProfile, password, database string, report analyzer.RiskReport, resp *AnalyzeResponse) {
+	driver := profile.Driver
+	p := report.Parsed
+
+	// 1. Table introspection: columns + primary keys + tenant intersection.
+	var allCols, pkCols []string
+	if desc, err := connector.DescribeTable(ctx, profile, password, database, p.Table); err == nil {
+		for _, c := range desc.Columns {
+			allCols = append(allCols, c.Name)
+			if c.PrimaryKey {
+				pkCols = append(pkCols, c.Name)
+			}
+		}
+		tenantCols := analyzer.IntersectColumns(allCols, profile.TenantColumnList())
+		report = analyzer.ApplyTenantCheck(report, allCols, tenantCols, profile.SafeMode)
+		resp.Level = string(report.Level)
+		resp.TenantMissing = report.TenantMissing
+		resp.Reasons = report.Reasons
+	}
+
+	// 2. Affected-row COUNT.
+	if n, ok := h.scalarInt(ctx, connector, profile, password, analyzer.BuildCountSQL(driver, p)); ok {
+		resp.AffectedRows = &n
+	}
+
+	// 3. SELECT preview (text + sample rows).
+	resp.PreviewSQL = analyzer.BuildPreviewSQL(driver, p)
+	cols, rows := h.collectRows(ctx, connector, profile, password, resp.PreviewSQL, previewRowLimit)
+	resp.PreviewCols = cols
+	resp.PreviewRows = rows
+
+	// 4. Rollback (UPDATE needs PK; cap snapshot at snapshotRowLimit).
+	if resp.AffectedRows != nil && *resp.AffectedRows > snapshotRowLimit {
+		resp.RollbackNote = "영향 row가 1000건을 초과해 Rollback SQL을 생성하지 않았습니다"
+		return
+	}
+	snapCols, snapRows := h.collectRows(ctx, connector, profile, password, analyzer.BuildSnapshotSQL(driver, p, pkCols), snapshotRowLimit+1)
+	if len(snapRows) > snapshotRowLimit {
+		resp.RollbackNote = "영향 row가 너무 많아 Rollback SQL을 생성하지 않았습니다"
+		return
+	}
+	if sqlText, ok := analyzer.BuildRollbackSQL(driver, p, snapCols, pkCols, snapRows); ok {
+		resp.RollbackSQL = sqlText
+	} else if p.Verb == "UPDATE" && len(pkCols) == 0 {
+		resp.RollbackNote = "PK가 없어 Rollback SQL을 생성할 수 없습니다"
+	}
+}
+
+// scalarInt runs a single-value query (e.g. COUNT) and returns the int result.
+func (h *QueryHandler) scalarInt(ctx context.Context, connector ports.SQLConnector, profile domain.ConnectionProfile, password, query string) (int64, bool) {
+	var out int64
+	var got bool
+	_, err := connector.ExecuteQueryStream(ctx, profile, password, query, true,
+		func(int64) {}, func([]string) error { return nil },
+		func(row []any) error {
+			if len(row) > 0 {
+				out = toInt64(row[0])
+				got = true
+			}
+			return nil
+		})
+	if err != nil {
+		return 0, false
+	}
+	return out, got
+}
+
+// collectRows runs a read-only query and accumulates up to limit rows.
+func (h *QueryHandler) collectRows(ctx context.Context, connector ports.SQLConnector, profile domain.ConnectionProfile, password, query string, limit int) ([]string, [][]any) {
+	var cols []string
+	var rows [][]any
+	stop := fmtError("row limit reached")
+	_, _ = connector.ExecuteQueryStream(ctx, profile, password, query, true,
+		func(int64) {}, func(c []string) error { cols = c; return nil },
+		func(row []any) error {
+			if len(rows) >= limit {
+				return stop
+			}
+			cp := make([]any, len(row))
+			copy(cp, row)
+			rows = append(rows, cp)
+			return nil
+		})
+	return cols, rows
+}
+
+func toInt64(v any) int64 {
+	switch x := v.(type) {
+	case int64:
+		return x
+	case int:
+		return int64(x)
+	case []byte:
+		n, _ := strconvParseInt(string(x))
+		return n
+	case string:
+		n, _ := strconvParseInt(x)
+		return n
+	case float64:
+		return int64(x)
+	}
+	return 0
 }
 
 // strconvParseInt is a thin wrapper used by toInt64.
