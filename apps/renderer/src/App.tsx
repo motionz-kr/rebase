@@ -131,6 +131,9 @@ function App() {
   const [selectedQueryText, setSelectedQueryText] = useState<string>('');
   // One-click "load + run this SQL" request, targeted at a connection's editor.
   const [runReq, setRunReq] = useState<{ profileId: string; sql: string; nonce: number } | null>(null);
+  // "Load this command into the input" request for non-SQL editors (redis/mongo).
+  // Unlike runReq it does NOT auto-execute — the user presses run.
+  const [loadReq, setLoadReq] = useState<{ profileId: string; text: string; nonce: number } | null>(null);
   const [historyTrigger, setHistoryTrigger] = useState(0);
   const [savedTrigger, setSavedTrigger] = useState(0);
   const [schemaVersion, setSchemaVersion] = useState(0);
@@ -405,12 +408,18 @@ function App() {
     return () => clearInterval(interval);
   }, [checkHealth]);
 
+  const focusedProfile = conns.focusedId ? profiles.find((p) => p.id === conns.focusedId) : null;
+
   const handleSelectQuery = (queryText: string) => {
+    // Redis/Mongo: load the command into the focused connection's editor input.
+    if (focusedProfile && (focusedProfile.driver === 'redis' || focusedProfile.driver === 'mongodb')) {
+      setLoadReq({ profileId: focusedProfile.id!, text: queryText, nonce: Date.now() });
+      return;
+    }
+    // SQL: load into the active SQL editor tab.
     setSelectedQueryText(queryText);
     setTimeout(() => setSelectedQueryText(''), 100);
   };
-
-  const focusedProfile = conns.focusedId ? profiles.find((p) => p.id === conns.focusedId) : null;
 
   if (typeof window.electronAPI === 'undefined') {
     return (
@@ -768,8 +777,8 @@ function App() {
               })}
             </div>
 
-          {/* Focused SQL connection: saved queries / history */}
-          {focusedProfile && focusedProfile.driver !== 'redis' && focusedProfile.driver !== 'mongodb' && conns.byId[focusedProfile.id!]?.status === 'connected' && (
+          {/* Focused connection: saved queries / history (driver-agnostic) */}
+          {focusedProfile && conns.byId[focusedProfile.id!]?.status === 'connected' && (
             <div className="sidebar-focused-panel">
               <div className="seg-tabs">
                 <button className={`seg-tab ${sideTab === 'saved' ? 'active' : ''}`} onClick={() => setSideTab('saved')}>
@@ -866,7 +875,12 @@ function App() {
                         </button>
                       </div>
                       {redisTab[id] === 'console' ? (
-                        <RedisConsole profileId={id} />
+                        <RedisConsole
+                          profileId={id}
+                          onRan={() => setHistoryTrigger((n) => n + 1)}
+                          onSaved={() => setSavedTrigger((n) => n + 1)}
+                          loadRequest={focused && loadReq?.profileId === id ? { text: loadReq.text, nonce: loadReq.nonce } : undefined}
+                        />
                       ) : (
                         <RedisValueInspector
                           key={`${id}:${redisKeys[id] ?? '∅'}`}
@@ -949,6 +963,9 @@ function App() {
                               <MongoQueryEditor
                                 profileId={id}
                                 view={mv ? { database: mv.database, collection: mv.collection } : null}
+                                onRan={() => setHistoryTrigger((n) => n + 1)}
+                                onSaved={() => setSavedTrigger((n) => n + 1)}
+                                loadRequest={focused && loadReq?.profileId === id ? { text: loadReq.text, nonce: loadReq.nonce } : undefined}
                               />
                             )}
                           </div>

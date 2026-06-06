@@ -10,8 +10,15 @@ import {
   Check,
   X,
   TextCursorInput,
+  Download,
 } from 'lucide-react';
 import type { RedisValueInfo } from '../global';
+import { tsTimestamp, download } from '../lib/gridFormat';
+
+// Keep export filenames filesystem-safe.
+function safeName(s: string): string {
+  return s.replace(/[/\\:*?"<>|]/g, '_') || 'key';
+}
 
 interface RedisValueInspectorProps {
   profileId: string;
@@ -289,6 +296,22 @@ export const RedisValueInspector: React.FC<RedisValueInspectorProps> = ({
   const missing = info && info.exists === false;
   const isString = info?.type === 'string';
 
+  // Export the current value: plain text for strings, JSON for collection types
+  // (reusing the parsed representation the view already renders). Falls back to
+  // the raw value string when the collection value can't be parsed.
+  const canExport = !!info && info.exists !== false;
+  const doExport = () => {
+    if (!info || info.exists === false || !redisKey) return;
+    const base = `redis-${safeName(redisKey)}-${tsTimestamp()}`;
+    if (info.type === 'string') {
+      download(`${base}.txt`, info.value, 'text/plain');
+    } else if (!parseFailed) {
+      download(`${base}.json`, JSON.stringify(parsed, null, 2), 'application/json');
+    } else {
+      download(`${base}.txt`, info.value, 'text/plain');
+    }
+  };
+
   return (
     <div className="inspector">
       <div className="inspector-head">
@@ -298,9 +321,14 @@ export const RedisValueInspector: React.FC<RedisValueInspectorProps> = ({
           </span>
           <h2>{redisKey}</h2>
         </div>
-        <button className="btn btn-secondary btn-sm" onClick={() => loadValue()} disabled={loading || busy}>
-          <RefreshCw size={13} className={loading ? 'spin' : ''} /> Refresh
-        </button>
+        <div className="inspector-head-actions">
+          <button className="btn btn-secondary btn-sm" onClick={doExport} disabled={!canExport || loading || busy}>
+            <Download size={13} /> 내보내기
+          </button>
+          <button className="btn btn-secondary btn-sm" onClick={() => loadValue()} disabled={loading || busy}>
+            <RefreshCw size={13} className={loading ? 'spin' : ''} /> Refresh
+          </button>
+        </div>
       </div>
 
       <div className="inspector-body">

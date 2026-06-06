@@ -134,6 +134,26 @@ func strArg(args map[string]any, key string) string {
 	return ""
 }
 
+// intArg reads a numeric tool argument (JSON numbers decode to float64),
+// falling back to def when the key is absent or not a positive number.
+func intArg(args map[string]any, key string, def int64) int64 {
+	switch v := args[key].(type) {
+	case float64:
+		if v > 0 {
+			return int64(v)
+		}
+	case int64:
+		if v > 0 {
+			return v
+		}
+	case int:
+		if v > 0 {
+			return int64(v)
+		}
+	}
+	return def
+}
+
 // NewSQLRegistry builds the read-only tool set bound to one connection profile.
 func NewSQLRegistry(conn sqlReader, p domain.ConnectionProfile, password, database string) *Registry {
 	r := &Registry{tools: map[string]Tool{}}
