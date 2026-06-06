@@ -951,6 +951,171 @@ app.whenReady().then(() => {
     }
   });
 
+  ipcMain.handle('mongo-databases', async (event, profileId) => {
+    try {
+      const data = await requestEngine({
+        method: 'POST',
+        path: '/mongo/databases',
+        body: { profileId },
+      });
+      return { success: true, data };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('mongo-collections', async (event, profileId, database) => {
+    try {
+      const data = await requestEngine({
+        method: 'POST',
+        path: '/mongo/collections',
+        body: { profileId, database },
+      });
+      return { success: true, data };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('mongo-find', async (event, profileId, database, collection, opts) => {
+    try {
+      const data = await requestEngine({
+        method: 'POST',
+        path: '/mongo/find',
+        body: {
+          profileId,
+          database,
+          collection,
+          filter: opts?.filter,
+          projection: opts?.projection,
+          sort: opts?.sort,
+          skip: opts?.skip,
+          limit: opts?.limit,
+        },
+      });
+      return { success: true, data };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('mongo-aggregate', async (event, profileId, database, collection, pipeline, limit) => {
+    try {
+      const data = await requestEngine({
+        method: 'POST',
+        path: '/mongo/aggregate',
+        body: { profileId, database, collection, pipeline, limit },
+      });
+      return { success: true, data };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('mongo-count', async (event, profileId, database, collection, filter) => {
+    try {
+      const data = await requestEngine({
+        method: 'POST',
+        path: '/mongo/count',
+        body: { profileId, database, collection, filter },
+      });
+      return { success: true, data };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('mongo-insert', async (event, profileId, database, collection, document) => {
+    try {
+      const data = await requestEngine({
+        method: 'POST',
+        path: '/mongo/insert',
+        body: { profileId, database, collection, document },
+      });
+      return { success: true, data };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('mongo-replace', async (event, profileId, database, collection, id, document) => {
+    try {
+      const data = await requestEngine({
+        method: 'POST',
+        path: '/mongo/replace',
+        body: { profileId, database, collection, id, document },
+      });
+      return { success: true, data };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('mongo-delete', async (event, profileId, database, collection, id) => {
+    try {
+      const data = await requestEngine({
+        method: 'POST',
+        path: '/mongo/delete',
+        body: { profileId, database, collection, id },
+      });
+      return { success: true, data };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('mongo-indexes', async (event, profileId, database, collection) => {
+    try {
+      const data = await requestEngine({
+        method: 'POST',
+        path: '/mongo/indexes',
+        body: { profileId, database, collection },
+      });
+      return { success: true, data };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('mongo-create-index', async (event, profileId, database, collection, keys, unique, name) => {
+    try {
+      const data = await requestEngine({
+        method: 'POST',
+        path: '/mongo/index/create',
+        body: { profileId, database, collection, keys, unique, name },
+      });
+      return { success: true, data };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('mongo-drop-index', async (event, profileId, database, collection, name) => {
+    try {
+      const data = await requestEngine({
+        method: 'POST',
+        path: '/mongo/index/drop',
+        body: { profileId, database, collection, name },
+      });
+      return { success: true, data };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('mongo-schema', async (event, profileId, database, collection, sampleSize) => {
+    try {
+      const data = await requestEngine({
+        method: 'POST',
+        path: '/mongo/schema',
+        body: { profileId, database, collection, sampleSize },
+      });
+      return { success: true, data };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
   ipcMain.handle('list-saved-queries', async (event, workspaceId) => {
     try {
       const data = await requestEngine({

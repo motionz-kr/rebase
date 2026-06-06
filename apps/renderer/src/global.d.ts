@@ -83,11 +83,12 @@ export interface QueryHistoryEntry {
 export interface ConnectionProfile {
   id?: string;
   name: string;
-  driver: 'mysql' | 'postgres' | 'redis' | 'sqlite' | 'sqlserver';
+  driver: 'mysql' | 'postgres' | 'redis' | 'sqlite' | 'sqlserver' | 'mongodb';
   host: string;
   port: number;
   database: string;
   username: string;
+  connectionUri?: string;
   secretRef?: string;
   tlsMode: 'none' | 'prefer' | 'require';
   readOnly?: boolean;
@@ -140,6 +141,23 @@ export interface RedisValueInfo {
   ttl: number;
   exists: boolean;
   truncated: boolean;
+}
+
+export interface MongoDocumentResult {
+  documents: string[];
+  total: number;
+}
+
+export interface MongoIndexInfo {
+  name: string;
+  keys: string;
+  unique: boolean;
+}
+
+export interface MongoFieldInfo {
+  path: string;
+  types: string[];
+  presence: number;
 }
 
 export interface ResultWrapper<T> {
@@ -213,6 +231,71 @@ declare global {
       redisExpire: (profileId: string, key: string, seconds: number) => Promise<ResultWrapper<{ ok: boolean }>>;
       redisRename: (profileId: string, key: string, newKey: string) => Promise<ResultWrapper<{ ok: boolean }>>;
       redisCommand: (profileId: string, args: string[]) => Promise<ResultWrapper<{ output: string; isError: boolean }>>;
+      mongoDatabases: (profileId: string) => Promise<ResultWrapper<{ data: { name: string }[] }>>;
+      mongoCollections: (profileId: string, database: string) => Promise<ResultWrapper<{ data: { name: string }[] }>>;
+      mongoFind: (
+        profileId: string,
+        database: string,
+        collection: string,
+        opts?: { filter?: string; projection?: string; sort?: string; skip?: number; limit?: number }
+      ) => Promise<ResultWrapper<MongoDocumentResult>>;
+      mongoAggregate: (
+        profileId: string,
+        database: string,
+        collection: string,
+        pipeline: string,
+        limit?: number
+      ) => Promise<ResultWrapper<MongoDocumentResult>>;
+      mongoCount: (
+        profileId: string,
+        database: string,
+        collection: string,
+        filter?: string
+      ) => Promise<ResultWrapper<{ count: number }>>;
+      mongoInsert: (
+        profileId: string,
+        database: string,
+        collection: string,
+        document: string
+      ) => Promise<ResultWrapper<{ insertedId: string }>>;
+      mongoReplace: (
+        profileId: string,
+        database: string,
+        collection: string,
+        id: string,
+        document: string
+      ) => Promise<ResultWrapper<{ ok: boolean }>>;
+      mongoDelete: (
+        profileId: string,
+        database: string,
+        collection: string,
+        id: string
+      ) => Promise<ResultWrapper<{ ok: boolean }>>;
+      mongoIndexes: (
+        profileId: string,
+        database: string,
+        collection: string
+      ) => Promise<ResultWrapper<{ data: MongoIndexInfo[] }>>;
+      mongoCreateIndex: (
+        profileId: string,
+        database: string,
+        collection: string,
+        keys: string,
+        unique?: boolean,
+        name?: string
+      ) => Promise<ResultWrapper<{ ok: boolean }>>;
+      mongoDropIndex: (
+        profileId: string,
+        database: string,
+        collection: string,
+        name: string
+      ) => Promise<ResultWrapper<{ ok: boolean }>>;
+      mongoSchema: (
+        profileId: string,
+        database: string,
+        collection: string,
+        sampleSize?: number
+      ) => Promise<ResultWrapper<{ data: MongoFieldInfo[] }>>;
       listSavedQueries: (workspaceId: string) => Promise<ResultWrapper<SavedQuery[]>>;
       saveQuery: (savedQuery: Record<string, unknown>) => Promise<ResultWrapper<SavedQuery>>;
       deleteSavedQuery: (id: string) => Promise<ResultWrapper<{ success: boolean }>>;

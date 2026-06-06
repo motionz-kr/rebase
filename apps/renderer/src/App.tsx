@@ -28,17 +28,23 @@ import { SavedQueries } from './components/SavedQueries';
 import { QueryHistory } from './components/QueryHistory';
 import { TableDataView } from './components/TableDataView';
 import { ErDiagram } from './components/ErDiagram';
+import { MongoExplorer } from './components/MongoExplorer';
+import { MongoDocumentView } from './components/MongoDocumentView';
+import { MongoQueryEditor } from './components/MongoQueryEditor';
+import { MongoIndexManager } from './components/MongoIndexManager';
+import { MongoSchemaPanel } from './components/MongoSchemaPanel';
 import { connectionsReducer, initialConnectionsState } from './state/connections';
 import './App.css';
 
 export interface ConnectionProfile {
   id?: string;
   name: string;
-  driver: 'mysql' | 'postgres' | 'redis' | 'sqlite' | 'sqlserver';
+  driver: 'mysql' | 'postgres' | 'redis' | 'sqlite' | 'sqlserver' | 'mongodb';
   host: string;
   port: number;
   database: string;
   username: string;
+  connectionUri?: string;
   secretRef?: string;
   tlsMode: 'none' | 'prefer' | 'require';
   readOnly?: boolean;
@@ -55,7 +61,7 @@ export interface HealthResult {
   error?: string;
 }
 
-const DRIVER_LABEL: Record<string, string> = { mysql: 'MY', postgres: 'PG', redis: 'RS', sqlite: 'SQ', sqlserver: 'MS' };
+const DRIVER_LABEL: Record<string, string> = { mysql: 'MY', postgres: 'PG', redis: 'RS', sqlite: 'SQ', sqlserver: 'MS', mongodb: 'MG' };
 
 function App() {
   const [status, setStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking');
@@ -130,10 +136,14 @@ function App() {
   const [schemaVersion, setSchemaVersion] = useState(0);
   const [openTable, setOpenTable] = useState<Record<string, { db: string; table: string; filter?: { col: string; value: string } } | null>>({});
   const [erTab, setErTab] = useState<Record<string, { db: string } | null>>({});
+  const [mongoView, setMongoView] = useState<
+    Record<string, { database: string; collection: string; mode: 'documents' | 'query' | 'indexes' | 'schema' } | null>
+  >({});
 
   // Create form state
-  const [formDriver, setFormDriver] = useState<'mysql' | 'postgres' | 'redis' | 'sqlite' | 'sqlserver'>('mysql');
+  const [formDriver, setFormDriver] = useState<'mysql' | 'postgres' | 'redis' | 'sqlite' | 'sqlserver' | 'mongodb'>('mysql');
   const [formName, setFormName] = useState('');
+  const [formConnectionUri, setFormConnectionUri] = useState('');
   const [formHost, setFormHost] = useState('127.0.0.1');
   const [formPort, setFormPort] = useState(3306);
   const [formDatabase, setFormDatabase] = useState('');
@@ -183,7 +193,7 @@ function App() {
     }
   };
 
-  const handleDriverChange = (driver: 'mysql' | 'postgres' | 'redis' | 'sqlite' | 'sqlserver') => {
+  const handleDriverChange = (driver: 'mysql' | 'postgres' | 'redis' | 'sqlite' | 'sqlserver' | 'mongodb') => {
     setFormDriver(driver);
     if (driver === 'mysql') {
       setFormPort(3306);
@@ -197,6 +207,10 @@ function App() {
       setFormPort(1433);
       setFormDatabase('master');
       setFormUsername('sa');
+    } else if (driver === 'mongodb') {
+      setFormPort(27017);
+      setFormDatabase('');
+      setFormUsername('');
     } else if (driver === 'sqlite') {
       setFormPort(0);
       setFormDatabase('');
@@ -211,6 +225,7 @@ function App() {
   const resetForm = () => {
     setFormName('');
     handleDriverChange('mysql');
+    setFormConnectionUri('');
     setFormPassword('');
     setFormReadOnly(false);
     setEditingId(null);
@@ -225,6 +240,7 @@ function App() {
     setFormPort(p.port);
     setFormDatabase(p.database);
     setFormUsername(p.username);
+    setFormConnectionUri(p.connectionUri ?? '');
     setFormPassword(''); // blank keeps the existing password
     setFormTlsMode(p.tlsMode);
     setFormReadOnly(p.readOnly ?? false);
@@ -243,6 +259,7 @@ function App() {
       port: formDriver === 'sqlite' ? 0 : formPort,
       database: formDatabase,
       username: formDriver === 'sqlite' ? '' : formUsername,
+      connectionUri: formConnectionUri,
       tlsMode: formTlsMode,
       readOnly: formReadOnly,
     };
@@ -269,6 +286,7 @@ function App() {
       port: formDriver === 'sqlite' ? 0 : formPort,
       database: formDatabase,
       username: formDriver === 'sqlite' ? '' : formUsername,
+      connectionUri: formConnectionUri,
       tlsMode: formTlsMode,
       readOnly: formReadOnly,
     };
@@ -502,10 +520,11 @@ function App() {
                   <form className="conn-form" onSubmit={handleCreateProfile}>
               <div>
                 <label>Database type</label>
-                <select value={formDriver} onChange={(e) => handleDriverChange(e.target.value as 'mysql' | 'postgres' | 'redis' | 'sqlite' | 'sqlserver')}>
+                <select value={formDriver} onChange={(e) => handleDriverChange(e.target.value as 'mysql' | 'postgres' | 'redis' | 'sqlite' | 'sqlserver' | 'mongodb')}>
                   <option value="mysql">MySQL</option>
                   <option value="postgres">PostgreSQL</option>
                   <option value="sqlserver">SQL Server</option>
+                  <option value="mongodb">MongoDB</option>
                   <option value="redis">Redis</option>
                   <option value="sqlite">SQLite</option>
                 </select>
@@ -592,6 +611,20 @@ function App() {
                   <option value="require">Require (encrypted)</option>
                 </select>
               </div>
+              {formDriver === 'mongodb' && (
+                <div>
+                  <label>고급: 연결 문자열 (선택)</label>
+                  <input
+                    type="text"
+                    value={formConnectionUri}
+                    onChange={(e) => setFormConnectionUri(e.target.value)}
+                    placeholder="mongodb+srv://user:pass@cluster.mongodb.net/  (입력 시 host/port보다 우선)"
+                  />
+                  {formConnectionUri.trim() !== '' && (
+                    <p className="dialog-hint">연결 문자열이 설정되어 host/port·인증 정보보다 우선 적용됩니다.</p>
+                  )}
+                </div>
+              )}
                 </>
               )}
               <div className="form-actions">
@@ -707,8 +740,17 @@ function App() {
                             }}
                             onDisconnect={() => disconnect(p.id!)}
                           />
+                        ) : p.driver === 'mongodb' ? (
+                          <MongoExplorer
+                            profileId={p.id!}
+                            onOpen={(database, collection, mode) => {
+                              setMongoView((prev) => ({ ...prev, [p.id!]: { database, collection, mode } }));
+                              dispatch({ type: 'focus', profileId: p.id! });
+                            }}
+                            onDisconnect={() => disconnect(p.id!)}
+                          />
                         ) : (
-                          <SchemaExplorer profileId={p.id!} driver={p.driver} hiddenStore={hiddenStore} onDisconnect={() => disconnect(p.id!)} onSchemaChanged={() => setSchemaVersion((n) => n + 1)} onOpenTableData={(db, table) => { setErTab((prev) => ({ ...prev, [p.id!]: null })); setOpenTable((prev) => ({ ...prev, [p.id!]: { db, table } })); }} onOpenErDiagram={(db) => { setOpenTable((prev) => ({ ...prev, [p.id!]: null })); setErTab((prev) => ({ ...prev, [p.id!]: { db } })); }} onRunQuery={(sql) => { setErTab((prev) => ({ ...prev, [p.id!]: null })); setOpenTable((prev) => ({ ...prev, [p.id!]: null })); setRunReq({ profileId: p.id!, sql, nonce: Date.now() }); }} />
+                          <SchemaExplorer profileId={p.id!} driver={p.driver as 'mysql' | 'postgres' | 'redis' | 'sqlite' | 'sqlserver'} hiddenStore={hiddenStore} onDisconnect={() => disconnect(p.id!)} onSchemaChanged={() => setSchemaVersion((n) => n + 1)} onOpenTableData={(db, table) => { setErTab((prev) => ({ ...prev, [p.id!]: null })); setOpenTable((prev) => ({ ...prev, [p.id!]: { db, table } })); }} onOpenErDiagram={(db) => { setOpenTable((prev) => ({ ...prev, [p.id!]: null })); setErTab((prev) => ({ ...prev, [p.id!]: { db } })); }} onRunQuery={(sql) => { setErTab((prev) => ({ ...prev, [p.id!]: null })); setOpenTable((prev) => ({ ...prev, [p.id!]: null })); setRunReq({ profileId: p.id!, sql, nonce: Date.now() }); }} />
                         )}
                       </div>
                     )}
@@ -727,7 +769,7 @@ function App() {
             </div>
 
           {/* Focused SQL connection: saved queries / history */}
-          {focusedProfile && focusedProfile.driver !== 'redis' && conns.byId[focusedProfile.id!]?.status === 'connected' && (
+          {focusedProfile && focusedProfile.driver !== 'redis' && focusedProfile.driver !== 'mongodb' && conns.byId[focusedProfile.id!]?.status === 'connected' && (
             <div className="sidebar-focused-panel">
               <div className="seg-tabs">
                 <button className={`seg-tab ${sideTab === 'saved' ? 'active' : ''}`} onClick={() => setSideTab('saved')}>
@@ -835,6 +877,84 @@ function App() {
                         />
                       )}
                     </div>
+                  ) : profile.driver === 'mongodb' ? (
+                    (() => {
+                      const mv = mongoView[id];
+                      const setMode = (mode: 'documents' | 'query' | 'indexes' | 'schema') => {
+                        if (!mv) return;
+                        setMongoView((prev) => ({ ...prev, [id]: { ...mv, mode } }));
+                      };
+                      return (
+                        <div className="mongo-workspace">
+                          <div className="mongo-tabs">
+                            {mv ? (
+                              <span className="mongo-tabs-ctx mono">
+                                {mv.database} · {mv.collection}
+                              </span>
+                            ) : (
+                              <span className="mongo-tabs-ctx muted">컬렉션을 선택하세요</span>
+                            )}
+                            <span className="mongo-spacer" />
+                            <button
+                              className={`mongo-tab${mv?.mode === 'documents' ? ' active' : ''}`}
+                              disabled={!mv}
+                              onClick={() => setMode('documents')}
+                            >
+                              문서
+                            </button>
+                            <button
+                              className={`mongo-tab${!mv || mv.mode === 'query' ? ' active' : ''}`}
+                              onClick={() => setMode('query')}
+                            >
+                              쿼리
+                            </button>
+                            <button
+                              className={`mongo-tab${mv?.mode === 'indexes' ? ' active' : ''}`}
+                              disabled={!mv}
+                              onClick={() => setMode('indexes')}
+                            >
+                              인덱스
+                            </button>
+                            <button
+                              className={`mongo-tab${mv?.mode === 'schema' ? ' active' : ''}`}
+                              disabled={!mv}
+                              onClick={() => setMode('schema')}
+                            >
+                              스키마
+                            </button>
+                          </div>
+                          <div className="mongo-workspace-body">
+                            {mv && mv.mode === 'documents' ? (
+                              <MongoDocumentView
+                                key={`doc:${mv.database}.${mv.collection}`}
+                                profileId={id}
+                                database={mv.database}
+                                collection={mv.collection}
+                              />
+                            ) : mv && mv.mode === 'indexes' ? (
+                              <MongoIndexManager
+                                key={`idx:${mv.database}.${mv.collection}`}
+                                profileId={id}
+                                database={mv.database}
+                                collection={mv.collection}
+                              />
+                            ) : mv && mv.mode === 'schema' ? (
+                              <MongoSchemaPanel
+                                key={`schema:${mv.database}.${mv.collection}`}
+                                profileId={id}
+                                database={mv.database}
+                                collection={mv.collection}
+                              />
+                            ) : (
+                              <MongoQueryEditor
+                                profileId={id}
+                                view={mv ? { database: mv.database, collection: mv.collection } : null}
+                              />
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()
                   ) : erTab[id] ? (
                     <ErDiagram
                       key={`er:${erTab[id]!.db}`}
@@ -857,7 +977,7 @@ function App() {
                   ) : (
                     <QueryEditor
                       profileId={id}
-                      driver={profile.driver}
+                      driver={profile.driver as 'mysql' | 'postgres' | 'redis' | 'sqlite' | 'sqlserver'}
                       database={profile.database}
                       connectionName={profile.name}
                       onQueryExecuted={() => setHistoryTrigger((n) => n + 1)}

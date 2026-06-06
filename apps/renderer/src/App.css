@@ -3341,3 +3341,218 @@
 .ctp-status.error {
   color: var(--danger, #e5484d);
 }
+
+/* ── MongoDB workspace ─────────────────────────────────────────── */
+.mongo-workspace {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.mongo-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 12px 0;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.mongo-tabs-ctx {
+  font-size: 12px;
+  color: var(--text-2);
+  padding: 0 4px 7px;
+}
+.mongo-tab {
+  padding: 7px 14px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-3);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  margin-bottom: -1px;
+}
+.mongo-tab:hover:not(:disabled) {
+  color: var(--text-2);
+}
+.mongo-tab.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+.mongo-tab:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.mongo-workspace-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.mongo-spacer {
+  flex: 1;
+}
+
+.mongo-pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.mongo-panel-pad {
+  padding: 12px 16px;
+  gap: 10px;
+  overflow: auto;
+}
+.mongo-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mongo-panel-head h3 {
+  font-size: 14px;
+  margin: 0;
+  flex: 1;
+}
+.mongo-sample-note {
+  font-weight: 400;
+  font-size: 11.5px;
+}
+
+.mongo-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.mongo-filter {
+  flex: 1;
+  min-width: 120px;
+}
+.mongo-display-toggle {
+  gap: 0;
+}
+
+.mongo-query-head {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.mongo-query-input {
+  width: 100%;
+  min-height: 72px;
+  resize: vertical;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-2, var(--bg));
+  color: var(--text);
+  font-size: 12.5px;
+  box-sizing: border-box;
+}
+.mongo-query-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mongo-query-hint {
+  font-size: 11.5px;
+}
+.mongo-count-result {
+  padding: 16px;
+  font-size: 14px;
+}
+
+.mongo-result-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.mongo-empty {
+  padding: 16px;
+}
+
+.mongo-pager {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+  font-size: 12px;
+}
+
+.mongo-grid-wrap {
+  overflow: auto;
+}
+.mongo-grid {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 12px;
+}
+.mongo-grid th,
+.mongo-grid td {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  text-align: left;
+  white-space: nowrap;
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: top;
+}
+.mongo-grid th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-2, var(--bg));
+  font-weight: 600;
+  z-index: 1;
+}
+.mongo-grid-actions-col {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.mongo-json-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+}
+.mongo-json-doc {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+.mongo-json-doc pre {
+  margin: 0;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.mongo-doc-actions {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: flex;
+  gap: 2px;
+}
+
+.mongo-doc-editor {
+  width: 100%;
+  min-height: 280px;
+  resize: vertical;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-2, var(--bg));
+  color: var(--text);
+  font-size: 12.5px;
+  box-sizing: border-box;
+}

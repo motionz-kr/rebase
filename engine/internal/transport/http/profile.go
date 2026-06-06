@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/smlee/database-local-engine/engine/internal/adapters/mongo"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/mysql"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/postgres"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/redis"
@@ -21,6 +22,7 @@ type ProfileHandler struct {
 	redisConnector     *redis.RedisConnector
 	sqliteConnector    *sqlite.SQLiteConnector
 	sqlserverConnector *sqlserver.SQLServerConnector
+	mongoConnector     *mongo.MongoConnector
 }
 
 func NewProfileHandler(token string, service *application.ConnectionService) *ProfileHandler {
@@ -32,6 +34,7 @@ func NewProfileHandler(token string, service *application.ConnectionService) *Pr
 		redisConnector:     redis.NewRedisConnector(),
 		sqliteConnector:    sqlite.NewSQLiteConnector(),
 		sqlserverConnector: sqlserver.NewSQLServerConnector(),
+		mongoConnector:     mongo.NewMongoConnector(),
 	}
 }
 
@@ -175,6 +178,8 @@ func (h *ProfileHandler) TestConnection() http.Handler {
 			err = h.sqliteConnector.TestConnection(r.Context(), profile, password)
 		case "sqlserver":
 			err = h.sqlserverConnector.TestConnection(r.Context(), profile, password)
+		case "mongodb":
+			err = h.mongoConnector.TestConnection(r.Context(), profile, password)
 		default:
 			http.Error(w, "unsupported driver: "+req.Profile.Driver, http.StatusBadRequest)
 			return
