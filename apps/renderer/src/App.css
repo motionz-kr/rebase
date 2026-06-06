@@ -719,16 +719,16 @@
   color: var(--text-3);
 }
 .sql-ac-icon.table {
-  color: #ffcb6b;
+  color: var(--syntax-table);
 }
 .sql-ac-icon.column {
   color: var(--accent);
 }
 .sql-ac-icon.function {
-  color: #82aaff;
+  color: var(--syntax-function);
 }
 .sql-ac-icon.keyword {
-  color: #c792ea;
+  color: var(--syntax-keyword);
 }
 .sql-ac-label {
   font-family: var(--mono);
@@ -1717,7 +1717,7 @@
 .hist-err {
   margin-top: 6px;
   font-size: 11px;
-  color: #ff9b9b;
+  color: var(--text-danger);
   font-family: var(--mono);
   white-space: nowrap;
   overflow: hidden;
@@ -1821,7 +1821,7 @@
 .alert.error {
   background: var(--red-soft);
   border: 1px solid rgba(242, 85, 85, 0.3);
-  color: #ffb3b3;
+  color: var(--text-danger);
 }
 .alert.error strong {
   color: var(--red);
@@ -2033,12 +2033,12 @@
 
 /* DDL editor dialogs */
 .ctx-sep { height: 1px; background: var(--border); margin: 4px 0; }
-.ctx-item.danger { color: #ff6b6b; }
+.ctx-item.danger { color: var(--text-danger); }
 
 .modal-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 .form-row { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; }
 .form-label { font-size: 12px; color: var(--text-3); }
-.form-label.danger { color: #ff6b6b; }
+.form-label.danger { color: var(--text-danger); }
 
 .ddl-cols { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
 .ddl-col-head,
