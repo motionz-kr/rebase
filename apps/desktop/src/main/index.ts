@@ -1,5 +1,6 @@
-import { app, BrowserWindow, ipcMain, shell, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, shell, dialog, nativeTheme } from 'electron';
 import * as path from 'path';
+import * as fs from 'fs';
 import * as http from 'http';
 import * as crypto from 'crypto';
 import * as readline from 'readline';
@@ -8,6 +9,15 @@ import { EngineManager } from './engine_manager';
 import { UpdateService } from './updateService';
 import { detectClients, applyClient } from './mcpClients';
 import isDev from 'electron-is-dev';
+import {
+  type ThemeSource,
+  type ResolvedTheme,
+  DEFAULT_SOURCE,
+  isThemeSource,
+  backgroundForResolved,
+  loadThemeSource,
+  saveThemeSource,
+} from './theme';
 
 let mainWindow: BrowserWindow | null = null;
 let engineManager: EngineManager | null = null;
@@ -122,10 +132,38 @@ async function startEngineAndApp() {
     console.log(`Go engine started on port ${engineManager.getPort()} (PID: ${engineManager.getPid()})`);
   }
 
+  // Restore the persisted theme choice and keep the renderer in sync when the OS
+  // appearance changes while in 'system' mode.
+  nativeTheme.themeSource = loadThemeSource(themeFilePath());
+  nativeTheme.on('updated', () => broadcastTheme());
   createWindow();
 }
 
+// Resolve the brand icon shipped in build/. Present in dev and unpackaged runs;
+// packaged builds embed the icon via electron-builder (mac .icns, win .exe), so a
+// missing file here is expected and simply skipped.
+function resolveIconPath(): string | undefined {
+  const p = path.join(app.getAppPath(), 'build', 'icon.png');
+  return fs.existsSync(p) ? p : undefined;
+}
+
+function themeFilePath(): string {
+  return path.join(app.getPath('userData'), 'theme.json');
+}
+
+function resolvedTheme(): ResolvedTheme {
+  return nativeTheme.shouldUseDarkColors ? 'dark' : 'light';
+}
+
+function broadcastTheme(): void {
+  const payload = { source: nativeTheme.themeSource as ThemeSource, resolved: resolvedTheme() };
+  for (const w of BrowserWindow.getAllWindows()) {
+    w.webContents.send('theme-updated', payload);
+  }
+}
+
 function createWindow() {
+  const iconPath = resolveIconPath();
   mainWindow = new BrowserWindow({
     width: 900,
     height: 700,
@@ -133,18 +171,30 @@ function createWindow() {
     minHeight: 420,
     resizable: true,
     title: 'Rebase',
+    // Window icon for Windows/Linux (taskbar, title bar). macOS ignores this and
+    // uses the app bundle icon; its dev dock icon is set via app.dock below.
+    ...(process.platform !== 'darwin' && iconPath ? { icon: iconPath } : {}),
     // Hide the OS title bar but keep the native traffic-light buttons (macOS),
     // so the app's own header fills that space and matches the theme. The header
     // is the drag region (-webkit-app-region: drag in CSS).
     titleBarStyle: 'hiddenInset',
-    backgroundColor: '#1e1f22',
+    backgroundColor: backgroundForResolved(resolvedTheme()),
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'index.js'),
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
+      additionalArguments: [
+        `--theme=${resolvedTheme()}`,
+        `--theme-source=${nativeTheme.themeSource}`,
+      ],
     },
   });
+
+  // macOS dock icon for dev/unpackaged runs (packaged builds use the .icns bundle).
+  if (process.platform === 'darwin' && iconPath) {
+    app.dock?.setIcon(iconPath);
+  }
 
   if (isDev) {
     // In dev, clear the cache so edited CSS/JS is never served stale.
@@ -181,6 +231,23 @@ app.whenReady().then(() => {
   ipcMain.handle('update-install', () => updateService?.installAndRestart());
   ipcMain.handle('update-open-page', () => updateService?.openReleasesPage());
   ipcMain.handle('update-simulate', (_e, status) => updateService?.simulate(status));
+
+  ipcMain.handle('theme-get', () => ({
+    source: nativeTheme.themeSource as ThemeSource,
+    resolved: resolvedTheme(),
+  }));
+  ipcMain.handle('theme-set-source', (_e, source: unknown) => {
+    const next: ThemeSource = isThemeSource(source) ? source : DEFAULT_SOURCE;
+    nativeTheme.themeSource = next;
+    try {
+      saveThemeSource(themeFilePath(), next);
+    } catch (e) {
+      console.error('Failed to persist theme choice:', e);
+    }
+    const payload = { source: next, resolved: resolvedTheme() };
+    broadcastTheme();
+    return payload;
+  });
 
   ipcMain.handle('check-engine-health', async () => {
     if (!engineManager || engineManager.getPort() === null) {

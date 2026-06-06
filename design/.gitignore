@@ -1,0 +1,20 @@
+# Logo design scratch — exploration runs & intermediates (not committed).
+# Canonical source: logo/finalize3_apply.py  →  logo/final3/*.svg
+logo/final/
+logo/final2/
+logo/_*
+logo/*.svg
+logo/*.png
+logo/*.svg.png
+logo/finalize.py
+logo/finalize2.py
+logo/finalize3.py
+logo/gen.py
+logo/gen2.py
+logo/t_depth.py
+logo/final3/_tmp/
+logo/final3/compare.png
+logo/final3/ladder-68.png
+logo/final3/rebase-white-57.png
+logo/final3/rebase-white-68.png
+logo/final3/rebase-white-78.png

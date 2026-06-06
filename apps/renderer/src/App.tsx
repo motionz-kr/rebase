@@ -33,6 +33,7 @@ import { MongoDocumentView } from './components/MongoDocumentView';
 import { MongoQueryEditor } from './components/MongoQueryEditor';
 import { MongoIndexManager } from './components/MongoIndexManager';
 import { MongoSchemaPanel } from './components/MongoSchemaPanel';
+import { SettingsPopover } from './components/SettingsPopover';
 import { connectionsReducer, initialConnectionsState } from './state/connections';
 import './App.css';
 
@@ -475,6 +476,7 @@ function App() {
           <button className="icon-btn" onClick={() => window.electronAPI.updateCheck()} title="업데이트 확인">
             <DownloadCloud size={14} />
           </button>
+          <SettingsPopover />
         </div>
       </header>
 

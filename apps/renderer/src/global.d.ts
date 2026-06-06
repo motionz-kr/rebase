@@ -301,6 +301,14 @@ declare global {
       deleteSavedQuery: (id: string) => Promise<ResultWrapper<{ success: boolean }>>;
       listQueryHistory: (workspaceId: string, profileId: string) => Promise<ResultWrapper<QueryHistoryEntry[]>>;
       addQueryHistory: (history: Record<string, unknown>) => Promise<ResultWrapper<QueryHistoryEntry>>;
+      getTheme: () => Promise<{ source: 'light' | 'dark' | 'system'; resolved: 'light' | 'dark' }>;
+      setThemeSource: (
+        source: 'light' | 'dark' | 'system',
+      ) => Promise<{ source: 'light' | 'dark' | 'system'; resolved: 'light' | 'dark' }>;
+      onThemeUpdated: (
+        callback: (payload: { source: 'light' | 'dark' | 'system'; resolved: 'light' | 'dark' }) => void,
+      ) => () => void;
     };
+    __THEME__?: { source: 'light' | 'dark' | 'system'; resolved: 'light' | 'dark' };
   }
 }
