@@ -98,7 +98,9 @@ func (h *QueryHandler) enrichReport(ctx context.Context, connector ports.SQLConn
 
 	// 1. Table introspection: columns + primary keys + tenant intersection.
 	var allCols, pkCols []string
+	var descOK bool
 	if desc, err := connector.DescribeTable(ctx, profile, password, database, p.Table); err == nil {
+		descOK = true
 		for _, c := range desc.Columns {
 			allCols = append(allCols, c.Name)
 			if c.PrimaryKey {
@@ -135,8 +137,12 @@ func (h *QueryHandler) enrichReport(ctx context.Context, connector ports.SQLConn
 	}
 	if sqlText, ok := analyzer.BuildRollbackSQL(driver, p, snapCols, pkCols, snapRows); ok {
 		resp.RollbackSQL = sqlText
-	} else if p.Verb == "UPDATE" && len(pkCols) == 0 {
-		resp.RollbackNote = "PK가 없어 Rollback SQL을 생성할 수 없습니다"
+	} else if p.Verb == "UPDATE" {
+		if !descOK {
+			resp.RollbackNote = "테이블 정보를 조회할 수 없어 Rollback SQL을 생성하지 않았습니다"
+		} else if len(pkCols) == 0 {
+			resp.RollbackNote = "PK가 없어 Rollback SQL을 생성할 수 없습니다"
+		}
 	}
 }
 
@@ -163,12 +169,11 @@ func (h *QueryHandler) scalarInt(ctx context.Context, connector ports.SQLConnect
 func (h *QueryHandler) collectRows(ctx context.Context, connector ports.SQLConnector, profile domain.ConnectionProfile, password, query string, limit int) ([]string, [][]any) {
 	var cols []string
 	var rows [][]any
-	stop := fmtError("row limit reached")
 	_, _ = connector.ExecuteQueryStream(ctx, profile, password, query, true,
 		func(int64) {}, func(c []string) error { cols = c; return nil },
 		func(row []any) error {
 			if len(rows) >= limit {
-				return stop
+				return errRowLimitReached
 			}
 			cp := make([]any, len(row))
 			copy(cp, row)
