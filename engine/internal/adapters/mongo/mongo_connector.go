@@ -252,6 +252,28 @@ func (c *MongoConnector) InsertDocument(ctx context.Context, p domain.Connection
 	return strings.TrimSpace(s[idx+1 : len(s)-1]), nil
 }
 
+// idFilter builds an `{_id: <value>}` filter from an ext-JSON _id, defending
+// against a crafted id that would widen the match: it must decode to exactly one
+// field, and an object-valued _id must not contain query operators ($-prefixed
+// keys). A legitimate compound _id (no $ keys) is still allowed.
+func idFilter(idJSON string) (bson.D, error) {
+	var wrap bson.D
+	if err := bson.UnmarshalExtJSON([]byte(`{"_id":`+idJSON+`}`), false, &wrap); err != nil {
+		return nil, normalizeError(err)
+	}
+	if len(wrap) != 1 || wrap[0].Key != "_id" {
+		return nil, errors.New("invalid _id value")
+	}
+	if d, ok := wrap[0].Value.(bson.D); ok {
+		for _, e := range d {
+			if strings.HasPrefix(e.Key, "$") {
+				return nil, errors.New("invalid _id value: query operators are not allowed")
+			}
+		}
+	}
+	return bson.D{{Key: "_id", Value: wrap[0].Value}}, nil
+}
+
 // ReplaceDocument replaces the document whose _id matches idJSON (an ext-JSON
 // scalar) with the given ext-JSON document.
 func (c *MongoConnector) ReplaceDocument(ctx context.Context, p domain.ConnectionProfile, password, database, collection, idJSON, documentJSON string) error {
@@ -266,11 +288,10 @@ func (c *MongoConnector) ReplaceDocument(ctx context.Context, p domain.Connectio
 		return normalizeError(err)
 	}
 
-	var wrap bson.D
-	if err := bson.UnmarshalExtJSON([]byte(`{"_id":`+idJSON+`}`), false, &wrap); err != nil {
-		return normalizeError(err)
+	filter, err := idFilter(idJSON)
+	if err != nil {
+		return err
 	}
-	filter := bson.D{{Key: "_id", Value: wrap[0].Value}}
 
 	coll := client.Database(database).Collection(collection)
 	if _, err := coll.ReplaceOne(ctx, filter, doc); err != nil {
@@ -288,11 +309,10 @@ func (c *MongoConnector) DeleteDocument(ctx context.Context, p domain.Connection
 	}
 	defer client.Disconnect(ctx)
 
-	var wrap bson.D
-	if err := bson.UnmarshalExtJSON([]byte(`{"_id":`+idJSON+`}`), false, &wrap); err != nil {
-		return normalizeError(err)
+	filter, err := idFilter(idJSON)
+	if err != nil {
+		return err
 	}
-	filter := bson.D{{Key: "_id", Value: wrap[0].Value}}
 
 	coll := client.Database(database).Collection(collection)
 	if _, err := coll.DeleteOne(ctx, filter); err != nil {
