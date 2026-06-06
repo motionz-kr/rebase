@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, shell, dialog } from 'electron';
 import * as path from 'path';
+import * as fs from 'fs';
 import * as http from 'http';
 import * as crypto from 'crypto';
 import * as readline from 'readline';
@@ -125,7 +126,16 @@ async function startEngineAndApp() {
   createWindow();
 }
 
+// Resolve the brand icon shipped in build/. Present in dev and unpackaged runs;
+// packaged builds embed the icon via electron-builder (mac .icns, win .exe), so a
+// missing file here is expected and simply skipped.
+function resolveIconPath(): string | undefined {
+  const p = path.join(app.getAppPath(), 'build', 'icon.png');
+  return fs.existsSync(p) ? p : undefined;
+}
+
 function createWindow() {
+  const iconPath = resolveIconPath();
   mainWindow = new BrowserWindow({
     width: 900,
     height: 700,
@@ -133,6 +143,9 @@ function createWindow() {
     minHeight: 420,
     resizable: true,
     title: 'Rebase',
+    // Window icon for Windows/Linux (taskbar, title bar). macOS ignores this and
+    // uses the app bundle icon; its dev dock icon is set via app.dock below.
+    ...(process.platform !== 'darwin' && iconPath ? { icon: iconPath } : {}),
     // Hide the OS title bar but keep the native traffic-light buttons (macOS),
     // so the app's own header fills that space and matches the theme. The header
     // is the drag region (-webkit-app-region: drag in CSS).
@@ -145,6 +158,11 @@ function createWindow() {
       sandbox: true,
     },
   });
+
+  // macOS dock icon for dev/unpackaged runs (packaged builds use the .icns bundle).
+  if (process.platform === 'darwin' && iconPath) {
+    app.dock?.setIcon(iconPath);
+  }
 
   if (isDev) {
     // In dev, clear the cache so edited CSS/JS is never served stale.
