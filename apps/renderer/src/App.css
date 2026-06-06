@@ -3296,7 +3296,7 @@
 }
 .er-export-err {
   font-size: 11px;
-  color: var(--danger, #e5534b);
+  color: var(--text-danger);
 }
 
 /* Table hide/show */
@@ -3350,7 +3350,7 @@
   color: var(--text-3);
 }
 .ctp-status.error {
-  color: var(--danger, #e5484d);
+  color: var(--text-danger);
 }
 
 /* ── MongoDB workspace ─────────────────────────────────────────── */

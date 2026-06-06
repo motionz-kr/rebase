@@ -239,7 +239,11 @@ app.whenReady().then(() => {
   ipcMain.handle('theme-set-source', (_e, source: unknown) => {
     const next: ThemeSource = isThemeSource(source) ? source : DEFAULT_SOURCE;
     nativeTheme.themeSource = next;
-    saveThemeSource(themeFilePath(), next);
+    try {
+      saveThemeSource(themeFilePath(), next);
+    } catch (e) {
+      console.error('Failed to persist theme choice:', e);
+    }
     const payload = { source: next, resolved: resolvedTheme() };
     broadcastTheme();
     return payload;

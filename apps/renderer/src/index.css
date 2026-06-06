@@ -65,6 +65,9 @@
   --syntax-function: #82aaff;
   --syntax-keyword: #c792ea;
   --text-danger: #ff9b9b;
+
+  --scrollbar-thumb: #2c2f37;
+  --scrollbar-thumb-hover: #3a3e48;
 }
 
 [data-theme="light"] {
@@ -103,6 +106,9 @@
   --syntax-function: #2563eb;
   --syntax-keyword: #7c3aed;
   --text-danger: #c4453f;
+
+  --scrollbar-thumb: #c8ccd2;
+  --scrollbar-thumb-hover: #b0b5bd;
 }
 
 * {
@@ -290,13 +296,13 @@ label {
   height: 10px;
 }
 *::-webkit-scrollbar-thumb {
-  background: #2c2f37;
+  background: var(--scrollbar-thumb);
   border-radius: 6px;
   border: 2px solid transparent;
   background-clip: padding-box;
 }
 *::-webkit-scrollbar-thumb:hover {
-  background: #3a3e48;
+  background: var(--scrollbar-thumb-hover);
   background-clip: padding-box;
 }
 *::-webkit-scrollbar-corner {

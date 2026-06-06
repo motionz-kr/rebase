@@ -35,11 +35,16 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const setSource = useCallback((next: ThemeSource) => {
     setSourceState(next); // optimistic; reconciled by the broadcast below
-    window.electronAPI.setThemeSource(next).then((payload) => {
-      const p = parseInjectedTheme(payload);
-      setSourceState(p.source);
-      setResolved(p.resolved);
-    });
+    window.electronAPI
+      .setThemeSource(next)
+      .then((payload) => {
+        const p = parseInjectedTheme(payload);
+        setSourceState(p.source);
+        setResolved(p.resolved);
+      })
+      .catch(() => {
+        // Persist/IPC failure: keep the optimistic value; the next broadcast reconciles.
+      });
   }, []);
 
   return (
