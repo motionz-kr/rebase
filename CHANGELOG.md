@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.1](https://github.com/motionz-kr/rebase/compare/v0.17.0...v0.17.1) (2026-06-06)
+
+
+### Bug Fixes
+
+* **desktop:** Windows 아이콘 256x256 포함 ([#115](https://github.com/motionz-kr/rebase/issues/115)) ([eda23d7](https://github.com/motionz-kr/rebase/commit/eda23d796e85b958247d9022407bd27e7807d513))
+
 ## [0.17.0](https://github.com/motionz-kr/rebase/compare/v0.16.0...v0.17.0) (2026-06-06)
 
 
