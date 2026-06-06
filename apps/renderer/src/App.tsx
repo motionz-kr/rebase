@@ -28,6 +28,11 @@ import { SavedQueries } from './components/SavedQueries';
 import { QueryHistory } from './components/QueryHistory';
 import { TableDataView } from './components/TableDataView';
 import { ErDiagram } from './components/ErDiagram';
+import { MongoExplorer } from './components/MongoExplorer';
+import { MongoDocumentView } from './components/MongoDocumentView';
+import { MongoQueryEditor } from './components/MongoQueryEditor';
+import { MongoIndexManager } from './components/MongoIndexManager';
+import { MongoSchemaPanel } from './components/MongoSchemaPanel';
 import { connectionsReducer, initialConnectionsState } from './state/connections';
 import './App.css';
 
@@ -131,6 +136,9 @@ function App() {
   const [schemaVersion, setSchemaVersion] = useState(0);
   const [openTable, setOpenTable] = useState<Record<string, { db: string; table: string; filter?: { col: string; value: string } } | null>>({});
   const [erTab, setErTab] = useState<Record<string, { db: string } | null>>({});
+  const [mongoView, setMongoView] = useState<
+    Record<string, { database: string; collection: string; mode: 'documents' | 'query' | 'indexes' | 'schema' } | null>
+  >({});
 
   // Create form state
   const [formDriver, setFormDriver] = useState<'mysql' | 'postgres' | 'redis' | 'sqlite' | 'sqlserver' | 'mongodb'>('mysql');
@@ -732,6 +740,15 @@ function App() {
                             }}
                             onDisconnect={() => disconnect(p.id!)}
                           />
+                        ) : p.driver === 'mongodb' ? (
+                          <MongoExplorer
+                            profileId={p.id!}
+                            onOpen={(database, collection, mode) => {
+                              setMongoView((prev) => ({ ...prev, [p.id!]: { database, collection, mode } }));
+                              dispatch({ type: 'focus', profileId: p.id! });
+                            }}
+                            onDisconnect={() => disconnect(p.id!)}
+                          />
                         ) : (
                           <SchemaExplorer profileId={p.id!} driver={p.driver as 'mysql' | 'postgres' | 'redis' | 'sqlite' | 'sqlserver'} hiddenStore={hiddenStore} onDisconnect={() => disconnect(p.id!)} onSchemaChanged={() => setSchemaVersion((n) => n + 1)} onOpenTableData={(db, table) => { setErTab((prev) => ({ ...prev, [p.id!]: null })); setOpenTable((prev) => ({ ...prev, [p.id!]: { db, table } })); }} onOpenErDiagram={(db) => { setOpenTable((prev) => ({ ...prev, [p.id!]: null })); setErTab((prev) => ({ ...prev, [p.id!]: { db } })); }} onRunQuery={(sql) => { setErTab((prev) => ({ ...prev, [p.id!]: null })); setOpenTable((prev) => ({ ...prev, [p.id!]: null })); setRunReq({ profileId: p.id!, sql, nonce: Date.now() }); }} />
                         )}
@@ -752,7 +769,7 @@ function App() {
             </div>
 
           {/* Focused SQL connection: saved queries / history */}
-          {focusedProfile && focusedProfile.driver !== 'redis' && conns.byId[focusedProfile.id!]?.status === 'connected' && (
+          {focusedProfile && focusedProfile.driver !== 'redis' && focusedProfile.driver !== 'mongodb' && conns.byId[focusedProfile.id!]?.status === 'connected' && (
             <div className="sidebar-focused-panel">
               <div className="seg-tabs">
                 <button className={`seg-tab ${sideTab === 'saved' ? 'active' : ''}`} onClick={() => setSideTab('saved')}>
@@ -860,6 +877,84 @@ function App() {
                         />
                       )}
                     </div>
+                  ) : profile.driver === 'mongodb' ? (
+                    (() => {
+                      const mv = mongoView[id];
+                      const setMode = (mode: 'documents' | 'query' | 'indexes' | 'schema') => {
+                        if (!mv) return;
+                        setMongoView((prev) => ({ ...prev, [id]: { ...mv, mode } }));
+                      };
+                      return (
+                        <div className="mongo-workspace">
+                          <div className="mongo-tabs">
+                            {mv ? (
+                              <span className="mongo-tabs-ctx mono">
+                                {mv.database} · {mv.collection}
+                              </span>
+                            ) : (
+                              <span className="mongo-tabs-ctx muted">컬렉션을 선택하세요</span>
+                            )}
+                            <span className="mongo-spacer" />
+                            <button
+                              className={`mongo-tab${mv?.mode === 'documents' ? ' active' : ''}`}
+                              disabled={!mv}
+                              onClick={() => setMode('documents')}
+                            >
+                              문서
+                            </button>
+                            <button
+                              className={`mongo-tab${!mv || mv.mode === 'query' ? ' active' : ''}`}
+                              onClick={() => setMode('query')}
+                            >
+                              쿼리
+                            </button>
+                            <button
+                              className={`mongo-tab${mv?.mode === 'indexes' ? ' active' : ''}`}
+                              disabled={!mv}
+                              onClick={() => setMode('indexes')}
+                            >
+                              인덱스
+                            </button>
+                            <button
+                              className={`mongo-tab${mv?.mode === 'schema' ? ' active' : ''}`}
+                              disabled={!mv}
+                              onClick={() => setMode('schema')}
+                            >
+                              스키마
+                            </button>
+                          </div>
+                          <div className="mongo-workspace-body">
+                            {mv && mv.mode === 'documents' ? (
+                              <MongoDocumentView
+                                key={`doc:${mv.database}.${mv.collection}`}
+                                profileId={id}
+                                database={mv.database}
+                                collection={mv.collection}
+                              />
+                            ) : mv && mv.mode === 'indexes' ? (
+                              <MongoIndexManager
+                                key={`idx:${mv.database}.${mv.collection}`}
+                                profileId={id}
+                                database={mv.database}
+                                collection={mv.collection}
+                              />
+                            ) : mv && mv.mode === 'schema' ? (
+                              <MongoSchemaPanel
+                                key={`schema:${mv.database}.${mv.collection}`}
+                                profileId={id}
+                                database={mv.database}
+                                collection={mv.collection}
+                              />
+                            ) : (
+                              <MongoQueryEditor
+                                profileId={id}
+                                view={mv ? { database: mv.database, collection: mv.collection } : null}
+                              />
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()
                   ) : erTab[id] ? (
                     <ErDiagram
                       key={`er:${erTab[id]!.db}`}

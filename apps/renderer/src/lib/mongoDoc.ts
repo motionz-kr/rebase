@@ -71,3 +71,20 @@ export function formatExtJson(s: string): string {
     return s;
   }
 }
+
+/**
+ * Extract the `_id` of a document as an ext-JSON scalar string suitable for the
+ * mongoReplace/mongoDelete `id` argument. Returns '' if absent/unparseable.
+ * An `_id` like `{"$oid":"..."}` round-trips as a JSON object string.
+ */
+export function extractId(docJson: string): string {
+  try {
+    const parsed = JSON.parse(docJson) as Record<string, unknown>;
+    if (parsed && typeof parsed === 'object' && '_id' in parsed) {
+      return JSON.stringify(parsed._id);
+    }
+  } catch {
+    /* ignore */
+  }
+  return '';
+}
