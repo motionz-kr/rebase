@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.1](https://github.com/motionz-kr/rebase/compare/v0.14.0...v0.14.1) (2026-06-06)
+
+
+### Bug Fixes
+
+* **renderer:** 테이블 DDL 다이얼로그 라벨↔입력창 정렬 ([#100](https://github.com/motionz-kr/rebase/issues/100)) ([e11e1cc](https://github.com/motionz-kr/rebase/commit/e11e1cc4b85607996dee655f1fe36f46bdde7d08))
+
 ## [0.14.0](https://github.com/motionz-kr/rebase/compare/v0.13.0...v0.14.0) (2026-06-05)
 
 
