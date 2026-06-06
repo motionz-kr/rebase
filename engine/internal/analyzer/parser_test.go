@@ -43,3 +43,58 @@ func TestParseDML_NonDML(t *testing.T) {
 		t.Error("SELECT is not DML-parseable")
 	}
 }
+
+func TestParseDML_WhereWordInLiteral(t *testing.T) {
+	p := ParseDML("UPDATE t SET note='check WHERE cond', x=1 WHERE id=5")
+	if !p.Parseable {
+		t.Fatal("should parse")
+	}
+	if p.WhereClause != "id=5" {
+		t.Errorf("where: got %q want id=5", p.WhereClause)
+	}
+	if !reflect.DeepEqual(p.SetCols, []string{"note", "x"}) {
+		t.Errorf("setCols: got %v want [note x]", p.SetCols)
+	}
+}
+
+func TestParseDML_NoWhereLiteralContainsWhere(t *testing.T) {
+	p := ParseDML("UPDATE t SET note='no real where here'")
+	if !p.Parseable {
+		t.Fatal("should parse")
+	}
+	if p.HasWhere {
+		t.Errorf("should have no WHERE, got %q", p.WhereClause)
+	}
+	if !reflect.DeepEqual(p.SetCols, []string{"note"}) {
+		t.Errorf("setCols: got %v want [note]", p.SetCols)
+	}
+}
+
+func TestParseDML_SemicolonInLiteralNotMultiStatement(t *testing.T) {
+	p := ParseDML("DELETE FROM t WHERE name=';'")
+	if !p.Parseable {
+		t.Fatal("semicolon inside a literal should still parse")
+	}
+	if p.WhereClause != "name=';'" {
+		t.Errorf("where: got %q", p.WhereClause)
+	}
+}
+
+func TestParseDML_SchemaQualifiedRejected(t *testing.T) {
+	if ParseDML("DELETE FROM mydb.users WHERE id=1").Parseable {
+		t.Error("schema-qualified table must be unparseable in v1")
+	}
+}
+
+func TestParseDML_StripOrderByLimit(t *testing.T) {
+	p := ParseDML("DELETE FROM t WHERE id > 100 ORDER BY id LIMIT 10")
+	if p.WhereClause != "id > 100" {
+		t.Errorf("where: got %q want 'id > 100'", p.WhereClause)
+	}
+}
+
+func TestParseDML_RealMultiStatementRejected(t *testing.T) {
+	if ParseDML("DELETE FROM t WHERE id=1; DROP TABLE t").Parseable {
+		t.Error("real multi-statement must be unparseable")
+	}
+}
