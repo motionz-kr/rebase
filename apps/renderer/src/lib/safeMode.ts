@@ -31,7 +31,7 @@ export interface RiskView {
   tenantMissing: boolean;
   previewSql: string;
   previewCols: string[];
-  previewRows: any[][];
+  previewRows: unknown[][];
   hasRollback: boolean;
   rollbackSql: string;
   rollbackNote: string;

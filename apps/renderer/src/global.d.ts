@@ -179,7 +179,7 @@ export interface AnalyzeResult {
   affectedRows: number | null;
   previewSql: string;
   previewCols: string[] | null;
-  previewRows: any[][] | null;
+  previewRows: unknown[][] | null;
   rollbackSql: string;
   rollbackNote: string;
 }
