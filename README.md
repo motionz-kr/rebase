@@ -28,6 +28,8 @@ keyboard-friendly Electron UI.
 - Shows the **expected affected-row count**, a **SELECT preview** of the targeted rows, and generates **Rollback SQL** from a before-image snapshot
 - On a safe-mode connection, high-risk statements are hard-blocked until you explicitly acknowledge — the engine enforces this server-side, so the gate can't be bypassed
 
+![Safe execution mode — a risky DELETE is intercepted with its risk level, affected-row count, missing tenant-scope warning, SELECT preview, and generated Rollback SQL](docs/safe-execution-mode.png)
+
 **Schema explorer**
 - Tables, views, indexes, and foreign keys; **resizable sidebar** (drag to resize, double-click to reset)
 - Create / alter tables, manage indexes, view DDL — all from the context menu
