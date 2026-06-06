@@ -221,3 +221,57 @@ func TestMongo_InsertReplaceDelete(t *testing.T) {
 		t.Fatalf("expected Zed deleted, count=%d", res3)
 	}
 }
+
+func TestMongo_Indexes(t *testing.T) {
+	c, p, pw := newConn(t)
+	seedMongo(t, p, pw)
+	ctx := context.Background()
+	idx, err := c.ListIndexes(ctx, p, pw, testDB, "people")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	// should include the default _id_ index and the seeded name index
+	names := map[string]bool{}
+	for _, i := range idx {
+		names[i.Name] = true
+	}
+	if !names["_id_"] {
+		t.Fatalf("missing _id_ index: %+v", idx)
+	}
+	// create + drop
+	if err := c.CreateIndex(ctx, p, pw, testDB, "people", `{"age":-1}`, false, "age_desc"); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	idx2, _ := c.ListIndexes(ctx, p, pw, testDB, "people")
+	found := false
+	for _, i := range idx2 {
+		if i.Name == "age_desc" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("age_desc not created")
+	}
+	if err := c.DropIndex(ctx, p, pw, testDB, "people", "age_desc"); err != nil {
+		t.Fatalf("drop: %v", err)
+	}
+}
+
+func TestMongo_InferSchema(t *testing.T) {
+	c, p, pw := newConn(t)
+	seedMongo(t, p, pw)
+	fields, err := c.InferSchema(context.Background(), p, pw, testDB, "people", 100)
+	if err != nil {
+		t.Fatalf("schema: %v", err)
+	}
+	byPath := map[string][]string{}
+	for _, f := range fields {
+		byPath[f.Path] = f.Types
+	}
+	if _, ok := byPath["name"]; !ok {
+		t.Fatalf("expected 'name' field: %+v", fields)
+	}
+	if _, ok := byPath["age"]; !ok {
+		t.Fatalf("expected 'age' field: %+v", fields)
+	}
+}

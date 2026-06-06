@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	driver "go.mongodb.org/mongo-driver/v2/mongo"
@@ -22,6 +23,9 @@ type MongoConnector struct{}
 func NewMongoConnector() *MongoConnector {
 	return &MongoConnector{}
 }
+
+// Compile-time assertion that MongoConnector satisfies the port interface.
+var _ ports.MongoConnector = (*MongoConnector)(nil)
 
 // client connects to MongoDB using the profile-derived URI. The caller owns the
 // returned client and must Disconnect it.
@@ -295,6 +299,186 @@ func (c *MongoConnector) DeleteDocument(ctx context.Context, p domain.Connection
 		return normalizeError(err)
 	}
 	return nil
+}
+
+// ListIndexes returns the indexes defined on a collection.
+func (c *MongoConnector) ListIndexes(ctx context.Context, p domain.ConnectionProfile, password, database, collection string) ([]ports.MongoIndex, error) {
+	client, err := c.client(p, password)
+	if err != nil {
+		return nil, err
+	}
+	defer client.Disconnect(ctx)
+
+	iv := client.Database(database).Collection(collection).Indexes()
+	cur, err := iv.List(ctx)
+	if err != nil {
+		return nil, normalizeError(err)
+	}
+	defer cur.Close(ctx)
+
+	var out []ports.MongoIndex
+	for cur.Next(ctx) {
+		var idx bson.M
+		if err := cur.Decode(&idx); err != nil {
+			return nil, normalizeError(err)
+		}
+		var mi ports.MongoIndex
+		if name, ok := idx["name"].(string); ok {
+			mi.Name = name
+		}
+		if key, ok := idx["key"]; ok {
+			if kb, err := bson.MarshalExtJSON(key, false, false); err == nil {
+				mi.Keys = string(kb)
+			}
+		}
+		mi.Unique = idx["unique"] == true
+		out = append(out, mi)
+	}
+	if err := cur.Err(); err != nil {
+		return nil, normalizeError(err)
+	}
+	return out, nil
+}
+
+// CreateIndex creates an index from a JSON key spec (e.g. {"age":-1}). When name
+// is non-empty it is used as the index name; unique enforces a uniqueness
+// constraint.
+func (c *MongoConnector) CreateIndex(ctx context.Context, p domain.ConnectionProfile, password, database, collection, keysJSON string, unique bool, name string) error {
+	client, err := c.client(p, password)
+	if err != nil {
+		return err
+	}
+	defer client.Disconnect(ctx)
+
+	var keys bson.D
+	if err := bson.UnmarshalExtJSON([]byte(keysJSON), false, &keys); err != nil {
+		return normalizeError(err)
+	}
+
+	opts := options.Index().SetUnique(unique)
+	if name != "" {
+		opts.SetName(name)
+	}
+	model := driver.IndexModel{Keys: keys, Options: opts}
+	iv := client.Database(database).Collection(collection).Indexes()
+	if _, err := iv.CreateOne(ctx, model); err != nil {
+		return normalizeError(err)
+	}
+	return nil
+}
+
+// DropIndex drops the named index from a collection.
+func (c *MongoConnector) DropIndex(ctx context.Context, p domain.ConnectionProfile, password, database, collection, name string) error {
+	client, err := c.client(p, password)
+	if err != nil {
+		return err
+	}
+	defer client.Disconnect(ctx)
+
+	iv := client.Database(database).Collection(collection).Indexes()
+	if err := iv.DropOne(ctx, name); err != nil {
+		return normalizeError(err)
+	}
+	return nil
+}
+
+// InferSchema samples documents and reports each field's observed BSON types and
+// presence (the fraction of sampled docs containing the field). It inspects
+// top-level fields plus one level of nesting (parent.child for sub-documents).
+// Results are sorted by presence descending then path ascending.
+func (c *MongoConnector) InferSchema(ctx context.Context, p domain.ConnectionProfile, password, database, collection string, sampleSize int64) ([]ports.MongoField, error) {
+	client, err := c.client(p, password)
+	if err != nil {
+		return nil, err
+	}
+	defer client.Disconnect(ctx)
+
+	coll := client.Database(database).Collection(collection)
+	cur, err := coll.Aggregate(ctx, bson.A{
+		bson.D{{Key: "$sample", Value: bson.D{{Key: "size", Value: sampleSize}}}},
+	})
+	if err != nil {
+		return nil, normalizeError(err)
+	}
+	defer cur.Close(ctx)
+
+	types := map[string]map[string]bool{} // path -> set of type names
+	counts := map[string]int{}            // path -> presence count
+	total := 0
+
+	record := func(path string, v interface{}) {
+		if types[path] == nil {
+			types[path] = map[string]bool{}
+		}
+		types[path][bsonTypeName(v)] = true
+		counts[path]++
+	}
+
+	for cur.Next(ctx) {
+		var doc bson.M
+		if err := cur.Decode(&doc); err != nil {
+			return nil, normalizeError(err)
+		}
+		total++
+		for k, v := range doc {
+			record(k, v)
+			if sub, ok := v.(bson.M); ok {
+				for ck, cv := range sub {
+					record(k+"."+ck, cv)
+				}
+			}
+		}
+	}
+	if err := cur.Err(); err != nil {
+		return nil, normalizeError(err)
+	}
+
+	out := make([]ports.MongoField, 0, len(counts))
+	for path, n := range counts {
+		ts := make([]string, 0, len(types[path]))
+		for t := range types[path] {
+			ts = append(ts, t)
+		}
+		sort.Strings(ts)
+		presence := 0.0
+		if total > 0 {
+			presence = float64(n) / float64(total)
+		}
+		out = append(out, ports.MongoField{Path: path, Types: ts, Presence: presence})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Presence != out[j].Presence {
+			return out[i].Presence > out[j].Presence
+		}
+		return out[i].Path < out[j].Path
+	})
+	return out, nil
+}
+
+// bsonTypeName maps a Go value decoded from BSON to a friendly BSON type name.
+func bsonTypeName(v interface{}) string {
+	switch v.(type) {
+	case nil:
+		return "null"
+	case string:
+		return "string"
+	case bool:
+		return "bool"
+	case int32, int64, int:
+		return "int"
+	case float64, float32:
+		return "double"
+	case bson.ObjectID:
+		return "objectId"
+	case bson.DateTime, time.Time:
+		return "date"
+	case bson.M, bson.D:
+		return "object"
+	case bson.A, []interface{}:
+		return "array"
+	default:
+		return fmt.Sprintf("%T", v)
+	}
 }
 
 // normalizeError maps common low-level driver errors to friendly messages.
