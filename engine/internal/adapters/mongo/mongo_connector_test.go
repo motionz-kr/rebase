@@ -3,6 +3,7 @@ package mongo
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -114,5 +115,48 @@ func TestMongo_ListCollections(t *testing.T) {
 	}
 	if !contains(names, "people") || !contains(names, "orders") {
 		t.Fatalf("expected people+orders in %v", names)
+	}
+}
+
+func TestMongo_Find(t *testing.T) {
+	c, p, pw := newConn(t)
+	seedMongo(t, p, pw)
+	res, err := c.Find(context.Background(), p, pw, testDB, "people", `{"age":{"$gte":30}}`, "", `{"age":1}`, 0, 10)
+	if err != nil {
+		t.Fatalf("Find: %v", err)
+	}
+	if len(res.Documents) == 0 {
+		t.Fatal("expected docs")
+	}
+	if !strings.Contains(res.Documents[0], "\"name\"") {
+		t.Fatalf("doc not ext-json: %s", res.Documents[0])
+	}
+	if res.Total < int64(len(res.Documents)) {
+		t.Fatalf("Total should be the full match count, got %d", res.Total)
+	}
+}
+
+func TestMongo_Aggregate(t *testing.T) {
+	c, p, pw := newConn(t)
+	seedMongo(t, p, pw)
+	res, err := c.Aggregate(context.Background(), p, pw, testDB, "people",
+		`[{"$group":{"_id":null,"count":{"$sum":1}}}]`, 0)
+	if err != nil {
+		t.Fatalf("Aggregate: %v", err)
+	}
+	if len(res.Documents) != 1 || !strings.Contains(res.Documents[0], "count") {
+		t.Fatalf("agg result: %+v", res.Documents)
+	}
+}
+
+func TestMongo_Count(t *testing.T) {
+	c, p, pw := newConn(t)
+	seedMongo(t, p, pw)
+	n, err := c.CountDocuments(context.Background(), p, pw, testDB, "people", "")
+	if err != nil {
+		t.Fatalf("Count: %v", err)
+	}
+	if n <= 0 {
+		t.Fatalf("expected >0, got %d", n)
 	}
 }

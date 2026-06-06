@@ -86,6 +86,134 @@ func (c *MongoConnector) ListCollections(ctx context.Context, p domain.Connectio
 	return out, nil
 }
 
+// Find returns matching documents as relaxed Extended-JSON strings. Total is the
+// full match count (ignoring skip/limit) so callers can paginate.
+func (c *MongoConnector) Find(ctx context.Context, p domain.ConnectionProfile, password, database, collection, filterJSON, projectionJSON, sortJSON string, skip, limit int64) (ports.MongoResult, error) {
+	client, err := c.client(p, password)
+	if err != nil {
+		return ports.MongoResult{}, err
+	}
+	defer client.Disconnect(ctx)
+
+	filter := bson.D{}
+	if filterJSON != "" {
+		if err := bson.UnmarshalExtJSON([]byte(filterJSON), false, &filter); err != nil {
+			return ports.MongoResult{}, normalizeError(err)
+		}
+	}
+
+	opts := options.Find()
+	if sortJSON != "" {
+		var sort bson.D
+		if err := bson.UnmarshalExtJSON([]byte(sortJSON), false, &sort); err != nil {
+			return ports.MongoResult{}, normalizeError(err)
+		}
+		opts.SetSort(sort)
+	}
+	if projectionJSON != "" {
+		var proj bson.D
+		if err := bson.UnmarshalExtJSON([]byte(projectionJSON), false, &proj); err != nil {
+			return ports.MongoResult{}, normalizeError(err)
+		}
+		opts.SetProjection(proj)
+	}
+	if skip > 0 {
+		opts.SetSkip(skip)
+	}
+	if limit > 0 {
+		opts.SetLimit(limit)
+	}
+
+	coll := client.Database(database).Collection(collection)
+	cur, err := coll.Find(ctx, filter, opts)
+	if err != nil {
+		return ports.MongoResult{}, normalizeError(err)
+	}
+	defer cur.Close(ctx)
+
+	var docs []string
+	for cur.Next(ctx) {
+		ext, err := bson.MarshalExtJSON(cur.Current, false, false)
+		if err != nil {
+			return ports.MongoResult{}, normalizeError(err)
+		}
+		docs = append(docs, string(ext))
+	}
+	if err := cur.Err(); err != nil {
+		return ports.MongoResult{}, normalizeError(err)
+	}
+
+	total, err := coll.CountDocuments(ctx, filter)
+	if err != nil {
+		return ports.MongoResult{}, normalizeError(err)
+	}
+	return ports.MongoResult{Documents: docs, Total: total}, nil
+}
+
+// Aggregate runs a pipeline (a JSON array) and returns documents as relaxed
+// Extended-JSON strings. Total is -1 (not counted). When limit>0 the result
+// slice is capped to limit entries.
+func (c *MongoConnector) Aggregate(ctx context.Context, p domain.ConnectionProfile, password, database, collection, pipelineJSON string, limit int64) (ports.MongoResult, error) {
+	client, err := c.client(p, password)
+	if err != nil {
+		return ports.MongoResult{}, err
+	}
+	defer client.Disconnect(ctx)
+
+	pipeline := bson.A{}
+	if pipelineJSON != "" {
+		if err := bson.UnmarshalExtJSON([]byte(pipelineJSON), false, &pipeline); err != nil {
+			return ports.MongoResult{}, normalizeError(err)
+		}
+	}
+
+	coll := client.Database(database).Collection(collection)
+	cur, err := coll.Aggregate(ctx, pipeline)
+	if err != nil {
+		return ports.MongoResult{}, normalizeError(err)
+	}
+	defer cur.Close(ctx)
+
+	var docs []string
+	for cur.Next(ctx) {
+		if limit > 0 && int64(len(docs)) >= limit {
+			break
+		}
+		ext, err := bson.MarshalExtJSON(cur.Current, false, false)
+		if err != nil {
+			return ports.MongoResult{}, normalizeError(err)
+		}
+		docs = append(docs, string(ext))
+	}
+	if err := cur.Err(); err != nil {
+		return ports.MongoResult{}, normalizeError(err)
+	}
+	return ports.MongoResult{Documents: docs, Total: -1}, nil
+}
+
+// CountDocuments returns the number of documents matching filterJSON (empty →
+// all documents).
+func (c *MongoConnector) CountDocuments(ctx context.Context, p domain.ConnectionProfile, password, database, collection, filterJSON string) (int64, error) {
+	client, err := c.client(p, password)
+	if err != nil {
+		return 0, err
+	}
+	defer client.Disconnect(ctx)
+
+	filter := bson.D{}
+	if filterJSON != "" {
+		if err := bson.UnmarshalExtJSON([]byte(filterJSON), false, &filter); err != nil {
+			return 0, normalizeError(err)
+		}
+	}
+
+	n, err := client.Database(database).Collection(collection).CountDocuments(ctx, filter)
+	if err != nil {
+		return 0, normalizeError(err)
+	}
+	return n, nil
+}
+
 // normalizeError maps common low-level driver errors to friendly messages.
 func normalizeError(err error) error {
 	if err == nil {
