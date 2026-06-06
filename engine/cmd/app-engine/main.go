@@ -178,6 +178,15 @@ func main() {
 			`,
 			Checksum: "profile-connection-uri-v1",
 		},
+		{
+			Version: 6,
+			Name:    "add_profile_safe_mode",
+			SQL: `
+				ALTER TABLE connection_profiles ADD COLUMN safe_mode INTEGER NOT NULL DEFAULT 0;
+				ALTER TABLE connection_profiles ADD COLUMN tenant_columns TEXT NOT NULL DEFAULT '';
+			`,
+			Checksum: "profile-safe-mode-v1",
+		},
 	}
 	if err := migrationRunner.Run(migrations); err != nil {
 		log.Fatalf("failed to run migrations: %v", err)
@@ -242,6 +251,7 @@ func main() {
 	mux.Handle("/query/execute", queryHandler.ExecuteQuery())
 	mux.Handle("/query/execute-batch", queryHandler.ExecuteBatch())
 	mux.Handle("/query/cancel", queryHandler.CancelQuery())
+	mux.Handle("/query/analyze", queryHandler.AnalyzeQuery())
 
 	redisHandler := internalHttp.NewRedisHandler(*token, connectionService)
 	mux.Handle("/redis/scan", redisHandler.ScanKeys())

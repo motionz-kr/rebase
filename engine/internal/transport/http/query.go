@@ -12,6 +12,7 @@ import (
 	"github.com/smlee/database-local-engine/engine/internal/adapters/postgres"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/sqlite"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/sqlserver"
+	"github.com/smlee/database-local-engine/engine/internal/analyzer"
 	"github.com/smlee/database-local-engine/engine/internal/application"
 	"github.com/smlee/database-local-engine/engine/internal/domain"
 	"github.com/smlee/database-local-engine/engine/internal/ports"
@@ -71,6 +72,9 @@ type ExecuteQueryRequest struct {
 	MaxRows int `json:"maxRows"`
 	// FetchAll disables the row cap entirely (opt-in large fetch, ADR-0004).
 	FetchAll bool `json:"fetchAll"`
+	// Acknowledged confirms the user saw the safe-mode risk report and chose to
+	// force-run a high-risk statement on a production (safe-mode) connection.
+	Acknowledged bool `json:"acknowledged"`
 }
 
 // defaultRowLimit caps how many rows a query streams to the renderer unless the
@@ -92,6 +96,45 @@ func writeQueryPolicyError(w http.ResponseWriter, status int, code, message, ver
 		"code":  code,
 		"verb":  verb,
 	})
+}
+
+type gateInput struct {
+	readOnlyProfile    bool
+	safeMode           bool
+	classReadOnly      bool
+	classDestructive   bool
+	riskHigh           bool
+	allowWrite         bool
+	confirmDestructive bool
+	acknowledged       bool
+}
+
+type gateResult struct {
+	status  int
+	code    string
+	message string
+}
+
+// evaluateGate centralises the pre-execution policy decision. An empty code
+// means the statement may proceed.
+func evaluateGate(in gateInput) gateResult {
+	if in.readOnlyProfile && !in.classReadOnly {
+		return gateResult{http.StatusForbidden, "read_only_blocked",
+			"This connection is read-only. Writes are blocked."}
+	}
+	if !in.classReadOnly && !in.allowWrite {
+		return gateResult{http.StatusForbidden, "read_only_blocked",
+			"This statement may modify data and is blocked in read-only mode. Enable write mode to run it."}
+	}
+	if in.classDestructive && !in.confirmDestructive {
+		return gateResult{http.StatusConflict, "confirmation_required",
+			"This is a destructive statement. Confirm to run it."}
+	}
+	if in.safeMode && in.riskHigh && !in.acknowledged {
+		return gateResult{http.StatusConflict, "acknowledgement_required",
+			"This connection is in safe mode. Review the risk report and acknowledge to run this statement."}
+	}
+	return gateResult{}
 }
 
 type ExecuteBatchRequest struct {
@@ -126,30 +169,38 @@ func (h *QueryHandler) ExecuteQuery() http.Handler {
 			return
 		}
 
-		// Advisory policy gate (security.md): read-only by default, destructive
-		// statements require explicit confirmation. This runs before the stream
-		// starts so we can still return a real HTTP status + structured error.
-		class := domain.ClassifyQuery(req.Query)
-		if !class.ReadOnly && !req.AllowWrite {
-			writeQueryPolicyError(w, http.StatusForbidden, "read_only_blocked",
-				"This statement may modify data and is blocked in read-only mode. Enable write mode to run it.", class.Verb)
+		// Fetch the profile first so we know ReadOnly/SafeMode/TenantColumns
+		// before the policy gate runs. The gate must execute before any streaming
+		// headers are written so we can still return a real 403/409 status.
+		profile, password, err := h.service.GetProfile(r.Context(), req.ProfileID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		if class.Destructive && !req.ConfirmDestructive {
-			writeQueryPolicyError(w, http.StatusConflict, "confirmation_required",
-				"This is a destructive statement. Confirm to run it.", class.Verb)
+
+		// Advisory policy gate (security.md): read-only by default, destructive
+		// statements require explicit confirmation; safe-mode connections require
+		// acknowledgement for high-risk statements. Runs before streaming starts.
+		class := domain.ClassifyQuery(req.Query)
+		report := analyzer.Analyze(req.Query, profile.TenantColumnList())
+		gate := evaluateGate(gateInput{
+			readOnlyProfile:    profile.ReadOnly,
+			safeMode:           profile.SafeMode,
+			classReadOnly:      class.ReadOnly,
+			classDestructive:   class.Destructive,
+			riskHigh:           report.Level == analyzer.RiskHigh,
+			allowWrite:         req.AllowWrite,
+			confirmDestructive: req.ConfirmDestructive,
+			acknowledged:       req.Acknowledged,
+		})
+		if gate.code != "" {
+			writeQueryPolicyError(w, gate.status, gate.code, gate.message, class.Verb)
 			return
 		}
 
 		flusher, ok := w.(http.Flusher)
 		if !ok {
 			http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
-			return
-		}
-
-		profile, password, err := h.service.GetProfile(r.Context(), req.ProfileID)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 

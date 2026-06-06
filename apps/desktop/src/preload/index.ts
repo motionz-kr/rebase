@@ -37,9 +37,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     queryId: string,
     profileId: string,
     query: string,
-    options?: { allowWrite?: boolean; confirmDestructive?: boolean; maxRows?: number; fetchAll?: boolean }
+    options?: { allowWrite?: boolean; confirmDestructive?: boolean; maxRows?: number; fetchAll?: boolean; acknowledged?: boolean }
   ) => ipcRenderer.invoke('execute-query-stream', queryId, profileId, query, options),
   cancelQuery: (queryId: string) => ipcRenderer.invoke('cancel-query', queryId),
+  analyzeQuery: (profileId: string, query: string, database: string) =>
+    ipcRenderer.invoke('analyze-query', profileId, query, database),
   agentRun: (
     runId: string,
     profileId: string,
