@@ -11,6 +11,7 @@ import { TableDataView } from './TableDataView';
 import { ExecStatusBar, type ExecInfo } from './ExecStatusBar';
 import type { SchemaInfo } from '../lib/sqlCompletion';
 import { clampEditorHeight, EDITOR_DEFAULT, loadNum, saveNum } from '../lib/uiPrefs';
+import { useTheme } from '../lib/ThemeContext';
 
 loader.config({ monaco });
 
@@ -105,6 +106,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     ),
   ]);
   const [activeTabId, setActiveTabId] = useState('tab-1');
+  const { resolved } = useTheme();
   // When the run query is a plain single-table SELECT *, the result is shown in
   // an editable table view (add/edit/delete) instead of the read-only grid.
   const [editView, setEditView] = useState<EditableQuery | null>(null);
@@ -599,7 +601,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
         <MonacoEditor
           height={`${editorHeight}px`}
           language="sql"
-          theme="vs-dark"
+          theme={resolved === 'light' ? 'vs' : 'vs-dark'}
           value={activeTab.query}
           onChange={handleQueryChange}
           onMount={(editor, monacoInstance) => {
