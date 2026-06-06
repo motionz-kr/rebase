@@ -1,7 +1,15 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      try {
+        var t = window.__THEME__;
+        if (t && (t.resolved === 'light' || t.resolved === 'dark')) {
+          document.documentElement.setAttribute('data-theme', t.resolved);
+        }
+      } catch (e) {}
+    </script>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Rebase</title>

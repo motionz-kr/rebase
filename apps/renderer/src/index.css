@@ -7,10 +7,34 @@
  * lighter, matching IntelliJ. Monospace is reserved for code + data cells.
  */
 :root {
-  --bg: #1e1f22;          /* editor / main content (darkest) */
-  --bg-panel: #2b2d30;    /* tool windows, sidebar, toolbars */
-  --bg-panel-2: #2b2d30;  /* popups, modals, cards */
-  --bg-input: #1e1f22;    /* text fields */
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-lg: 10px;
+
+  --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --sans: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+
+  /* Driver brand colors — shared across themes */
+  --driver-mysql: #e8a33d;
+  --driver-postgres: #5b9bd5;
+  --driver-redis: #e0563f;
+
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: #1e1f22;
+  --bg-panel: #2b2d30;
+  --bg-panel-2: #2b2d30;
+  --bg-input: #1e1f22;
   --bg-hover: rgba(255, 255, 255, 0.06);
   --bg-active: rgba(255, 255, 255, 0.09);
 
@@ -34,27 +58,51 @@
   --amber: #d6a332;
   --amber-soft: rgba(214, 163, 50, 0.15);
 
-  --driver-mysql: #e8a33d;
-  --driver-postgres: #5b9bd5;
-  --driver-redis: #e0563f;
-
-  --radius-sm: 4px;
-  --radius: 6px;
-  --radius-lg: 10px;
-
-  --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-  --sans: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-
   --shadow-pop: 0 10px 34px rgba(0, 0, 0, 0.5);
 
-  font-family: var(--sans);
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--text);
-  color-scheme: dark;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  text-rendering: optimizeLegibility;
+  /* SQL autocomplete syntax + danger text (consumed in a later task) */
+  --syntax-table: #ffcb6b;
+  --syntax-function: #82aaff;
+  --syntax-keyword: #c792ea;
+  --text-danger: #ff9b9b;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+
+  --bg: #ffffff;
+  --bg-panel: #f3f4f6;
+  --bg-panel-2: #ffffff;
+  --bg-input: #ffffff;
+  --bg-hover: rgba(0, 0, 0, 0.05);
+  --bg-active: rgba(0, 0, 0, 0.08);
+
+  --border: #e3e5e8;
+  --border-strong: #c8cbd0;
+
+  --text: #1f2328;
+  --text-2: #4a4d52;
+  --text-3: #8b8f96;
+
+  --accent: #3574f0;
+  --accent-hover: #2c66d9;
+  --accent-press: #2459c4;
+  --accent-soft: rgba(53, 116, 240, 0.12);
+  --accent-border: rgba(53, 116, 240, 0.45);
+
+  --green: #3f9142;
+  --green-soft: rgba(63, 145, 66, 0.12);
+  --red: #c4453f;
+  --red-soft: rgba(196, 69, 63, 0.12);
+  --amber: #b07d18;
+  --amber-soft: rgba(176, 125, 24, 0.14);
+
+  --shadow-pop: 0 10px 30px rgba(0, 0, 0, 0.16);
+
+  --syntax-table: #b45309;
+  --syntax-function: #2563eb;
+  --syntax-keyword: #7c3aed;
+  --text-danger: #c4453f;
 }
 
 * {
