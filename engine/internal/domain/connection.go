@@ -18,6 +18,9 @@ type ConnectionProfile struct {
 	// ReadOnly is a general read-only intent for the connection; currently the
 	// sqlite connector honors it (opens mode=ro). Other drivers ignore it today.
 	ReadOnly bool `json:"readOnly"`
+	// ConnectionURI is an optional full connection string (e.g. for mongodb,
+	// "mongodb+srv://..."). When set it takes precedence over host/port.
+	ConnectionURI string `json:"connectionUri"`
 	// MCP exposure for external AI clients (off by default).
 	McpEnabled      bool      `json:"mcpEnabled"`
 	McpDataExposure string    `json:"mcpDataExposure"` // metadata|on_request|unrestricted (default metadata)
@@ -29,13 +32,20 @@ func (p ConnectionProfile) Validate() error {
 	if p.Name == "" {
 		return errors.New("connection profile name is required")
 	}
-	if p.Driver != "mysql" && p.Driver != "postgres" && p.Driver != "redis" && p.Driver != "sqlite" && p.Driver != "sqlserver" {
+	if p.Driver != "mysql" && p.Driver != "postgres" && p.Driver != "redis" && p.Driver != "sqlite" && p.Driver != "sqlserver" && p.Driver != "mongodb" {
 		return errors.New("unsupported database driver: " + p.Driver)
 	}
 	// SQLite is a local file: the path lives in Database; host/port are unused.
 	if p.Driver == "sqlite" {
 		if p.Database == "" {
 			return errors.New("database file path is required for sqlite")
+		}
+		return nil
+	}
+	// MongoDB connects via host+port OR a full connection URI.
+	if p.Driver == "mongodb" {
+		if p.ConnectionURI == "" && (p.Host == "" || p.Port <= 0 || p.Port > 65535) {
+			return errors.New("mongodb requires either a connection URI or host+port")
 		}
 		return nil
 	}

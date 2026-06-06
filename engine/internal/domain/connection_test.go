@@ -155,3 +155,21 @@ func TestValidate_SQLServerRequiresHostPortDatabase(t *testing.T) {
 		t.Fatal("expected missing database to be invalid")
 	}
 }
+
+func TestValidate_MongoStructured(t *testing.T) {
+	p := ConnectionProfile{Name: "m", Driver: "mongodb", Host: "h", Port: 27017}
+	if err := p.Validate(); err != nil {
+		t.Fatalf("structured mongo should be valid: %v", err)
+	}
+}
+func TestValidate_MongoConnectionURI(t *testing.T) {
+	p := ConnectionProfile{Name: "m", Driver: "mongodb", ConnectionURI: "mongodb+srv://x/y"}
+	if err := p.Validate(); err != nil {
+		t.Fatalf("uri mongo should be valid: %v", err)
+	}
+}
+func TestValidate_MongoNeedsHostOrURI(t *testing.T) {
+	if (ConnectionProfile{Name: "m", Driver: "mongodb"}).Validate() == nil {
+		t.Fatal("mongo with neither host nor uri should be invalid")
+	}
+}

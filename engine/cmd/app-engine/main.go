@@ -170,6 +170,14 @@ func main() {
 			`,
 			Checksum: "profile-read-only-v1",
 		},
+		{
+			Version: 5,
+			Name:    "add_profile_connection_uri",
+			SQL: `
+				ALTER TABLE connection_profiles ADD COLUMN connection_uri TEXT NOT NULL DEFAULT '';
+			`,
+			Checksum: "profile-connection-uri-v1",
+		},
 	}
 	if err := migrationRunner.Run(migrations); err != nil {
 		log.Fatalf("failed to run migrations: %v", err)
