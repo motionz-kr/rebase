@@ -699,6 +699,80 @@ app.whenReady().then(() => {
     }
   });
 
+  ipcMain.handle('generate-narration', async (event, runId, profileId, system, messages, options) => {
+    try {
+      if (!engineManager || engineManager.getPort() === null) {
+        throw new Error('Engine not started');
+      }
+      const port = engineManager.getPort()!;
+      const postData = JSON.stringify({
+        profileId,
+        system,
+        messages,
+        provider: options?.provider,
+        apiKey: options?.apiKey,
+        model: options?.model,
+      });
+
+      const req = http.request(
+        {
+          host: '127.0.0.1',
+          port,
+          path: '/agent/complete',
+          method: 'POST',
+          headers: {
+            'X-App-Engine-Token': launchToken,
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(postData).toString(),
+          },
+        },
+        (res) => {
+          if (res.statusCode && res.statusCode >= 400) {
+            let errBody = '';
+            res.on('data', (c) => (errBody += c));
+            res.on('end', () => {
+              activeStreams.delete(runId);
+              if (mainWindow) {
+                mainWindow.webContents.send('agent-stream-chunk', runId, {
+                  kind: 'error',
+                  err: errBody || `Request failed with status ${res.statusCode}`,
+                });
+              }
+            });
+            return;
+          }
+          const rl = readline.createInterface({ input: res, terminal: false });
+          rl.on('line', (line) => {
+            if (!line.trim()) return;
+            try {
+              const data = JSON.parse(line);
+              if (mainWindow) mainWindow.webContents.send('agent-stream-chunk', runId, data);
+            } catch (e) {
+              console.error('Failed to parse narration NDJSON line:', e);
+            }
+          });
+          res.on('close', () => {
+            rl.close();
+            activeStreams.delete(runId);
+          });
+        }
+      );
+      req.on('error', (err) => {
+        activeStreams.delete(runId);
+        if (mainWindow && !req.destroyed) {
+          mainWindow.webContents.send('agent-stream-chunk', runId, { kind: 'error', err: err.message });
+        }
+      });
+
+      activeStreams.set(runId, req);
+      req.write(postData);
+      req.end();
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
   // Agent API keys live in the OS keychain (via the engine), never in renderer
   // localStorage. These call the engine's /agent/key endpoint.
   function engineKeyRequest(
