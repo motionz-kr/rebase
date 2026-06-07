@@ -293,10 +293,20 @@ func (h *AgentHandler) Run() http.Handler {
 		svc.SetPolicy(agent.Policy{DataExposure: body.DataExposure})
 		// Never let the connection password / secret ref reach the provider.
 		svc.SetSecrets([]string{password, profile.SecretRef})
+		// Only surface tenant columns to the domain block when they were
+		// explicitly configured for this connection. Otherwise a bare
+		// connection (no glossary/notes/soft-delete) would still get a
+		// non-empty domain context from TenantColumnList()'s defaults,
+		// changing the agent's behavior — the design guarantees byte-identical
+		// behavior when no domain dictionary is set.
+		var tenantCols []string
+		if strings.TrimSpace(profile.TenantColumns) != "" {
+			tenantCols = profile.TenantColumnList()
+		}
 		svc.SetDomainContext(agent.BuildDomainContext(
 			profile.DomainGlossaryEntries(),
 			profile.DomainNotes,
-			profile.TenantColumnList(),
+			tenantCols,
 			profile.DomainBindingMap()["soft_delete"],
 		))
 
