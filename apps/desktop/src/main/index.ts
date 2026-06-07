@@ -1234,6 +1234,25 @@ app.whenReady().then(() => {
     }
   });
 
+  ipcMain.handle('list-templates', async (_e, workspaceId) => {
+    try {
+      const data = await requestEngine({ method: 'GET', path: `/templates?workspaceId=${encodeURIComponent(workspaceId)}` });
+      return { success: true, data };
+    } catch (err: any) { return { success: false, error: err.message }; }
+  });
+  ipcMain.handle('save-template', async (_e, template) => {
+    try {
+      const data = await requestEngine({ method: 'POST', path: '/templates', body: template });
+      return { success: true, data };
+    } catch (err: any) { return { success: false, error: err.message }; }
+  });
+  ipcMain.handle('delete-template', async (_e, id) => {
+    try {
+      const data = await requestEngine({ method: 'DELETE', path: `/templates?id=${encodeURIComponent(id)}` });
+      return { success: true, data };
+    } catch (err: any) { return { success: false, error: err.message }; }
+  });
+
   ipcMain.handle('list-query-history', async (event, workspaceId, profileId) => {
     try {
       const data = await requestEngine({

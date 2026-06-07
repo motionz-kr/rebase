@@ -144,6 +144,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   listSavedQueries: (workspaceId: string) => ipcRenderer.invoke('list-saved-queries', workspaceId),
   saveQuery: (savedQuery: any) => ipcRenderer.invoke('save-query', savedQuery),
   deleteSavedQuery: (id: string) => ipcRenderer.invoke('delete-saved-query', id),
+  listTemplates: (workspaceId: string) => ipcRenderer.invoke('list-templates', workspaceId),
+  saveTemplate: (template: any) => ipcRenderer.invoke('save-template', template),
+  deleteTemplate: (id: string) => ipcRenderer.invoke('delete-template', id),
   listQueryHistory: (workspaceId: string, profileId: string) => ipcRenderer.invoke('list-query-history', workspaceId, profileId),
   addQueryHistory: (history: any) => ipcRenderer.invoke('add-query-history', history),
 });
