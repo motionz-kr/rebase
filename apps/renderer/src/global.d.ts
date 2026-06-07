@@ -58,6 +58,12 @@ export interface SchemaGraph {
   foreignKeys: SchemaGraphFK[];
 }
 
+export interface UserTemplate {
+  id: string; workspaceId: string; name: string; description: string;
+  category: string; sqlText: string; parameters: string; driver: string;
+  createdAt?: string; updatedAt?: string;
+}
+
 export interface SavedQuery {
   id: string;
   workspaceId: string;
@@ -94,6 +100,7 @@ export interface ConnectionProfile {
   readOnly?: boolean;
   safeMode?: boolean;
   tenantColumns?: string;
+  domainBindings?: string;
   mcpEnabled?: boolean;
   mcpDataExposure?: string;
   createdAt?: string;
@@ -318,6 +325,9 @@ declare global {
       listSavedQueries: (workspaceId: string) => Promise<ResultWrapper<SavedQuery[]>>;
       saveQuery: (savedQuery: Record<string, unknown>) => Promise<ResultWrapper<SavedQuery>>;
       deleteSavedQuery: (id: string) => Promise<ResultWrapper<{ success: boolean }>>;
+      listTemplates: (workspaceId: string) => Promise<{ success: boolean; data?: UserTemplate[]; error?: string }>;
+      saveTemplate: (template: UserTemplate) => Promise<{ success: boolean; data?: UserTemplate; error?: string }>;
+      deleteTemplate: (id: string) => Promise<{ success: boolean; error?: string }>;
       listQueryHistory: (workspaceId: string, profileId: string) => Promise<ResultWrapper<QueryHistoryEntry[]>>;
       addQueryHistory: (history: Record<string, unknown>) => Promise<ResultWrapper<QueryHistoryEntry>>;
       getTheme: () => Promise<{ source: 'light' | 'dark' | 'system'; resolved: 'light' | 'dark' }>;

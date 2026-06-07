@@ -51,6 +51,7 @@ func TestIntegration_Persistence(t *testing.T) {
 					connection_uri TEXT NOT NULL DEFAULT '',
 					safe_mode INTEGER NOT NULL DEFAULT 0,
 					tenant_columns TEXT NOT NULL DEFAULT '',
+					domain_bindings TEXT NOT NULL DEFAULT '',
 					created_at DATETIME NOT NULL,
 					updated_at DATETIME NOT NULL
 				);

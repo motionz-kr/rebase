@@ -3659,3 +3659,23 @@
 .risk-actions { display: flex; justify-content: flex-end; gap: 10px; }
 .risk-run { background: #c0392b; color: #fff; border: none; padding: 7px 16px; border-radius: 6px; }
 .risk-run:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ============================================================
+   Templates panel + runner
+   ============================================================ */
+.templates-panel { display: flex; flex-direction: column; gap: 6px; padding: 8px; overflow: auto; }
+.templates-toolbar { display: flex; gap: 6px; align-items: center; }
+.templates-toolbar .input { flex: 1; }
+.templates-cat-head { font-size: 11px; text-transform: uppercase; opacity: 0.6; margin: 8px 0 2px; }
+.template-item { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%;
+  text-align: left; background: transparent; border: 1px solid transparent; border-radius: 6px; padding: 6px 8px; cursor: pointer; }
+.template-item:hover { background: var(--hover, #2a2a2a); border-color: var(--border, #333); }
+.template-item-name { font-weight: 600; font-size: 13px; }
+.template-item-desc { font-size: 11px; opacity: 0.7; line-height: 1.3; }
+.template-runner { display: flex; flex-direction: column; gap: 12px; padding: 16px; overflow: auto; height: 100%; }
+.template-runner-head h3 { margin: 0; }
+.template-desc { opacity: 0.75; font-size: 13px; margin: 4px 0 0; }
+.template-params { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.template-sql-preview pre { max-height: 160px; overflow: auto; }
+.template-actions, .template-followups { display: flex; gap: 8px; }
+.template-followups { margin-top: 8px; }

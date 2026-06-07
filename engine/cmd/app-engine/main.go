@@ -187,6 +187,34 @@ func main() {
 			`,
 			Checksum: "profile-safe-mode-v1",
 		},
+		{
+			Version: 7,
+			Name:    "add_profile_domain_bindings",
+			SQL: `
+				ALTER TABLE connection_profiles ADD COLUMN domain_bindings TEXT NOT NULL DEFAULT '';
+			`,
+			Checksum: "profile-domain-bindings-v1",
+		},
+		{
+			Version: 8,
+			Name:    "create_templates",
+			SQL: `
+				CREATE TABLE IF NOT EXISTS templates (
+					id TEXT PRIMARY KEY,
+					workspace_id TEXT NOT NULL,
+					name TEXT NOT NULL,
+					description TEXT NOT NULL DEFAULT '',
+					category TEXT NOT NULL DEFAULT '',
+					sql_text TEXT NOT NULL,
+					parameters TEXT NOT NULL DEFAULT '[]',
+					driver TEXT NOT NULL DEFAULT '',
+					created_at DATETIME NOT NULL,
+					updated_at DATETIME NOT NULL,
+					FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+				);
+			`,
+			Checksum: "templates-v1",
+		},
 	}
 	if err := migrationRunner.Run(migrations); err != nil {
 		log.Fatalf("failed to run migrations: %v", err)
@@ -306,6 +334,22 @@ func main() {
 	}))
 	mux.Handle("/account", workspaceHandler.HandleAccount())
 	mux.Handle("/mcp/settings", workspaceHandler.HandleMCPSettings())
+
+	templateRepo := sqlite.NewSQLiteTemplateRepository(db)
+	templateService := application.NewTemplateService(templateRepo)
+	templateHandler := internalHttp.NewTemplateHandler(*token, templateService)
+	mux.Handle("/templates", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost:
+			templateHandler.Save().ServeHTTP(w, r)
+		case http.MethodGet:
+			templateHandler.List().ServeHTTP(w, r)
+		case http.MethodDelete:
+			templateHandler.Delete().ServeHTTP(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
 
 	server := &http.Server{
 		Handler: corsGuard(mux),
