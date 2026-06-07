@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.0](https://github.com/motionz-kr/rebase/compare/v0.18.1...v0.19.0) (2026-06-07)
+
+
+### Features
+
+* 쿼리 결과 → 업무 문장 변환 (Result Narration) ([#104](https://github.com/motionz-kr/rebase/issues/104)) ([#122](https://github.com/motionz-kr/rebase/issues/122)) ([346ef52](https://github.com/motionz-kr/rebase/commit/346ef524c069a376e68f53a89054fa064c39f984))
+
 ## [0.18.1](https://github.com/motionz-kr/rebase/compare/v0.18.0...v0.18.1) (2026-06-07)
 
 
