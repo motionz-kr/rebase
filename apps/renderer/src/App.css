@@ -3680,3 +3680,18 @@
 .template-sql-preview pre { max-height: 160px; overflow: auto; }
 .template-actions, .template-followups { display: flex; gap: 8px; }
 .template-followups { margin-top: 8px; }
+
+/* ============================================================
+   ResultNarrator
+   ============================================================ */
+.narrator-wrap { margin-top: 10px; }
+.narrator-wrap > summary { cursor: pointer; font-size: 12px; color: var(--text-2); padding: 4px 0; }
+.narrator { display: flex; flex-direction: column; gap: 8px; padding: 8px 0; }
+.narrator-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.narrator-purposes { display: flex; gap: 4px; flex-wrap: wrap; }
+.narrator-hint { font-size: 11px; color: var(--text-3); margin: 0; }
+.narrator-consent { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2); }
+.narrator-output { background: var(--bg-input); color: var(--text); border: 1px solid var(--border);
+  border-radius: 6px; padding: 10px; font-size: 12px; white-space: pre-wrap; word-break: break-word;
+  max-height: 320px; overflow: auto; }
+.narrator-actions { display: flex; gap: 8px; }

@@ -11,6 +11,7 @@ import { classifyStatement } from '../lib/sqlDanger';
 import { analyzeEditableQuery, type EditableQuery } from '../lib/editableQuery';
 import { TableDataView } from './TableDataView';
 import { ExecStatusBar, type ExecInfo } from './ExecStatusBar';
+import { ResultNarrator } from './ResultNarrator';
 import type { SchemaInfo } from '../lib/sqlCompletion';
 import type { AnalyzeResult } from '../global';
 import { clampEditorHeight, EDITOR_DEFAULT, loadNum, saveNum } from '../lib/uiPrefs';
@@ -892,6 +893,12 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
                   </div>
                 )}
                 <ResultGrid columns={activeTab.columns} rows={activeTab.rows} />
+                {activeTab.columns.length > 0 && (
+                  <details className="narrator-wrap">
+                    <summary>업무 문장 생성</summary>
+                    <ResultNarrator profileId={profileId} sql={activeTab.query} columns={activeTab.columns} rows={activeTab.rows} />
+                  </details>
+                )}
               </>
             )}
           </>

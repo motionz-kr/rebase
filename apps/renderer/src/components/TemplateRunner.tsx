@@ -5,6 +5,7 @@ import { renderTemplate } from '../lib/templateRender';
 import { buildSummary, formatSummary, type SummaryFormat } from '../lib/templateSummary';
 import { toCsv } from '../lib/gridExport';
 import { ResultGrid } from './ResultGrid';
+import { ResultNarrator } from './ResultNarrator';
 
 interface Props {
   template: TemplateDef;
@@ -159,6 +160,10 @@ export function TemplateRunner({ template, profileId, driver, tables, columns, r
             <button className="btn btn-sm" onClick={() => copySummary('jira')}>Jira</button>
           </div>
           <ResultGrid columns={result.columns} rows={result.rows} />
+          <details className="narrator-wrap">
+            <summary>업무 문장 생성</summary>
+            <ResultNarrator profileId={profileId} sql={rendered.sql} columns={result.columns} rows={result.rows} />
+          </details>
         </>
       )}
     </div>

@@ -48,6 +48,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     messages: Array<{ role: string; text: string }>,
     options?: { provider?: string; apiKey?: string; model?: string; dataExposure?: string }
   ) => ipcRenderer.invoke('agent-run', runId, profileId, messages, options),
+  generateNarration: (
+    runId: string,
+    profileId: string,
+    system: string,
+    messages: Array<{ role: string; text: string }>,
+    options?: { provider?: string; apiKey?: string; model?: string }
+  ) => ipcRenderer.invoke('generate-narration', runId, profileId, system, messages, options),
   agentCancel: (runId: string) => ipcRenderer.invoke('agent-cancel', runId),
   agentCliStatus: (tool: string) => ipcRenderer.invoke('agent-cli-status', tool),
   agentCliLogin: (tool: string) => ipcRenderer.invoke('agent-cli-login', tool),

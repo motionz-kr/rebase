@@ -250,6 +250,13 @@ declare global {
       agentOAuthStatus: (provider: string) => Promise<ResultWrapper<{ loggedIn: boolean; expiresAt?: number }>>;
       agentOAuthLogout: (provider: string) => Promise<ResultWrapper<{ ok: boolean }>>;
       onAgentStreamChunk: (callback: (runId: string, chunk: AgentStreamChunk) => void) => () => void;
+      generateNarration: (
+        runId: string,
+        profileId: string,
+        system: string,
+        messages: Array<{ role: string; text: string }>,
+        options?: { provider?: string; apiKey?: string; model?: string }
+      ) => Promise<{ success: boolean; error?: string }>;
       redisScan: (profileId: string, pattern: string, cursor: number, count: number) => Promise<ResultWrapper<RedisKeyspaceInfo>>;
       redisValue: (profileId: string, key: string) => Promise<ResultWrapper<RedisValueInfo>>;
       redisSet: (profileId: string, key: string, value: string) => Promise<ResultWrapper<{ ok: boolean }>>;
