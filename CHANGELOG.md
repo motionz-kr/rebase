@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.1](https://github.com/motionz-kr/rebase/compare/v0.18.0...v0.18.1) (2026-06-07)
+
+
+### Bug Fixes
+
+* **renderer:** 다이얼로그·템플릿 UI 테마 토큰 정렬 ([#120](https://github.com/motionz-kr/rebase/issues/120)) ([d3aece6](https://github.com/motionz-kr/rebase/commit/d3aece61ab489909722d377b01ef7de23aad8659))
+
 ## [0.18.0](https://github.com/motionz-kr/rebase/compare/v0.17.1...v0.18.0) (2026-06-07)
 
 
