@@ -42,6 +42,8 @@ func newProfileRepo(t *testing.T) *SQLiteProfileRepository {
 					safe_mode INTEGER NOT NULL DEFAULT 0,
 					tenant_columns TEXT NOT NULL DEFAULT '',
 					domain_bindings TEXT NOT NULL DEFAULT '',
+					domain_glossary TEXT NOT NULL DEFAULT '',
+					domain_notes TEXT NOT NULL DEFAULT '',
 					created_at DATETIME NOT NULL,
 					updated_at DATETIME NOT NULL
 				);
@@ -168,5 +170,39 @@ func TestProfileMCPFieldsRoundTrip(t *testing.T) {
 	again, _ := repo.GetByID(ctx, "p1")
 	if again.McpEnabled || again.McpDataExposure != "metadata" {
 		t.Errorf("mcp fields not updated: %+v", again)
+	}
+}
+
+func TestProfileRepo_DomainGlossaryRoundTrip(t *testing.T) {
+	repo := newProfileRepo(t)
+	ctx := context.Background()
+
+	p := &domain.ConnectionProfile{
+		ID: "p1", Name: "n", Driver: "mysql", Host: "h", Port: 3306,
+		DomainGlossary: `[{"kind":"table","table":"User","column":"","meaning":"환자"}]`,
+		DomainNotes:    "항상 deletedAt IS NULL",
+		CreatedAt:      time.Now(), UpdatedAt: time.Now(),
+	}
+	if err := repo.Create(ctx, p); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	got, err := repo.GetByID(ctx, "p1")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.DomainGlossary != p.DomainGlossary {
+		t.Errorf("glossary: got %q want %q", got.DomainGlossary, p.DomainGlossary)
+	}
+	if got.DomainNotes != p.DomainNotes {
+		t.Errorf("notes: got %q want %q", got.DomainNotes, p.DomainNotes)
+	}
+
+	got.DomainNotes = "변경됨"
+	if err := repo.Update(ctx, got); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	again, _ := repo.GetByID(ctx, "p1")
+	if again.DomainNotes != "변경됨" {
+		t.Errorf("after update notes: got %q", again.DomainNotes)
 	}
 }
