@@ -183,6 +183,59 @@ func (h *AgentHandler) Key() http.Handler {
 	})
 }
 
+// providerParams carries the fields needed to construct an LLM provider.
+type providerParams struct {
+	ProfileID string
+	Provider  string
+	APIKey    string
+	Model     string
+}
+
+// buildProvider resolves an LLMProvider from request params, reusing the agent's
+// credential rules (explicit key → keychain; OAuth via keychain). The returned
+// cleanup func removes any temp MCP config (cli provider); callers must defer it.
+// Shared by Run() and Complete().
+func (h *AgentHandler) buildProvider(ctx context.Context, p providerParams) (ports.LLMProvider, func(), error) {
+	cleanup := func() {}
+	apiKey := p.APIKey
+	if apiKey == "" && (p.Provider == "anthropic" || p.Provider == "openai") {
+		if k, kerr := h.service.GetAgentKey(ctx, p.Provider); kerr == nil {
+			apiKey = k
+		}
+	}
+	switch p.Provider {
+	case "anthropic":
+		return llm.NewAnthropicProvider(apiKey, p.Model, ""), cleanup, nil
+	case "anthropic-oauth":
+		return llm.NewAnthropicOAuthProvider(oauthTokenStore{service: h.service, provider: "anthropic"}, p.Model, ""), cleanup, nil
+	case "openai-oauth":
+		return llm.NewCodexOAuthProvider(oauthTokenStore{service: h.service, provider: "openai"}, p.Model), cleanup, nil
+	case "openai":
+		return llm.NewOpenAIProvider(apiKey, p.Model, ""), cleanup, nil
+	case "cli":
+		exe, err := os.Executable()
+		if err != nil {
+			return nil, cleanup, err
+		}
+		tmp, err := os.CreateTemp("", "rebase-mcp-*.json")
+		if err != nil {
+			return nil, cleanup, err
+		}
+		_, _ = tmp.WriteString(buildMCPConfig(exe, p.ProfileID))
+		_ = tmp.Close()
+		name := tmp.Name()
+		return llm.NewCliProvider(name, "default", os.Environ()), func() { os.Remove(name) }, nil
+	case "codex":
+		exe, err := os.Executable()
+		if err != nil {
+			return nil, cleanup, err
+		}
+		return llm.NewCodexProvider(exe, p.ProfileID, p.Model, os.Environ()), cleanup, nil
+	default:
+		return llm.NewStubProvider(), cleanup, nil
+	}
+}
+
 // Run streams an agent turn as NDJSON (one ports.LLMEvent per line).
 // Body: {profileId, messages:[{role,text}], provider:"stub"|"anthropic", apiKey, model}.
 func (h *AgentHandler) Run() http.Handler {
@@ -213,50 +266,14 @@ func (h *AgentHandler) Run() http.Handler {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		// Resolve the API key: prefer an explicit per-request key, else fall back
-		// to the one stored in the OS keychain (issue #10: "key in keychain").
-		apiKey := body.APIKey
-		if apiKey == "" && (body.Provider == "anthropic" || body.Provider == "openai") {
-			if k, kerr := h.service.GetAgentKey(r.Context(), body.Provider); kerr == nil {
-				apiKey = k
-			}
+		provider, cleanup, perr := h.buildProvider(r.Context(), providerParams{
+			ProfileID: body.ProfileID, Provider: body.Provider, APIKey: body.APIKey, Model: body.Model,
+		})
+		if perr != nil {
+			http.Error(w, perr.Error(), http.StatusInternalServerError)
+			return
 		}
-
-		var provider ports.LLMProvider
-		switch body.Provider {
-		case "anthropic":
-			provider = llm.NewAnthropicProvider(apiKey, body.Model, "")
-		case "anthropic-oauth":
-			provider = llm.NewAnthropicOAuthProvider(oauthTokenStore{service: h.service, provider: "anthropic"}, body.Model, "")
-		case "openai-oauth":
-			provider = llm.NewCodexOAuthProvider(oauthTokenStore{service: h.service, provider: "openai"}, body.Model)
-		case "openai":
-			provider = llm.NewOpenAIProvider(apiKey, body.Model, "")
-		case "cli":
-			exe, err := os.Executable()
-			if err != nil {
-				http.Error(w, "cannot locate engine binary for MCP: "+err.Error(), http.StatusInternalServerError)
-				return
-			}
-			tmp, err := os.CreateTemp("", "rebase-mcp-*.json")
-			if err != nil {
-				http.Error(w, "cannot write MCP config: "+err.Error(), http.StatusInternalServerError)
-				return
-			}
-			_, _ = tmp.WriteString(buildMCPConfig(exe, body.ProfileID))
-			_ = tmp.Close()
-			defer os.Remove(tmp.Name())
-			provider = llm.NewCliProvider(tmp.Name(), "default", os.Environ())
-		case "codex":
-			exe, err := os.Executable()
-			if err != nil {
-				http.Error(w, "cannot locate engine binary for MCP: "+err.Error(), http.StatusInternalServerError)
-				return
-			}
-			provider = llm.NewCodexProvider(exe, body.ProfileID, body.Model, os.Environ())
-		default:
-			provider = llm.NewStubProvider()
-		}
+		defer cleanup()
 
 		var registry *agent.Registry
 		switch profile.Driver {
@@ -289,6 +306,58 @@ func (h *AgentHandler) Run() http.Handler {
 			}
 		}
 		if err := svc.Run(r.Context(), body.Messages, emit); err != nil {
+			emit(ports.LLMEvent{Kind: ports.EventError, Err: err.Error()})
+		}
+	})
+}
+
+// Complete streams a single tool-free LLM completion as NDJSON (one
+// ports.LLMEvent per line). Unlike Run(), it attaches NO DB tools, so the model
+// answers purely from the provided messages (result → work-sentence narration).
+// Body: {profileId?, messages, system, provider, apiKey, model}.
+func (h *AgentHandler) Complete() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !h.checkToken(r) {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		var body struct {
+			ProfileID string             `json:"profileId"`
+			Messages  []ports.LLMMessage `json:"messages"`
+			System    string             `json:"system"`
+			Provider  string             `json:"provider"`
+			APIKey    string             `json:"apiKey"`
+			Model     string             `json:"model"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+		if len(body.Messages) == 0 {
+			http.Error(w, "a non-empty messages array is required", http.StatusBadRequest)
+			return
+		}
+		provider, cleanup, perr := h.buildProvider(r.Context(), providerParams{
+			ProfileID: body.ProfileID, Provider: body.Provider, APIKey: body.APIKey, Model: body.Model,
+		})
+		if perr != nil {
+			http.Error(w, perr.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer cleanup()
+
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		w.Header().Set("Cache-Control", "no-cache")
+		flusher, _ := w.(http.Flusher)
+		enc := json.NewEncoder(w)
+		emit := func(e ports.LLMEvent) {
+			_ = enc.Encode(e)
+			if flusher != nil {
+				flusher.Flush()
+			}
+		}
+		req := ports.LLMRequest{System: body.System, Messages: body.Messages, Tools: nil, Model: body.Model}
+		if err := provider.Complete(r.Context(), req, emit); err != nil {
 			emit(ports.LLMEvent{Kind: ports.EventError, Err: err.Error()})
 		}
 	})

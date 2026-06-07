@@ -295,6 +295,7 @@ func main() {
 
 	agentHandler := internalHttp.NewAgentHandler(*token, connectionService)
 	mux.Handle("/agent/run", agentHandler.Run())
+	mux.Handle("/agent/complete", agentHandler.Complete())
 	mux.Handle("/agent/key", agentHandler.Key())
 	mux.Handle("/agent/oauth/", agentHandler.OAuth())
 	mux.Handle("/mcp/connection", agentHandler.SetMCPConnection())
