@@ -73,4 +73,20 @@ describe('renderTemplate', () => {
     const r = renderTemplate(def, ctx({ inputs: { name: "a'b" } }));
     expect(r.sql).toContain("name = 'a''b'");
   });
+
+  it('treats a non-numeric value for a number param as missing', () => {
+    const def: TemplateDef = { ...dupDef, roles: [], sql: `WHERE id = :id`,
+      params: [{ name: 'id', label: 'id', kind: 'value', valueType: 'number', required: true }] };
+    const r = renderTemplate(def, ctx({ inputs: { id: 'abc' } }));
+    expect(r.missing).toContain('id');
+    expect(r.sql).not.toContain('NaN');
+  });
+
+  it('accepts a valid number', () => {
+    const def: TemplateDef = { ...dupDef, roles: [], sql: `WHERE id = :id`,
+      params: [{ name: 'id', label: 'id', kind: 'value', valueType: 'number', required: true }] };
+    const r = renderTemplate(def, ctx({ inputs: { id: '42' } }));
+    expect(r.missing).toEqual([]);
+    expect(r.sql).toContain('id = 42');
+  });
 });

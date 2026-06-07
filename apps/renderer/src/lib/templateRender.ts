@@ -4,6 +4,10 @@ import type { TemplateDef, TemplateParam, RenderContext, RenderResult } from './
 
 type Resolution = { sql: string } | { missing: string };
 
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function coerceValue(valueType: string | undefined, raw: string): string | number | boolean {
   switch (valueType) {
     case 'number': return Number(raw);
@@ -16,6 +20,7 @@ function resolveParam(p: TemplateParam, ctx: RenderContext): Resolution {
   const raw = (ctx.inputs[p.name] ?? p.default ?? '').trim();
   if (p.kind === 'value') {
     if (raw === '') return { missing: p.name };
+    if (p.valueType === 'number' && Number.isNaN(Number(raw))) return { missing: p.name };
     return { sql: sqlLiteral(ctx.driver, coerceValue(p.valueType, raw)) };
   }
   if (p.kind === 'identifier') {
@@ -100,7 +105,7 @@ export function renderTemplate(def: TemplateDef, ctx: RenderContext): RenderResu
   for (const p of def.params) {
     if (!p.required) continue;
     const referencedOutside =
-      outsideOnly.includes(`{{${p.name}}}`) || new RegExp(`:${p.name}\\b`).test(outsideOnly);
+      outsideOnly.includes(`{{${p.name}}}`) || new RegExp(`:${escapeRegExp(p.name)}\\b`).test(outsideOnly);
     const r = res.params.get(p.name);
     if (referencedOutside && r && 'missing' in r) missing.push(p.name);
   }
