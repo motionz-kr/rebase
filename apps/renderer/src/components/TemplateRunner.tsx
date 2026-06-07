@@ -49,7 +49,11 @@ export function TemplateRunner({ template, profileId, driver, tables, columns, r
       if (qid !== queryId) return;
       if (chunk.type === 'meta') cols.push(...(chunk.columns ?? []));
       else if (chunk.type === 'row') rows.push((chunk.data ?? []) as unknown[]);
-      else if (chunk.type === 'error') {
+      else if (chunk.type === 'policy') {
+        setError(`실행이 차단되었습니다 (${chunk.code ?? 'policy'}): ${chunk.message ?? '안전 정책에 의해 차단됨. SQL 에디터에서 확인 후 실행하세요.'}`);
+        setRunning(false);
+        off();
+      } else if (chunk.type === 'error') {
         setError(chunk.message ?? '쿼리 실행 오류');
         setRunning(false);
         off();
@@ -60,7 +64,7 @@ export function TemplateRunner({ template, profileId, driver, tables, columns, r
       }
     });
     offRef.current = off;
-    const res = await window.electronAPI.executeQueryStream(queryId, profileId, rendered.sql, { acknowledged: true });
+    const res = await window.electronAPI.executeQueryStream(queryId, profileId, rendered.sql);
     if (!res.success) {
       setError(res.error ?? '실행 실패');
       setRunning(false);

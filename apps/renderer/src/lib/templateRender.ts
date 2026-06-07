@@ -50,7 +50,7 @@ function buildResolutions(def: TemplateDef, ctx: RenderContext) {
 
 const RE_ROLE = /\{\{role:(\w+)\}\}/g;
 const RE_IDENT = /\{\{(\w+)\}\}/g;
-const RE_VALUE = /:(\w+)/g;
+const RE_VALUE = /(?<!:):(\w+)/g;
 
 function fragmentResolves(fragment: string, res: ReturnType<typeof buildResolutions>): boolean {
   const names = new Set<string>();

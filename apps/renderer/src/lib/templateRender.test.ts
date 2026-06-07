@@ -89,4 +89,15 @@ describe('renderTemplate', () => {
     expect(r.missing).toEqual([]);
     expect(r.sql).toContain('id = 42');
   });
+
+  it('does not treat a ::type cast as a value param', () => {
+    const def: TemplateDef = { ...dupDef, roles: [], sql: `SELECT created::date FROM {{table}} WHERE id = :id`,
+      params: [
+        { name: 'table', label: 't', kind: 'identifier', identifierKind: 'table', required: true },
+        { name: 'id', label: 'id', kind: 'value', valueType: 'number', required: true },
+      ] };
+    const r = renderTemplate(def, ctx({ inputs: { table: 'User', id: '7' }, validIdentifiers: new Set(['user']) }));
+    expect(r.sql).toContain('created::date');   // cast preserved, not blanked
+    expect(r.sql).toContain('WHERE id = 7');
+  });
 });
