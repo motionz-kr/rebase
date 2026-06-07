@@ -34,6 +34,11 @@ import { MongoQueryEditor } from './components/MongoQueryEditor';
 import { MongoIndexManager } from './components/MongoIndexManager';
 import { MongoSchemaPanel } from './components/MongoSchemaPanel';
 import { SettingsPopover } from './components/SettingsPopover';
+import { TemplatesPanel } from './components/TemplatesPanel';
+import { TemplateRunner } from './components/TemplateRunner';
+import { DomainBindingsDialog } from './components/DomainBindingsDialog';
+import { SaveTemplateDialog } from './components/SaveTemplateDialog';
+import type { TemplateDef } from './lib/templateTypes';
 import { connectionsReducer, initialConnectionsState } from './state/connections';
 import './App.css';
 
@@ -51,6 +56,7 @@ export interface ConnectionProfile {
   readOnly?: boolean;
   safeMode?: boolean;
   tenantColumns?: string;
+  domainBindings?: string;
   mcpEnabled?: boolean;
   mcpDataExposure?: string;
   createdAt?: string;
@@ -129,8 +135,20 @@ function App() {
   const [formTab, setFormTab] = useState<'basic' | 'schema' | 'mcp'>('basic');
   const [connectionError, setConnectionError] = useState<string | null>(null);
 
-  // Focused connection's secondary sidebar panel (saved/history)
-  const [sideTab, setSideTab] = useState<'saved' | 'history'>('saved');
+  // Focused connection's secondary sidebar panel (saved/history/templates)
+  const [sideTab, setSideTab] = useState<'saved' | 'history' | 'templates'>('saved');
+
+  // Template integration state
+  const [templateView, setTemplateView] = useState<Record<string, TemplateDef | null>>({});
+  const [domainDialogOpen, setDomainDialogOpen] = useState(false);
+  const [saveTplOpen, setSaveTplOpen] = useState(false);
+  const [tplReload, setTplReload] = useState(0);
+  const [tplSchema, setTplSchema] = useState<{ tables: string[]; columns: string[] }>({ tables: [], columns: [] });
+
+  // Helper: parse domainBindings JSON → roles map
+  const parseRoles = (profile: ConnectionProfile): Record<string, string> => {
+    try { return JSON.parse(profile.domainBindings || '{}'); } catch { return {}; }
+  };
   const [selectedQueryText, setSelectedQueryText] = useState<string>('');
   // One-click "load + run this SQL" request, targeted at a connection's editor.
   const [runReq, setRunReq] = useState<{ profileId: string; sql: string; nonce: number } | null>(null);
@@ -175,6 +193,22 @@ function App() {
     // eslint-disable-next-line react-hooks/immutability
     loadProfiles();
   }, []);
+
+  // Load schema (tables + columns) for TemplateRunner when templates tab active
+  useEffect(() => {
+    if (sideTab !== 'templates') return;
+    const fp = conns.focusedId ? profiles.find((p) => p.id === conns.focusedId) : null;
+    if (!fp || fp.driver === 'redis' || fp.driver === 'mongodb') return;
+    if (conns.byId[fp.id!]?.status !== 'connected') return;
+    window.electronAPI.getSchemaCompletion(fp.id!, fp.database).then((res) => {
+      if (res.success && res.data) {
+        const cols = new Set<string>();
+        res.data.tables.forEach((t) => t.columns.forEach((c) => cols.add(c.name)));
+        setTplSchema({ tables: res.data.tables.map((t) => t.name), columns: Array.from(cols) });
+      }
+    }).catch(() => { /* ignore */ });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sideTab, conns.focusedId]);
 
   // Escape closes the top-most open modal. Every modal overlay closes on its own
   // click handler, so we just trigger that on the last .modal-overlay in the DOM.
@@ -835,6 +869,9 @@ function App() {
                 <button className={`seg-tab ${sideTab === 'history' ? 'active' : ''}`} onClick={() => setSideTab('history')}>
                   History
                 </button>
+                <button className={`seg-tab ${sideTab === 'templates' ? 'active' : ''}`} onClick={() => setSideTab('templates')}>
+                  Templates
+                </button>
               </div>
               <div className="sidebar-focused-body">
                 {sideTab === 'saved' ? (
@@ -844,8 +881,19 @@ function App() {
                     refreshTrigger={savedTrigger}
                     onRefresh={() => setSavedTrigger((n) => n + 1)}
                   />
-                ) : (
+                ) : sideTab === 'history' ? (
                   <QueryHistory profileId={focusedProfile.id!} onSelectQuery={handleSelectQuery} refreshTrigger={historyTrigger} />
+                ) : (
+                  <TemplatesPanel
+                    onSelectTemplate={(t) => {
+                      setTemplateView((m) => ({ ...m, [focusedProfile.id!]: t }));
+                      setErTab((prev) => ({ ...prev, [focusedProfile.id!]: null }));
+                      setOpenTable((prev) => ({ ...prev, [focusedProfile.id!]: null }));
+                    }}
+                    onOpenDomainSettings={() => setDomainDialogOpen(true)}
+                    onNewTemplate={() => setSaveTplOpen(true)}
+                    reloadKey={tplReload}
+                  />
                 )}
               </div>
             </div>
@@ -1020,6 +1068,19 @@ function App() {
                         </div>
                       );
                     })()
+                  ) : templateView[id] ? (
+                    <TemplateRunner
+                      template={templateView[id]!}
+                      profileId={id}
+                      driver={profile.driver}
+                      tables={tplSchema.tables}
+                      columns={tplSchema.columns}
+                      roles={parseRoles(profile)}
+                      onOpenInEditor={(sql) => {
+                        setTemplateView((m) => ({ ...m, [id]: null }));
+                        handleSelectQuery(sql);
+                      }}
+                    />
                   ) : erTab[id] ? (
                     <ErDiagram
                       key={`er:${erTab[id]!.db}`}
@@ -1073,6 +1134,23 @@ function App() {
           </aside>
         )}
       </div>
+
+      {/* Template dialogs */}
+      {domainDialogOpen && focusedProfile && (
+        <DomainBindingsDialog
+          profile={focusedProfile}
+          columns={tplSchema.columns}
+          onClose={() => setDomainDialogOpen(false)}
+          onSaved={() => loadProfiles()}
+        />
+      )}
+      {saveTplOpen && (
+        <SaveTemplateDialog
+          initialSql={selectedQueryText || ''}
+          onClose={() => setSaveTplOpen(false)}
+          onSaved={() => setTplReload((n) => n + 1)}
+        />
+      )}
     </div>
   );
 }
