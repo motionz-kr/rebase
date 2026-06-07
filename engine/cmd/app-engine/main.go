@@ -187,6 +187,14 @@ func main() {
 			`,
 			Checksum: "profile-safe-mode-v1",
 		},
+		{
+			Version: 7,
+			Name:    "add_profile_domain_bindings",
+			SQL: `
+				ALTER TABLE connection_profiles ADD COLUMN domain_bindings TEXT NOT NULL DEFAULT '';
+			`,
+			Checksum: "profile-domain-bindings-v1",
+		},
 	}
 	if err := migrationRunner.Run(migrations); err != nil {
 		log.Fatalf("failed to run migrations: %v", err)

@@ -41,6 +41,7 @@ func newProfileRepo(t *testing.T) *SQLiteProfileRepository {
 					connection_uri TEXT NOT NULL DEFAULT '',
 					safe_mode INTEGER NOT NULL DEFAULT 0,
 					tenant_columns TEXT NOT NULL DEFAULT '',
+					domain_bindings TEXT NOT NULL DEFAULT '',
 					created_at DATETIME NOT NULL,
 					updated_at DATETIME NOT NULL
 				);
@@ -104,6 +105,38 @@ func TestProfileRepository_SafeModeRoundTrips(t *testing.T) {
 	}
 	if got.TenantColumns != "hospitalId,orgId" {
 		t.Fatalf("expected TenantColumns to round-trip, got %q", got.TenantColumns)
+	}
+}
+
+func TestProfileRepository_DomainBindingsRoundTrips(t *testing.T) {
+	repo := newProfileRepo(t)
+	ctx := context.Background()
+	p := &domain.ConnectionProfile{
+		ID: "db1", Name: "x", Driver: "mysql", Host: "h", Port: 3306, Database: "d",
+		Username: "u", SecretRef: "s", TLSMode: "none",
+		DomainBindings: `{"tenant":"hospitalId","soft_delete":"deletedAt"}`,
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	if err := repo.Create(ctx, p); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	got, err := repo.GetByID(ctx, "db1")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.DomainBindings != p.DomainBindings {
+		t.Fatalf("domain_bindings round-trip: got %q", got.DomainBindings)
+	}
+}
+
+func TestDomainBindingMap(t *testing.T) {
+	p := domain.ConnectionProfile{DomainBindings: `{"tenant":"hospitalId"}`}
+	m := p.DomainBindingMap()
+	if m["tenant"] != "hospitalId" {
+		t.Fatalf("got %v", m)
+	}
+	if len(domain.ConnectionProfile{}.DomainBindingMap()) != 0 {
+		t.Fatal("empty bindings should give empty map")
 	}
 }
 

@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -25,6 +26,10 @@ type ConnectionProfile struct {
 	// TenantColumns is a comma-separated list of tenant-scope key columns
 	// (e.g. "hospitalId,tenantId"). Empty falls back to the default set.
 	TenantColumns string `json:"tenantColumns"`
+	// DomainBindings is a JSON object mapping semantic roles to actual column
+	// names for this connection (e.g. {"tenant":"hospitalId"}). Used by task
+	// templates to resolve {{role:NAME}} placeholders. Empty = no bindings.
+	DomainBindings string `json:"domainBindings"`
 	// ConnectionURI is an optional full connection string (e.g. for mongodb,
 	// "mongodb+srv://..."). When set it takes precedence over host/port.
 	ConnectionURI string `json:"connectionUri"`
@@ -33,6 +38,17 @@ type ConnectionProfile struct {
 	McpDataExposure string    `json:"mcpDataExposure"` // metadata|on_request|unrestricted (default metadata)
 	CreatedAt       time.Time `json:"createdAt"`
 	UpdatedAt       time.Time `json:"updatedAt"`
+}
+
+// DomainBindingMap parses DomainBindings JSON into a role→column map. Invalid or
+// empty JSON yields an empty map (never nil-panics).
+func (p ConnectionProfile) DomainBindingMap() map[string]string {
+	out := map[string]string{}
+	if strings.TrimSpace(p.DomainBindings) == "" {
+		return out
+	}
+	_ = json.Unmarshal([]byte(p.DomainBindings), &out)
+	return out
 }
 
 // TenantColumnList returns the configured tenant-scope columns, falling back to
