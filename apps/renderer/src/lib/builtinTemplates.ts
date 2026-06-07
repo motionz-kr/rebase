@@ -57,7 +57,7 @@ LIMIT 500`,
   {
     id: 'group-count-recent', source: 'builtin', category: '운영 점검',
     name: '그룹별 최근 N일 집계',
-    description: '최근 N일간 특정 컬럼 기준으로 행 수를 집계합니다. 병원별 최근 30일 내원 수 확인 등에 사용합니다. (MySQL/PostgreSQL)',
+    description: '최근 N일간 특정 컬럼 기준으로 행 수를 집계합니다. 병원별 최근 30일 내원 수 확인 등에 사용합니다. (MySQL — INTERVAL 문법)',
     roles: ['soft_delete'],
     params: [
       { name: 'table', label: '테이블', kind: 'identifier', identifierKind: 'table', required: true },
