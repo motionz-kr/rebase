@@ -65,7 +65,7 @@ export function DomainBindingsDialog({ profile, columns, onClose, onSaved }: Pro
         </section>
         <footer className="risk-footer">
           <div className="risk-actions">
-            <button onClick={onClose}>취소</button>
+            <button className="btn btn-secondary" onClick={onClose}>취소</button>
             <button className="btn btn-primary" disabled={saving} onClick={save}>저장</button>
           </div>
         </footer>

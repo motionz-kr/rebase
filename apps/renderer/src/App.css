@@ -3631,11 +3631,11 @@
 /* ── Risk Confirm Dialog ─────────────────────────────────────────────── */
 .risk-dialog-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.5);
   display: flex; align-items: center; justify-content: center; z-index: 1000; }
-.risk-dialog { background: var(--panel-bg, #1e1e1e); color: var(--text, #eee);
+.risk-dialog { background: var(--bg-panel); color: var(--text);
   width: min(640px, 92vw); max-height: 86vh; overflow: auto; border-radius: 8px;
-  box-shadow: 0 10px 40px rgba(0,0,0,0.5); }
+  border: 1px solid var(--border); box-shadow: 0 10px 40px rgba(0,0,0,0.35); }
 .risk-header { display: flex; align-items: center; gap: 10px; padding: 14px 18px;
-  border-bottom: 1px solid var(--border, #333); }
+  border-bottom: 1px solid var(--border); }
 .risk-badge { font-weight: 700; padding: 2px 10px; border-radius: 12px; color: #fff; }
 .risk-header.risk-high .risk-badge { background: #c0392b; }
 .risk-header.risk-medium .risk-badge { background: #d68910; }
@@ -3649,11 +3649,12 @@
 .risk-reasons { margin: 0; padding-left: 18px; color: #e0b050; }
 .risk-section-head { display: flex; justify-content: space-between; align-items: center;
   font-size: 12px; opacity: 0.8; margin-bottom: 4px; }
-.risk-sql { background: #111; padding: 10px; border-radius: 6px; font-size: 12px;
+.risk-sql { background: var(--bg-input); color: var(--text-2); border: 1px solid var(--border);
+  padding: 10px; border-radius: 6px; font-size: 12px; font-family: var(--font-mono, monospace);
   white-space: pre-wrap; word-break: break-all; max-height: 180px; overflow: auto; }
 .risk-rollback { border-left: 3px solid #229954; }
 .risk-note { font-size: 13px; opacity: 0.75; }
-.risk-footer { padding: 14px 18px; border-top: 1px solid var(--border, #333);
+.risk-footer { padding: 14px 18px; border-top: 1px solid var(--border);
   display: flex; flex-direction: column; gap: 10px; }
 .risk-ack { display: flex; align-items: center; gap: 8px; color: #e74c3c; font-weight: 600; }
 .risk-actions { display: flex; justify-content: flex-end; gap: 10px; }
@@ -3669,7 +3670,7 @@
 .templates-cat-head { font-size: 11px; text-transform: uppercase; opacity: 0.6; margin: 8px 0 2px; }
 .template-item { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%;
   text-align: left; background: transparent; border: 1px solid transparent; border-radius: 6px; padding: 6px 8px; cursor: pointer; }
-.template-item:hover { background: var(--hover, #2a2a2a); border-color: var(--border, #333); }
+.template-item:hover { background: var(--bg-hover); border-color: var(--border); }
 .template-item-name { font-weight: 600; font-size: 13px; }
 .template-item-desc { font-size: 11px; opacity: 0.7; line-height: 1.3; }
 .template-runner { display: flex; flex-direction: column; gap: 12px; padding: 16px; overflow: auto; height: 100%; }
