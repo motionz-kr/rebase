@@ -244,3 +244,25 @@ func TestServiceMaxSteps(t *testing.T) {
 		t.Errorf("ran %d steps, should stop at maxSteps=3", steps)
 	}
 }
+
+func TestServiceInjectsDomainContext(t *testing.T) {
+	svc := NewAgentService(nil, nil, 16)
+	base := svc.system
+	svc.SetDomainContext("## 도메인 맥락\n- User (테이블) = 환자\n")
+
+	req := svc.request([]ports.LLMMessage{{Role: "user", Text: "hi"}}, nil)
+	if !strings.Contains(req.System, base) {
+		t.Errorf("system should retain base prompt")
+	}
+	if !strings.Contains(req.System, "User (테이블) = 환자") {
+		t.Errorf("system should include domain context, got:\n%s", req.System)
+	}
+}
+
+func TestServiceNoDomainContextUnchanged(t *testing.T) {
+	svc := NewAgentService(nil, nil, 16)
+	req := svc.request([]ports.LLMMessage{{Role: "user", Text: "hi"}}, nil)
+	if req.System != svc.system {
+		t.Errorf("empty domain context must leave system unchanged")
+	}
+}

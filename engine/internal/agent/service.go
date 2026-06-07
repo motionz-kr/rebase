@@ -24,6 +24,7 @@ type AgentService struct {
 	system   string
 	policy   Policy
 	secrets  []string
+	domain   string
 }
 
 func NewAgentService(p ports.LLMProvider, reg *Registry, maxSteps int) *AgentService {
@@ -45,6 +46,10 @@ func (s *AgentService) SetPolicy(p Policy) { s.policy = p }
 // assembled for the provider").
 func (s *AgentService) SetSecrets(secrets []string) { s.secrets = secrets }
 
+// SetDomainContext registers a domain-context block appended to the system
+// prompt (glossary + rules + tenant/soft-delete bindings). Empty = no-op.
+func (s *AgentService) SetDomainContext(ctx string) { s.domain = ctx }
+
 // redact replaces every registered secret with a placeholder. Empty secrets are
 // ignored so they can't blank out unrelated text.
 func Redact(text string, secrets []string) string {
@@ -59,15 +64,19 @@ func Redact(text string, secrets []string) string {
 
 // request assembles the (redacted) provider request for the current messages.
 func (s *AgentService) request(messages []ports.LLMMessage, specs []ports.ToolSpec) ports.LLMRequest {
+	system := s.system
+	if strings.TrimSpace(s.domain) != "" {
+		system = s.system + "\n\n" + s.domain
+	}
 	if len(s.secrets) == 0 {
-		return ports.LLMRequest{System: s.system, Messages: messages, Tools: specs}
+		return ports.LLMRequest{System: system, Messages: messages, Tools: specs}
 	}
 	scrubbed := make([]ports.LLMMessage, len(messages))
 	for i, m := range messages {
 		m.Text = Redact(m.Text, s.secrets)
 		scrubbed[i] = m
 	}
-	return ports.LLMRequest{System: Redact(s.system, s.secrets), Messages: scrubbed, Tools: specs}
+	return ports.LLMRequest{System: Redact(system, s.secrets), Messages: scrubbed, Tools: specs}
 }
 
 // dataTools produce row values that the data-exposure policy may withhold.

@@ -293,6 +293,12 @@ func (h *AgentHandler) Run() http.Handler {
 		svc.SetPolicy(agent.Policy{DataExposure: body.DataExposure})
 		// Never let the connection password / secret ref reach the provider.
 		svc.SetSecrets([]string{password, profile.SecretRef})
+		svc.SetDomainContext(agent.BuildDomainContext(
+			profile.DomainGlossaryEntries(),
+			profile.DomainNotes,
+			profile.TenantColumnList(),
+			profile.DomainBindingMap()["soft_delete"],
+		))
 
 		w.Header().Set("Content-Type", "application/x-ndjson")
 		w.Header().Set("Cache-Control", "no-cache")
