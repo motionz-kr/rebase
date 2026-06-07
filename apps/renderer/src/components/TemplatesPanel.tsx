@@ -19,7 +19,7 @@ export function TemplatesPanel({ onSelectTemplate, onOpenDomainSettings, onNewTe
       if (!alive || !res.success || !res.data) return;
       setUser(
         res.data.map((u) => {
-          let params: TemplateParam[] = [];
+          let params: TemplateParam[];
           try {
             params = JSON.parse(u.parameters || '[]');
           } catch {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { suggestBindings } from '../lib/suggestBindings';
 import type { ConnectionProfile } from '../global';
 
@@ -15,11 +15,10 @@ interface Props {
 }
 
 export function DomainBindingsDialog({ profile, columns, onClose, onSaved }: Props) {
-  const [bindings, setBindings] = useState<Record<string, string>>({});
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    let existing: Record<string, string> = {};
+  // Compute the initial bindings once on mount (the dialog is re-mounted each
+  // time it opens, and columns are already loaded by the Templates tab).
+  const [bindings, setBindings] = useState<Record<string, string>>(() => {
+    let existing: Record<string, string>;
     try {
       existing = profile.domainBindings ? JSON.parse(profile.domainBindings) : {};
     } catch {
@@ -27,8 +26,9 @@ export function DomainBindingsDialog({ profile, columns, onClose, onSaved }: Pro
     }
     const tenantCols = (profile.tenantColumns ?? '').split(',').map((s) => s.trim()).filter(Boolean);
     const suggested = suggestBindings(columns, tenantCols);
-    setBindings({ ...suggested, ...existing }); // existing wins over suggestion
-  }, [profile, columns]);
+    return { ...suggested, ...existing }; // existing wins over suggestion
+  });
+  const [saving, setSaving] = useState(false);
 
   async function save() {
     setSaving(true);
