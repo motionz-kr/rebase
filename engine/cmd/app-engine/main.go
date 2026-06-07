@@ -195,6 +195,26 @@ func main() {
 			`,
 			Checksum: "profile-domain-bindings-v1",
 		},
+		{
+			Version: 8,
+			Name:    "create_templates",
+			SQL: `
+				CREATE TABLE IF NOT EXISTS templates (
+					id TEXT PRIMARY KEY,
+					workspace_id TEXT NOT NULL,
+					name TEXT NOT NULL,
+					description TEXT NOT NULL DEFAULT '',
+					category TEXT NOT NULL DEFAULT '',
+					sql_text TEXT NOT NULL,
+					parameters TEXT NOT NULL DEFAULT '[]',
+					driver TEXT NOT NULL DEFAULT '',
+					created_at DATETIME NOT NULL,
+					updated_at DATETIME NOT NULL,
+					FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+				);
+			`,
+			Checksum: "templates-v1",
+		},
 	}
 	if err := migrationRunner.Run(migrations); err != nil {
 		log.Fatalf("failed to run migrations: %v", err)
