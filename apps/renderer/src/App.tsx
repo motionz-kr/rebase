@@ -57,6 +57,8 @@ export interface ConnectionProfile {
   safeMode?: boolean;
   tenantColumns?: string;
   domainBindings?: string;
+  domainGlossary?: string;
+  domainNotes?: string;
   mcpEnabled?: boolean;
   mcpDataExposure?: string;
   createdAt?: string;
