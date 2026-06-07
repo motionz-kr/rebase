@@ -528,6 +528,11 @@ export function ResultNarrator({ profileId, sql, columns, rows }: Props) {
   useEffect(() => () => offRef.current?.(), []);
 
   const settings = useMemo(() => loadAgentSettings(), []);
+  // Privacy gate: sending result rows to the LLM contradicts the default
+  // dataExposure='metadata'. Require explicit per-use consent unless the user
+  // already chose 'unrestricted'. The deterministic fallback never sends data.
+  const [consent, setConsent] = useState(false);
+  const needsConsent = aiReady && settings.dataExposure !== 'unrestricted';
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -552,6 +557,7 @@ export function ResultNarrator({ profileId, sql, columns, rows }: Props) {
       setOutput(deterministicNarration(purpose, input));
       return;
     }
+    if (needsConsent && !consent) return; // privacy gate
     setRunning(true);
     setOutput('');
     const runId = `narr-${Date.now()}`;
@@ -581,12 +587,22 @@ export function ResultNarrator({ profileId, sql, columns, rows }: Props) {
             </button>
           ))}
         </div>
-        <button className="btn btn-sm btn-primary" disabled={running || rows.length === 0} onClick={generate}>
+        <button
+          className="btn btn-sm btn-primary"
+          disabled={running || rows.length === 0 || (needsConsent && !consent)}
+          onClick={generate}
+        >
           {running ? '생성 중…' : '문장 생성'}
         </button>
       </div>
       {!aiReady && <p className="narrator-hint">AI 미설정 — 기본 요약을 생성합니다. (어시스턴트에서 AI를 설정하면 더 풍부한 문장)</p>}
-      {aiReady && <p className="narrator-hint">결과 데이터가 AI에 전송됩니다 (상위 {ROW_CAP}행).</p>}
+      {needsConsent && (
+        <label className="narrator-consent">
+          <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
+          결과 데이터(상위 {ROW_CAP}행)를 AI에 전송하여 문장을 생성하는 데 동의합니다.
+        </label>
+      )}
+      {aiReady && !needsConsent && <p className="narrator-hint">결과 데이터가 AI에 전송됩니다 (상위 {ROW_CAP}행).</p>}
       {output && (
         <>
           <pre className="narrator-output">{output}</pre>
@@ -649,6 +665,7 @@ git commit -m "feat(renderer): ResultNarrator 결과→업무 문장 패널 (#10
 .narrator-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
 .narrator-purposes { display: flex; gap: 4px; flex-wrap: wrap; }
 .narrator-hint { font-size: 11px; color: var(--text-3); margin: 0; }
+.narrator-consent { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2); }
 .narrator-output { background: var(--bg-input); color: var(--text); border: 1px solid var(--border);
   border-radius: 6px; padding: 10px; font-size: 12px; white-space: pre-wrap; word-break: break-word;
   max-height: 320px; overflow: auto; }
@@ -691,7 +708,7 @@ git commit -m "feat(renderer): ResultNarrator를 에디터·템플릿 결과에 
 - B 프롬프트+폴백 → Task 3 (+설정 Task 2)
 - C IPC → Task 4
 - D ResultNarrator + 마운트 → Task 5, 6
-- E AI 가용성+노출 → Task 5(aiReady 체크, 노출 고지)
+- E AI 가용성+노출 → Task 5(aiReady 체크 + **프라이버시 동의 게이트**: dataExposure≠unrestricted면 행 전송 전 명시적 동의 필수)
 - 완료기준 7개(요약/Jira/Slack/CS/dev/복사/톤선택) 모두 매핑.
 
 **2. Placeholder scan:** Task 4 main IPC는 `streamAgentRequest` 추출 또는 복제로 안내(기존 `agent-run` 패턴 명확) — 대형 인라인 로직이라 패턴 참조가 적절. Task 5/6의 정확한 변수명(QueryEditor profileId/activeTab)·status 응답 형태는 "파일 읽어 맞춘다"로 명시 — 실제 시그니처 의존이라 적절.
