@@ -335,6 +335,22 @@ func main() {
 	mux.Handle("/account", workspaceHandler.HandleAccount())
 	mux.Handle("/mcp/settings", workspaceHandler.HandleMCPSettings())
 
+	templateRepo := sqlite.NewSQLiteTemplateRepository(db)
+	templateService := application.NewTemplateService(templateRepo)
+	templateHandler := internalHttp.NewTemplateHandler(*token, templateService)
+	mux.Handle("/templates", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost:
+			templateHandler.Save().ServeHTTP(w, r)
+		case http.MethodGet:
+			templateHandler.List().ServeHTTP(w, r)
+		case http.MethodDelete:
+			templateHandler.Delete().ServeHTTP(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+
 	server := &http.Server{
 		Handler: corsGuard(mux),
 		// Bound idle/slow connections. WriteTimeout is intentionally left unset:
