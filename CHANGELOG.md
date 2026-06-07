@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.0](https://github.com/motionz-kr/rebase/compare/v0.17.1...v0.18.0) (2026-06-07)
+
+
+### Features
+
+* 반복 DB 업무 자동화 템플릿 ([#105](https://github.com/motionz-kr/rebase/issues/105)) ([#118](https://github.com/motionz-kr/rebase/issues/118)) ([7f2f6c7](https://github.com/motionz-kr/rebase/commit/7f2f6c7a405d8eabafd33a4f5e8760795bf315f0))
+
 ## [0.17.1](https://github.com/motionz-kr/rebase/compare/v0.17.0...v0.17.1) (2026-06-06)
 
 
