@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState, useEffect } from 'react';
 import type { TemplateDef } from '../lib/templateTypes';
 import type { Driver } from '../lib/ddlBuilder';
 import { renderTemplate } from '../lib/templateRender';
@@ -14,15 +14,19 @@ interface Props {
   columns: string[];
   roles: Record<string, string>;
   onOpenInEditor: (sql: string) => void;
+  onClose: () => void;
 }
 
-export function TemplateRunner({ template, profileId, driver, tables, columns, roles, onOpenInEditor }: Props) {
+export function TemplateRunner({ template, profileId, driver, tables, columns, roles, onOpenInEditor, onClose }: Props) {
   const [inputs, setInputs] = useState<Record<string, string>>(() =>
     Object.fromEntries(template.params.filter((p) => p.default).map((p) => [p.name, p.default as string])),
   );
   const [result, setResult] = useState<{ columns: string[]; rows: unknown[][] } | null>(null);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const offRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => { offRef.current?.(); }, []);
 
   const validIdentifiers = useMemo(
     () => new Set([...tables, ...columns].map((s) => s.toLowerCase())),
@@ -55,6 +59,7 @@ export function TemplateRunner({ template, profileId, driver, tables, columns, r
         off();
       }
     });
+    offRef.current = off;
     const res = await window.electronAPI.executeQueryStream(queryId, profileId, rendered.sql, { acknowledged: true });
     if (!res.success) {
       setError(res.error ?? '실행 실패');
@@ -82,6 +87,7 @@ export function TemplateRunner({ template, profileId, driver, tables, columns, r
   return (
     <div className="template-runner">
       <header className="template-runner-head">
+        <button className="btn btn-sm template-back" onClick={onClose}>← 목록</button>
         <h3>{template.name}</h3>
         <p className="template-desc">{template.description}</p>
       </header>

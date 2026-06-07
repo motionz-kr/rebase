@@ -11,7 +11,7 @@ function scanParams(sql: string): TemplateParam[] {
       out.push({ name: m[1], label: m[1], kind: 'identifier', identifierKind: 'column', required: true });
     }
   }
-  for (const m of noRoles.matchAll(/:(\w+)/g)) {
+  for (const m of noRoles.matchAll(/(?<!:):(\w+)/g)) {
     if (!seen.has(m[1])) {
       seen.add(m[1]);
       out.push({ name: m[1], label: m[1], kind: 'value', valueType: 'string', required: true });

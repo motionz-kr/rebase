@@ -458,6 +458,9 @@ function App() {
   const focusedProfile = conns.focusedId ? profiles.find((p) => p.id === conns.focusedId) : null;
 
   const handleSelectQuery = (queryText: string) => {
+    if (conns.focusedId) {
+      setTemplateView((m) => ({ ...m, [conns.focusedId!]: null }));
+    }
     // Redis/Mongo: load the command into the focused connection's editor input.
     if (focusedProfile && (focusedProfile.driver === 'redis' || focusedProfile.driver === 'mongodb')) {
       setLoadReq({ profileId: focusedProfile.id!, text: queryText, nonce: Date.now() });
@@ -841,7 +844,7 @@ function App() {
                             onDisconnect={() => disconnect(p.id!)}
                           />
                         ) : (
-                          <SchemaExplorer profileId={p.id!} driver={p.driver as 'mysql' | 'postgres' | 'redis' | 'sqlite' | 'sqlserver'} hiddenStore={hiddenStore} onDisconnect={() => disconnect(p.id!)} onSchemaChanged={() => setSchemaVersion((n) => n + 1)} onOpenTableData={(db, table) => { setErTab((prev) => ({ ...prev, [p.id!]: null })); setOpenTable((prev) => ({ ...prev, [p.id!]: { db, table } })); }} onOpenErDiagram={(db) => { setOpenTable((prev) => ({ ...prev, [p.id!]: null })); setErTab((prev) => ({ ...prev, [p.id!]: { db } })); }} onRunQuery={(sql) => { setErTab((prev) => ({ ...prev, [p.id!]: null })); setOpenTable((prev) => ({ ...prev, [p.id!]: null })); setRunReq({ profileId: p.id!, sql, nonce: Date.now() }); }} />
+                          <SchemaExplorer profileId={p.id!} driver={p.driver as 'mysql' | 'postgres' | 'redis' | 'sqlite' | 'sqlserver'} hiddenStore={hiddenStore} onDisconnect={() => disconnect(p.id!)} onSchemaChanged={() => setSchemaVersion((n) => n + 1)} onOpenTableData={(db, table) => { setTemplateView((m) => ({ ...m, [p.id!]: null })); setErTab((prev) => ({ ...prev, [p.id!]: null })); setOpenTable((prev) => ({ ...prev, [p.id!]: { db, table } })); }} onOpenErDiagram={(db) => { setTemplateView((m) => ({ ...m, [p.id!]: null })); setOpenTable((prev) => ({ ...prev, [p.id!]: null })); setErTab((prev) => ({ ...prev, [p.id!]: { db } })); }} onRunQuery={(sql) => { setTemplateView((m) => ({ ...m, [p.id!]: null })); setErTab((prev) => ({ ...prev, [p.id!]: null })); setOpenTable((prev) => ({ ...prev, [p.id!]: null })); setRunReq({ profileId: p.id!, sql, nonce: Date.now() }); }} />
                         )}
                       </div>
                     )}
@@ -1070,12 +1073,14 @@ function App() {
                     })()
                   ) : templateView[id] ? (
                     <TemplateRunner
+                      key={templateView[id]!.id}
                       template={templateView[id]!}
                       profileId={id}
                       driver={profile.driver}
                       tables={tplSchema.tables}
                       columns={tplSchema.columns}
                       roles={parseRoles(profile)}
+                      onClose={() => setTemplateView((m) => ({ ...m, [id]: null }))}
                       onOpenInEditor={(sql) => {
                         setTemplateView((m) => ({ ...m, [id]: null }));
                         handleSelectQuery(sql);
