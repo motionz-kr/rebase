@@ -41,7 +41,7 @@ export function RiskConfirmDialog({ result, safeMode, onRun, onCancel }: Props) 
             <div className="risk-section">
               <div className="risk-section-head">
                 <span>SELECT Preview</span>
-                <button onClick={() => copy(v.previewSql)}>복사</button>
+                <button className="btn btn-sm" onClick={() => copy(v.previewSql)}>복사</button>
               </div>
               <pre className="risk-sql">{v.previewSql}</pre>
             </div>
@@ -51,7 +51,7 @@ export function RiskConfirmDialog({ result, safeMode, onRun, onCancel }: Props) 
             <div className="risk-section">
               <div className="risk-section-head">
                 <span>Rollback SQL</span>
-                <button onClick={() => copy(v.rollbackSql)}>복사</button>
+                <button className="btn btn-sm" onClick={() => copy(v.rollbackSql)}>복사</button>
               </div>
               <pre className="risk-sql risk-rollback">{v.rollbackSql}</pre>
             </div>
@@ -68,7 +68,7 @@ export function RiskConfirmDialog({ result, safeMode, onRun, onCancel }: Props) 
             </label>
           )}
           <div className="risk-actions">
-            <button onClick={onCancel}>취소</button>
+            <button className="btn btn-secondary" onClick={onCancel}>취소</button>
             <button className="risk-run" disabled={!canRun} onClick={onRun}>실행</button>
           </div>
         </footer>

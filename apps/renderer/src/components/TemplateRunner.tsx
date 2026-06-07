@@ -153,10 +153,10 @@ export function TemplateRunner({ template, profileId, driver, tables, columns, r
       {result && (
         <>
           <div className="template-followups">
-            <button onClick={downloadCsv}>CSV</button>
-            <button onClick={() => copySummary('plain')}>요약 복사</button>
-            <button onClick={() => copySummary('slack')}>Slack</button>
-            <button onClick={() => copySummary('jira')}>Jira</button>
+            <button className="btn btn-sm" onClick={downloadCsv}>CSV</button>
+            <button className="btn btn-sm" onClick={() => copySummary('plain')}>요약 복사</button>
+            <button className="btn btn-sm" onClick={() => copySummary('slack')}>Slack</button>
+            <button className="btn btn-sm" onClick={() => copySummary('jira')}>Jira</button>
           </div>
           <ResultGrid columns={result.columns} rows={result.rows} />
         </>

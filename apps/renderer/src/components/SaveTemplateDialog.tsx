@@ -68,7 +68,7 @@ export function SaveTemplateDialog({ initialSql = '', onClose, onSaved }: Props)
         </section>
         <footer className="risk-footer">
           <div className="risk-actions">
-            <button onClick={onClose}>취소</button>
+            <button className="btn btn-secondary" onClick={onClose}>취소</button>
             <button className="btn btn-primary" disabled={!name.trim() || !sql.trim() || saving} onClick={save}>저장</button>
           </div>
         </footer>
