@@ -30,6 +30,13 @@ type ConnectionProfile struct {
 	// names for this connection (e.g. {"tenant":"hospitalId"}). Used by task
 	// templates to resolve {{role:NAME}} placeholders. Empty = no bindings.
 	DomainBindings string `json:"domainBindings"`
+	// DomainGlossary is a JSON array of table/column business-meaning entries
+	// (see DomainEntry). Injected into the AI assistant's system prompt so it
+	// interprets natural-language queries with domain context. Empty = none.
+	DomainGlossary string `json:"domainGlossary"`
+	// DomainNotes is free-form domain rules text (e.g. "always deletedAt IS
+	// NULL", "scope by hospitalId"). Injected alongside the glossary.
+	DomainNotes string `json:"domainNotes"`
 	// ConnectionURI is an optional full connection string (e.g. for mongodb,
 	// "mongodb+srv://..."). When set it takes precedence over host/port.
 	ConnectionURI string `json:"connectionUri"`
@@ -67,6 +74,25 @@ func (p ConnectionProfile) TenantColumnList() []string {
 	if len(out) == 0 {
 		return []string{"hospitalId", "tenantId"}
 	}
+	return out
+}
+
+// DomainEntry is one table- or column-level business-meaning mapping.
+type DomainEntry struct {
+	Kind    string `json:"kind"`    // "table" | "column"
+	Table   string `json:"table"`   // table name
+	Column  string `json:"column"`  // column name (empty for table entries)
+	Meaning string `json:"meaning"` // business meaning
+}
+
+// DomainGlossaryEntries parses DomainGlossary JSON into entries. Invalid or
+// empty JSON yields an empty slice (never nil-panics, mirrors DomainBindingMap).
+func (p ConnectionProfile) DomainGlossaryEntries() []DomainEntry {
+	if strings.TrimSpace(p.DomainGlossary) == "" {
+		return nil
+	}
+	var out []DomainEntry
+	_ = json.Unmarshal([]byte(p.DomainGlossary), &out)
 	return out
 }
 

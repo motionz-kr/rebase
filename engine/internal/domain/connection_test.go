@@ -192,3 +192,26 @@ func TestTenantColumnList_ParsesAndTrims(t *testing.T) {
 		t.Fatalf("parsed tenant columns: got %v want %v", got, want)
 	}
 }
+
+func TestDomainGlossaryEntries(t *testing.T) {
+	p := ConnectionProfile{DomainGlossary: `[{"kind":"table","table":"User","column":"","meaning":"환자"},{"kind":"column","table":"User","column":"hospitalId","meaning":"병원 구분값"}]`}
+	got := p.DomainGlossaryEntries()
+	if len(got) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(got))
+	}
+	if got[0].Table != "User" || got[0].Meaning != "환자" || got[0].Kind != "table" {
+		t.Errorf("entry0 wrong: %+v", got[0])
+	}
+	if got[1].Column != "hospitalId" || got[1].Meaning != "병원 구분값" {
+		t.Errorf("entry1 wrong: %+v", got[1])
+	}
+}
+
+func TestDomainGlossaryEntries_InvalidOrEmpty(t *testing.T) {
+	for _, in := range []string{"", "   ", "not json", "{}"} {
+		got := ConnectionProfile{DomainGlossary: in}.DomainGlossaryEntries()
+		if len(got) != 0 {
+			t.Errorf("input %q: expected 0 entries, got %d", in, len(got))
+		}
+	}
+}
