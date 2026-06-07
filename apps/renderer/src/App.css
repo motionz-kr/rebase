@@ -3695,3 +3695,23 @@
   border-radius: 6px; padding: 10px; font-size: 12px; white-space: pre-wrap; word-break: break-word;
   max-height: 320px; overflow: auto; }
 .narrator-actions { display: flex; gap: 8px; }
+
+/* ============================================================
+   DomainBindingsDialog tabs + DomainDictionaryEditor
+   ============================================================ */
+.domain-tabs { display: flex; gap: 4px; padding: 0 16px; border-bottom: 1px solid var(--border); }
+.domain-tab { background: none; border: none; padding: 8px 12px; color: var(--text-2); cursor: pointer; border-bottom: 2px solid transparent; }
+.domain-tab.active { color: var(--text); border-bottom-color: var(--accent); }
+.domain-dict { display: flex; flex-direction: column; gap: 8px; }
+.domain-dict-toolbar { display: flex; gap: 8px; align-items: center; }
+.domain-dict-search { flex: 1; background: var(--bg-input); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 6px 8px; }
+.domain-dict-hint { color: var(--text-3); font-size: 12px; margin: 0; }
+.domain-dict-grid { max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+.domain-dict-table { display: flex; flex-direction: column; gap: 2px; }
+.domain-dict-row { display: flex; align-items: center; gap: 8px; }
+.domain-dict-row.is-table { margin-top: 4px; }
+.domain-dict-name { flex: 0 0 200px; color: var(--text-2); font-size: 13px; }
+.domain-dict-row.is-table .domain-dict-name { color: var(--text); font-weight: 600; }
+.domain-dict-meaning { flex: 1; background: var(--bg-input); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 4px 8px; }
+.domain-dict-notes-label { color: var(--text-2); font-size: 13px; margin-top: 4px; }
+.domain-dict-notes { background: var(--bg-input); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 8px; resize: vertical; }

@@ -146,6 +146,7 @@ function App() {
   const [saveTplOpen, setSaveTplOpen] = useState(false);
   const [tplReload, setTplReload] = useState(0);
   const [tplSchema, setTplSchema] = useState<{ tables: string[]; columns: string[] }>({ tables: [], columns: [] });
+  const [tplColumnsByTable, setTplColumnsByTable] = useState<Record<string, string[]>>({});
 
   // Helper: parse domainBindings JSON → roles map
   const parseRoles = (profile: ConnectionProfile): Record<string, string> => {
@@ -207,6 +208,7 @@ function App() {
         const cols = new Set<string>();
         res.data.tables.forEach((t) => t.columns.forEach((c) => cols.add(c.name)));
         setTplSchema({ tables: res.data.tables.map((t) => t.name), columns: Array.from(cols) });
+        setTplColumnsByTable(Object.fromEntries(res.data.tables.map((t) => [t.name, t.columns.map((c) => c.name)])));
       }
     }).catch(() => { /* ignore */ });
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1147,6 +1149,8 @@ function App() {
         <DomainBindingsDialog
           profile={focusedProfile}
           columns={tplSchema.columns}
+          tables={tplSchema.tables}
+          columnsByTable={tplColumnsByTable}
           onClose={() => setDomainDialogOpen(false)}
           onSaved={() => loadProfiles()}
         />
