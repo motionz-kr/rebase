@@ -322,11 +322,17 @@ func main() {
 	mux.Handle("/mongo/", mongoHandler.Routes())
 
 	agentHandler := internalHttp.NewAgentHandler(*token, connectionService)
+	mcpServerRepo := sqlite.NewSQLiteMcpServerRepository(db)
+	agentHandler.SetMCP(mcpServerRepo, secretStore)
+	mcpServerHandler := internalHttp.NewMcpServerHandler(*token, mcpServerRepo, secretStore)
 	mux.Handle("/agent/run", agentHandler.Run())
 	mux.Handle("/agent/complete", agentHandler.Complete())
 	mux.Handle("/agent/key", agentHandler.Key())
 	mux.Handle("/agent/oauth/", agentHandler.OAuth())
 	mux.Handle("/mcp/connection", agentHandler.SetMCPConnection())
+	mux.Handle("/mcp/servers", mcpServerHandler.Servers())
+	mux.Handle("/mcp/servers/test", mcpServerHandler.Test())
+	mux.Handle("/mcp/servers/call", mcpServerHandler.Call())
 
 	workspaceHandler := internalHttp.NewWorkspaceHandler(*token, workspaceService)
 	mux.Handle("/workspaces", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
