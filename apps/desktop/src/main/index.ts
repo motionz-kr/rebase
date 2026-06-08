@@ -922,6 +922,70 @@ app.whenReady().then(() => {
     });
   });
 
+  // --- MCP remote servers (managed by the engine, called by AI clients) ---
+  ipcMain.handle('mcp-servers-list', async (_e, workspaceId: string) => {
+    try {
+      const data = await requestEngine({
+        method: 'GET',
+        path: `/mcp/servers?workspaceId=${encodeURIComponent(workspaceId)}`,
+      });
+      return { success: true, data };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('mcp-servers-save', async (_e, server: unknown) => {
+    try {
+      const data = await requestEngine({
+        method: 'POST',
+        path: '/mcp/servers',
+        body: server,
+      });
+      return { success: true, data };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('mcp-servers-delete', async (_e, id: string) => {
+    try {
+      const data = await requestEngine({
+        method: 'DELETE',
+        path: `/mcp/servers?id=${encodeURIComponent(id)}`,
+      });
+      return { success: true, data };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('mcp-servers-test', async (_e, payload: unknown) => {
+    try {
+      const data = await requestEngine({
+        method: 'POST',
+        path: '/mcp/servers/test',
+        body: payload,
+      });
+      return { success: true, data };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('mcp-servers-call', async (_e, payload: unknown) => {
+    try {
+      const data = await requestEngine({
+        method: 'POST',
+        path: '/mcp/servers/call',
+        body: payload,
+      });
+      return { success: true, data };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
   // Strip the agent-harness / proxy overrides so a spawned claude uses the
   // user's own login (mirrors the engine's sanitizeEnv).
   function sanitizedEnv(): NodeJS.ProcessEnv {

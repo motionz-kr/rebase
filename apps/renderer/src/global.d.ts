@@ -177,6 +177,26 @@ export interface ResultWrapper<T> {
   error?: string;
 }
 
+export interface McpServer {
+  id: string;
+  workspaceId: string;
+  name: string;
+  command: string;
+  args: string[];
+  enabled: boolean;
+  trusted: boolean;
+}
+
+export interface McpServerInput {
+  id?: string;
+  name: string;
+  command: string;
+  args: string[];
+  enabled: boolean;
+  trusted: boolean;
+  env: Record<string, string>;
+}
+
 export interface AnalyzeResult {
   level: 'safe' | 'warn' | 'medium' | 'high';
   verb: string;
@@ -238,6 +258,11 @@ declare global {
       mcpSetSettings: (profileId: string, enabled: boolean, dataExposure: string) => Promise<ResultWrapper<unknown>>;
       mcpDetectClients: () => Promise<Array<{ id: string; label: string; present: boolean }>>;
       mcpAutoconnect: (clientId: string, profileId: string) => Promise<ResultWrapper<{ path?: string; backup?: string }>>;
+      mcpServersList: (workspaceId: string) => Promise<ResultWrapper<McpServer[]>>;
+      mcpServersSave: (server: McpServerInput) => Promise<ResultWrapper<{ id: string }>>;
+      mcpServersDelete: (id: string) => Promise<ResultWrapper<{ ok: boolean }>>;
+      mcpServersTest: (payload: { command: string; args: string[]; env: Record<string, string> }) => Promise<ResultWrapper<{ tools?: { name: string; description: string }[]; error?: string }>>;
+      mcpServersCall: (payload: { serverId: string; tool: string; toolArgs: Record<string, unknown> }) => Promise<ResultWrapper<{ result?: unknown; error?: string }>>;
       updateCheck: () => Promise<void>;
       updateDownload: () => Promise<void>;
       updateInstall: () => Promise<void>;
