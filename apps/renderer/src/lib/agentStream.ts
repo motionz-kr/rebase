@@ -38,7 +38,7 @@ export function asGridResult(result: unknown): GridResult | null {
 // prettyToolName strips the MCP server prefix (mcp__<server>__) so tool chips
 // read as e.g. "list_tables" rather than "mcp__rebase__list_tables".
 export function prettyToolName(name: string): string {
-  return name.replace(/^mcp__[^_]+(?:__)/, '');
+  return name.replace(/^mcp__.+?__/, '');
 }
 
 export interface AgentChunk {

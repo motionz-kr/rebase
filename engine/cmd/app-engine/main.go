@@ -224,6 +224,25 @@ func main() {
 			`,
 			Checksum: "profile-domain-glossary-v1",
 		},
+		{
+			Version: 10,
+			Name:    "create_mcp_servers",
+			SQL: `
+				CREATE TABLE IF NOT EXISTS mcp_servers (
+					id TEXT PRIMARY KEY,
+					workspace_id TEXT NOT NULL,
+					name TEXT NOT NULL,
+					command TEXT NOT NULL,
+					args TEXT NOT NULL DEFAULT '[]',
+					enabled INTEGER NOT NULL DEFAULT 1,
+					trusted INTEGER NOT NULL DEFAULT 0,
+					created_at DATETIME NOT NULL,
+					updated_at DATETIME NOT NULL,
+					FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+				);
+			`,
+			Checksum: "mcp-servers-v1",
+		},
 	}
 	if err := migrationRunner.Run(migrations); err != nil {
 		log.Fatalf("failed to run migrations: %v", err)
@@ -303,11 +322,17 @@ func main() {
 	mux.Handle("/mongo/", mongoHandler.Routes())
 
 	agentHandler := internalHttp.NewAgentHandler(*token, connectionService)
+	mcpServerRepo := sqlite.NewSQLiteMcpServerRepository(db)
+	agentHandler.SetMCP(mcpServerRepo, secretStore)
+	mcpServerHandler := internalHttp.NewMcpServerHandler(*token, mcpServerRepo, secretStore)
 	mux.Handle("/agent/run", agentHandler.Run())
 	mux.Handle("/agent/complete", agentHandler.Complete())
 	mux.Handle("/agent/key", agentHandler.Key())
 	mux.Handle("/agent/oauth/", agentHandler.OAuth())
 	mux.Handle("/mcp/connection", agentHandler.SetMCPConnection())
+	mux.Handle("/mcp/servers", mcpServerHandler.Servers())
+	mux.Handle("/mcp/servers/test", mcpServerHandler.Test())
+	mux.Handle("/mcp/servers/call", mcpServerHandler.Call())
 
 	workspaceHandler := internalHttp.NewWorkspaceHandler(*token, workspaceService)
 	mux.Handle("/workspaces", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

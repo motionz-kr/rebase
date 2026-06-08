@@ -19,6 +19,7 @@ import { SchemaExplorer } from './components/SchemaExplorer';
 import { ConnectionTablePrefs } from './components/ConnectionTablePrefs';
 import { UpdateButton } from './components/UpdateButton';
 import { McpConnectPanel } from './components/McpConnectPanel';
+import { McpServersPanel } from './components/McpServersPanel';
 import { QueryEditor } from './components/QueryEditor';
 import { RedisKeyspaceExplorer } from './components/RedisKeyspaceExplorer';
 import { RedisValueInspector } from './components/RedisValueInspector';
@@ -743,12 +744,15 @@ function App() {
                   )}
 
                   {formTab === 'mcp' && editingId && (formDriver === 'mysql' || formDriver === 'postgres' || formDriver === 'sqlserver') && (
-                    <McpConnectPanel
-                      connId={editingId}
-                      connName={formName}
-                      initialEnabled={profiles.find((p) => p.id === editingId)?.mcpEnabled ?? false}
-                      initialExposure={profiles.find((p) => p.id === editingId)?.mcpDataExposure ?? 'metadata'}
-                    />
+                    <>
+                      <McpConnectPanel
+                        connId={editingId}
+                        connName={formName}
+                        initialEnabled={profiles.find((p) => p.id === editingId)?.mcpEnabled ?? false}
+                        initialExposure={profiles.find((p) => p.id === editingId)?.mcpDataExposure ?? 'metadata'}
+                      />
+                      <McpServersPanel />
+                    </>
                   )}
 
                   {formTab === 'schema' && editingId && (formDriver === 'mysql' || formDriver === 'postgres' || formDriver === 'sqlserver') && (

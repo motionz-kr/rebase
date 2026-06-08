@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/smlee/database-local-engine/engine/internal/adapters/llm"
+	"github.com/smlee/database-local-engine/engine/internal/adapters/mcpclient"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/mongo"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/mysql"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/postgres"
@@ -18,6 +19,7 @@ import (
 	"github.com/smlee/database-local-engine/engine/internal/adapters/sqlserver"
 	"github.com/smlee/database-local-engine/engine/internal/agent"
 	"github.com/smlee/database-local-engine/engine/internal/application"
+	"github.com/smlee/database-local-engine/engine/internal/domain"
 	"github.com/smlee/database-local-engine/engine/internal/ports"
 )
 
@@ -76,6 +78,9 @@ type AgentHandler struct {
 
 	oauthMu      sync.Mutex
 	pendingOAuth map[string]llm.PKCEParams // provider -> in-flight PKCE attempt
+
+	mcpRepo *sqlite.SQLiteMcpServerRepository
+	secrets ports.SecretStore
 }
 
 func NewAgentHandler(token string, service *application.ConnectionService) *AgentHandler {
@@ -90,6 +95,13 @@ func NewAgentHandler(token string, service *application.ConnectionService) *Agen
 		mongoConnector:     mongo.NewMongoConnector(),
 		pendingOAuth:       make(map[string]llm.PKCEParams),
 	}
+}
+
+// SetMCP wires the external-MCP-server registry + secret store so the agent run
+// can attach external tools. Optional — if unset, no external tools are added.
+func (h *AgentHandler) SetMCP(repo *sqlite.SQLiteMcpServerRepository, secrets ports.SecretStore) {
+	h.mcpRepo = repo
+	h.secrets = secrets
 }
 
 func (h *AgentHandler) checkToken(r *http.Request) bool {
@@ -309,6 +321,25 @@ func (h *AgentHandler) Run() http.Handler {
 			tenantCols,
 			profile.DomainBindingMap()["soft_delete"],
 		))
+
+		if h.mcpRepo != nil {
+			servers, _ := h.mcpRepo.List(r.Context(), "default")
+			dial := func(ctx context.Context, s domain.McpServer) (agent.McpCaller, error) {
+				env := map[string]string{}
+				if h.secrets != nil {
+					if blob, e := h.secrets.Get(ctx, "mcp_env_"+s.ID); e == nil && blob != "" {
+						_ = json.Unmarshal([]byte(blob), &env)
+					}
+				}
+				c, err := mcpclient.Dial(ctx, s.Command, s.ArgsList(), env)
+				if err != nil {
+					return nil, err
+				}
+				return c, nil
+			}
+			detach, _ := agent.AttachMCPServers(r.Context(), registry, servers, dial)
+			defer detach()
+		}
 
 		w.Header().Set("Content-Type", "application/x-ndjson")
 		w.Header().Set("Cache-Control", "no-cache")
