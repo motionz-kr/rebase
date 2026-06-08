@@ -9,6 +9,36 @@ interface Proposal {
   message?: string;
 }
 
+// An untrusted external MCP tool result asks the user to confirm before the
+// tool actually runs. The engine emits this shape as the tool "result".
+interface ExtProposal {
+  proposed: true;
+  server: string;
+  serverId: string;
+  tool: string;
+  args: Record<string, unknown>;
+  trusted: false;
+}
+
+function asExtProposal(result: unknown): ExtProposal | null {
+  if (!result || typeof result !== 'object') return null;
+  const r = result as Record<string, unknown>;
+  if (r.proposed !== true || typeof r.serverId !== 'string' || typeof r.tool !== 'string') return null;
+  return {
+    proposed: true,
+    server: String(r.server ?? ''),
+    serverId: r.serverId,
+    tool: r.tool,
+    args: (r.args && typeof r.args === 'object' ? (r.args as Record<string, unknown>) : {}),
+    trusted: false,
+  };
+}
+
+interface ExtRun {
+  status: 'running' | 'done' | 'error';
+  output?: string;
+}
+
 type AgentProvider = 'anthropic' | 'anthropic-oauth' | 'openai' | 'openai-oauth';
 const PROVIDERS: AgentProvider[] = ['anthropic', 'anthropic-oauth', 'openai', 'openai-oauth'];
 
@@ -66,6 +96,8 @@ export const AgentChat: React.FC<AgentChatProps> = ({
   const [settings, setSettings] = useState<AgentSettings>(loadSettings);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [proposals, setProposals] = useState<Record<string, Proposal>>({});
+  // Per external-tool proposal run state, keyed by a stable id (message:result).
+  const [extRuns, setExtRuns] = useState<Record<string, ExtRun>>({});
   // API key lives in the OS keychain, never in component/localStorage state.
   // We hold only the in-progress input and whether a key is already stored.
   const [apiKeyInput, setApiKeyInput] = useState('');
@@ -210,6 +242,22 @@ export const AgentChat: React.FC<AgentChatProps> = ({
       }));
     } catch (e) {
       setProposals((prev) => ({ ...prev, [id]: { sql, status: 'error', message: e instanceof Error ? e.message : 'failed' } }));
+    }
+  };
+
+  // Run an untrusted external MCP tool after the user confirms its proposal.
+  const runExtProposal = async (id: string, p: ExtProposal) => {
+    setExtRuns((prev) => ({ ...prev, [id]: { status: 'running' } }));
+    try {
+      const res = await window.electronAPI.mcpServersCall({ serverId: p.serverId, tool: p.tool, toolArgs: p.args });
+      if (!res.success || res.data?.error) {
+        setExtRuns((prev) => ({ ...prev, [id]: { status: 'error', output: res.data?.error || res.error || 'failed' } }));
+        return;
+      }
+      const out = typeof res.data?.result === 'string' ? res.data.result : JSON.stringify(res.data?.result, null, 2);
+      setExtRuns((prev) => ({ ...prev, [id]: { status: 'done', output: out } }));
+    } catch (e) {
+      setExtRuns((prev) => ({ ...prev, [id]: { status: 'error', output: e instanceof Error ? e.message : 'failed' } }));
     }
   };
 
@@ -555,6 +603,39 @@ export const AgentChat: React.FC<AgentChatProps> = ({
               </details>
             )}
             {(m.results ?? []).map((r, k) => {
+              const ext = asExtProposal(r.result);
+              if (ext) {
+                const id = `${i}:${k}`;
+                const run = extRuns[id];
+                return (
+                  <div className="agent-ext-proposal" key={`x${k}`}>
+                    <div className="agent-ext-proposal-head">
+                      <Wrench size={13} />
+                      <span>
+                        [외부:{ext.server}] {ext.tool}
+                      </span>
+                    </div>
+                    <pre className="agent-ext-proposal-args">{JSON.stringify(ext.args)}</pre>
+                    {!run && (
+                      <div className="agent-ext-proposal-actions">
+                        <button className="btn btn-primary btn-sm" onClick={() => void runExtProposal(id, ext)}>
+                          <Play size={12} /> 실행
+                        </button>
+                      </div>
+                    )}
+                    {run?.status === 'running' && <div className="agent-ext-proposal-status">실행 중…</div>}
+                    {run?.status === 'done' && (
+                      <>
+                        <div className="agent-ext-proposal-status ok">
+                          <Check size={12} /> 완료
+                        </div>
+                        {run.output && <pre className="agent-ext-proposal-out">{run.output}</pre>}
+                      </>
+                    )}
+                    {run?.status === 'error' && <div className="agent-ext-proposal-status err">{run.output}</div>}
+                  </div>
+                );
+              }
               const grid = asGridResult(r.result);
               if (!grid) return null;
               const call = m.tools.find((t) => t.id === r.toolCallId);

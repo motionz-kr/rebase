@@ -3715,3 +3715,228 @@
 .domain-dict-meaning { flex: 1; background: var(--bg-input); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 4px 8px; }
 .domain-dict-notes-label { color: var(--text-2); font-size: 13px; margin-top: 4px; }
 .domain-dict-notes { background: var(--bg-input); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 8px; resize: vertical; }
+
+/* --- External MCP servers panel --- */
+.mcp-srv-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-panel);
+}
+.mcp-srv-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.mcp-srv-warn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--red);
+}
+.mcp-srv-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.mcp-srv-empty {
+  font-size: 12px;
+  color: var(--text-3);
+  padding: 4px 0;
+}
+.mcp-srv-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-input);
+}
+.mcp-srv-row-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.mcp-srv-row-name {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.mcp-srv-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+.mcp-srv-badge {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.mcp-srv-cmd {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mcp-srv-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.mcp-srv-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.mcp-srv-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.mcp-srv-form-head {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.mcp-srv-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+.mcp-srv-field input,
+.mcp-srv-field textarea {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+.mcp-srv-field textarea {
+  font-family: var(--mono);
+  resize: vertical;
+}
+.mcp-srv-note {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-3);
+}
+.mcp-srv-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.mcp-srv-error {
+  font-size: 11.5px;
+  color: var(--red);
+}
+.mcp-srv-form-actions {
+  display: flex;
+  gap: 8px;
+}
+.mcp-srv-test {
+  font-size: 11.5px;
+  font-family: var(--mono);
+  color: var(--text-2);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  word-break: break-word;
+}
+.mcp-srv-test.ok {
+  color: var(--green);
+}
+.mcp-srv-test.err {
+  color: var(--red);
+}
+
+/* --- Agent external-tool proposal card --- */
+.agent-ext-proposal {
+  margin-top: 2px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  overflow: hidden;
+}
+.agent-ext-proposal-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 11px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-2);
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+}
+.agent-ext-proposal-args {
+  margin: 0;
+  padding: 10px 11px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text);
+}
+.agent-ext-proposal-actions {
+  display: flex;
+  gap: 8px;
+  padding: 0 11px 11px;
+}
+.agent-ext-proposal-status {
+  padding: 0 11px 11px;
+  font-size: 12px;
+  color: var(--text-3);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.agent-ext-proposal-status.ok {
+  color: var(--green);
+}
+.agent-ext-proposal-status.err {
+  color: var(--red);
+}
+.agent-ext-proposal-out {
+  margin: 0;
+  padding: 0 11px 11px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text-2);
+  max-height: 220px;
+  overflow: auto;
+}
