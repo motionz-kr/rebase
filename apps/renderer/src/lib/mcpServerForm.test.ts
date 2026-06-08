@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseArgs, parseEnv, validateServer, proxyToolLabel } from './mcpServerForm';
+import { parseArgs, parseEnv, validateServer } from './mcpServerForm';
 
 describe('parseArgs', () => {
   it('splits on whitespace, ignoring blanks', () => {
@@ -19,12 +19,5 @@ describe('validateServer', () => {
     expect(validateServer({ name: '', command: 'npx' })).toMatch(/이름/);
     expect(validateServer({ name: 'x', command: '' })).toMatch(/명령/);
     expect(validateServer({ name: 'x', command: 'npx' })).toBe('');
-  });
-});
-
-describe('proxyToolLabel', () => {
-  it('splits mcp__server__tool into parts', () => {
-    expect(proxyToolLabel('mcp__files__read_file')).toEqual({ server: 'files', tool: 'read_file' });
-    expect(proxyToolLabel('list_tables')).toBeNull();
   });
 });
