@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.0](https://github.com/motionz-kr/rebase/compare/v0.20.0...v0.21.0) (2026-06-08)
+
+
+### Features
+
+* Agent stdio MCP 클라이언트 — 외부 도구 ([#36](https://github.com/motionz-kr/rebase/issues/36)) ([#126](https://github.com/motionz-kr/rebase/issues/126)) ([f1c3a51](https://github.com/motionz-kr/rebase/commit/f1c3a519647ddbf61cb18d29d6c209ccae10f532))
+
 ## [0.20.0](https://github.com/motionz-kr/rebase/compare/v0.19.0...v0.20.0) (2026-06-08)
 
 
