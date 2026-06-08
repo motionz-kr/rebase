@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.0](https://github.com/motionz-kr/rebase/compare/v0.19.0...v0.20.0) (2026-06-08)
+
+
+### Features
+
+* 도메인 이해 기반 DB Assistant ([#103](https://github.com/motionz-kr/rebase/issues/103)) ([#124](https://github.com/motionz-kr/rebase/issues/124)) ([cf54f5b](https://github.com/motionz-kr/rebase/commit/cf54f5b090ad974e19b8ef387c1cd234e949efb3))
+
 ## [0.19.0](https://github.com/motionz-kr/rebase/compare/v0.18.1...v0.19.0) (2026-06-07)
 
 
