@@ -224,6 +224,25 @@ func main() {
 			`,
 			Checksum: "profile-domain-glossary-v1",
 		},
+		{
+			Version: 10,
+			Name:    "create_mcp_servers",
+			SQL: `
+				CREATE TABLE IF NOT EXISTS mcp_servers (
+					id TEXT PRIMARY KEY,
+					workspace_id TEXT NOT NULL,
+					name TEXT NOT NULL,
+					command TEXT NOT NULL,
+					args TEXT NOT NULL DEFAULT '[]',
+					enabled INTEGER NOT NULL DEFAULT 1,
+					trusted INTEGER NOT NULL DEFAULT 0,
+					created_at DATETIME NOT NULL,
+					updated_at DATETIME NOT NULL,
+					FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+				);
+			`,
+			Checksum: "mcp-servers-v1",
+		},
 	}
 	if err := migrationRunner.Run(migrations); err != nil {
 		log.Fatalf("failed to run migrations: %v", err)
