@@ -215,6 +215,15 @@ func main() {
 			`,
 			Checksum: "templates-v1",
 		},
+		{
+			Version: 9,
+			Name:    "add_profile_domain_glossary",
+			SQL: `
+				ALTER TABLE connection_profiles ADD COLUMN domain_glossary TEXT NOT NULL DEFAULT '';
+				ALTER TABLE connection_profiles ADD COLUMN domain_notes TEXT NOT NULL DEFAULT '';
+			`,
+			Checksum: "profile-domain-glossary-v1",
+		},
 	}
 	if err := migrationRunner.Run(migrations); err != nil {
 		log.Fatalf("failed to run migrations: %v", err)
