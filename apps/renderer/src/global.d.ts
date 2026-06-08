@@ -194,7 +194,7 @@ export interface McpServerInput {
   args: string[];
   enabled: boolean;
   trusted: boolean;
-  env: Record<string, string>;
+  env?: Record<string, string>;
 }
 
 export interface AnalyzeResult {

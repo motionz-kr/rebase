@@ -99,13 +99,13 @@ func (h *McpServerHandler) Servers() http.Handler {
 
 		case http.MethodPost:
 			var body struct {
-				ID      string            `json:"id"`
-				Name    string            `json:"name"`
-				Command string            `json:"command"`
-				Args    []string          `json:"args"`
-				Enabled bool              `json:"enabled"`
-				Trusted bool              `json:"trusted"`
-				Env     map[string]string `json:"env"`
+				ID      string             `json:"id"`
+				Name    string             `json:"name"`
+				Command string             `json:"command"`
+				Args    []string           `json:"args"`
+				Enabled bool               `json:"enabled"`
+				Trusted bool               `json:"trusted"`
+				Env     *map[string]string `json:"env"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				http.Error(w, "invalid request body", http.StatusBadRequest)
@@ -155,13 +155,12 @@ func (h *McpServerHandler) Servers() http.Handler {
 				return
 			}
 
-			// Always persist env (even empty) so clearing vars on update takes effect.
-			env := body.Env
-			if env == nil {
-				env = map[string]string{}
+			// Only touch the keychain when env is present in the request. A nil pointer
+			// (field omitted) leaves existing env unchanged; an explicit {} clears it.
+			if body.Env != nil {
+				envBlob, _ := json.Marshal(*body.Env)
+				_ = h.secrets.Set(r.Context(), "mcp_env_"+id, string(envBlob))
 			}
-			envBlob, _ := json.Marshal(env)
-			_ = h.secrets.Set(r.Context(), "mcp_env_"+id, string(envBlob))
 
 			_ = json.NewEncoder(w).Encode(map[string]string{"id": id})
 

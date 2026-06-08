@@ -39,8 +39,8 @@ export const McpServersPanel: React.FC = () => {
   }, []);
 
   // Toggling enabled/trusted re-saves the existing fields. Listing does not
-  // return env (secrets), so a toggle sends env:{} — known v1 limitation; env
-  // is only set when first adding the server (see note in the add form).
+  // return env (secrets), so the toggle omits env entirely — the engine leaves
+  // the stored env untouched when the field is absent from the request.
   const toggle = async (server: McpServer, patch: Partial<Pick<McpServer, 'enabled' | 'trusted'>>) => {
     await window.electronAPI.mcpServersSave({
       id: server.id,
@@ -49,7 +49,6 @@ export const McpServersPanel: React.FC = () => {
       args: server.args,
       enabled: patch.enabled ?? server.enabled,
       trusted: patch.trusted ?? server.trusted,
-      env: {},
     });
     await refresh();
   };
@@ -180,7 +179,7 @@ export const McpServersPanel: React.FC = () => {
             placeholder={'KEY=value\nTOKEN=...'}
           />
         </label>
-        <p className="mcp-srv-note">환경 변수는 추가 시에만 설정됩니다.</p>
+        <p className="mcp-srv-note">환경 변수는 추가 시 저장되며, 활성/신뢰 토글 시에도 유지됩니다 (변경하려면 다시 추가).</p>
         <label className="mcp-srv-check">
           <input type="checkbox" checked={trusted} onChange={(e) => setTrusted(e.target.checked)} />
           <span>신뢰함 (도구를 제안 없이 바로 실행)</span>
