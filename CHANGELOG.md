@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.0](https://github.com/motionz-kr/rebase/compare/v0.21.0...v0.22.0) (2026-06-09)
+
+
+### Features
+
+* **renderer:** 스키마 트리 수동 새로고침 (DB별 + 연결 전체) ([#128](https://github.com/motionz-kr/rebase/issues/128)) ([ef55274](https://github.com/motionz-kr/rebase/commit/ef55274950e3d15af665745c44bed378f4cadf30))
+
 ## [0.21.0](https://github.com/motionz-kr/rebase/compare/v0.20.0...v0.21.0) (2026-06-08)
 
 
