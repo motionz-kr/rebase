@@ -243,6 +243,15 @@ func main() {
 			`,
 			Checksum: "mcp-servers-v1",
 		},
+		{
+			Version: 11,
+			Name:    "add_mcp_server_transport",
+			SQL: `
+				ALTER TABLE mcp_servers ADD COLUMN transport TEXT NOT NULL DEFAULT 'stdio';
+				ALTER TABLE mcp_servers ADD COLUMN url TEXT NOT NULL DEFAULT '';
+			`,
+			Checksum: "mcp-servers-transport-v1",
+		},
 	}
 	if err := migrationRunner.Run(migrations); err != nil {
 		log.Fatalf("failed to run migrations: %v", err)

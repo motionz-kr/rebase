@@ -325,13 +325,26 @@ func (h *AgentHandler) Run() http.Handler {
 		if h.mcpRepo != nil {
 			servers, _ := h.mcpRepo.List(r.Context(), "default")
 			dial := func(ctx context.Context, s domain.McpServer) (agent.McpCaller, error) {
+				if s.TransportKind() == "http" {
+					headers := map[string]string{}
+					if h.secrets != nil {
+						if blob, e := h.secrets.Get(ctx, "mcp_headers_"+s.ID); e == nil && blob != "" {
+							_ = json.Unmarshal([]byte(blob), &headers)
+						}
+					}
+					c, err := mcpclient.DialHTTP(ctx, s.URL, headers)
+					if err != nil {
+						return nil, err
+					}
+					return c, nil
+				}
 				env := map[string]string{}
 				if h.secrets != nil {
 					if blob, e := h.secrets.Get(ctx, "mcp_env_"+s.ID); e == nil && blob != "" {
 						_ = json.Unmarshal([]byte(blob), &env)
 					}
 				}
-				c, err := mcpclient.Dial(ctx, s.Command, s.ArgsList(), env)
+				c, err := mcpclient.DialStdio(ctx, s.Command, s.ArgsList(), env)
 				if err != nil {
 					return nil, err
 				}

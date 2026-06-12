@@ -44,6 +44,23 @@ func (h *McpServerHandler) envFor(ctx context.Context, serverID string) map[stri
 	return env
 }
 
+// headersFor retrieves stored auth headers for a server from the keychain.
+func (h *McpServerHandler) headersFor(ctx context.Context, serverID string) map[string]string {
+	out := map[string]string{}
+	if blob, err := h.secrets.Get(ctx, "mcp_headers_"+serverID); err == nil && blob != "" {
+		_ = json.Unmarshal([]byte(blob), &out)
+	}
+	return out
+}
+
+// dialServer opens a client for a stored server, branching on transport.
+func (h *McpServerHandler) dialServer(ctx context.Context, s domain.McpServer) (*mcpclient.Client, error) {
+	if s.TransportKind() == "http" {
+		return mcpclient.DialHTTP(ctx, s.URL, h.headersFor(ctx, s.ID))
+	}
+	return mcpclient.DialStdio(ctx, s.Command, s.ArgsList(), h.envFor(ctx, s.ID))
+}
+
 // mcpServerDTO is the response shape — args as []string, not a JSON string.
 type mcpServerDTO struct {
 	ID          string   `json:"id"`
@@ -53,6 +70,8 @@ type mcpServerDTO struct {
 	Args        []string `json:"args"`
 	Enabled     bool     `json:"enabled"`
 	Trusted     bool     `json:"trusted"`
+	Transport   string   `json:"transport"`
+	URL         string   `json:"url"`
 }
 
 func toDTO(s domain.McpServer) mcpServerDTO {
@@ -68,6 +87,8 @@ func toDTO(s domain.McpServer) mcpServerDTO {
 		Args:        args,
 		Enabled:     s.Enabled,
 		Trusted:     s.Trusted,
+		Transport:   s.Transport,
+		URL:         s.URL,
 	}
 }
 
@@ -99,13 +120,16 @@ func (h *McpServerHandler) Servers() http.Handler {
 
 		case http.MethodPost:
 			var body struct {
-				ID      string             `json:"id"`
-				Name    string             `json:"name"`
-				Command string             `json:"command"`
-				Args    []string           `json:"args"`
-				Enabled bool               `json:"enabled"`
-				Trusted bool               `json:"trusted"`
-				Env     *map[string]string `json:"env"`
+				ID        string             `json:"id"`
+				Name      string             `json:"name"`
+				Command   string             `json:"command"`
+				Args      []string           `json:"args"`
+				Enabled   bool               `json:"enabled"`
+				Trusted   bool               `json:"trusted"`
+				Transport string             `json:"transport"`
+				URL       string             `json:"url"`
+				Env       *map[string]string `json:"env"`
+				Headers   *map[string]string `json:"headers"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				http.Error(w, "invalid request body", http.StatusBadRequest)
@@ -140,6 +164,8 @@ func (h *McpServerHandler) Servers() http.Handler {
 				Args:        string(argsJSON),
 				Enabled:     body.Enabled,
 				Trusted:     body.Trusted,
+				Transport:   body.Transport,
+				URL:         body.URL,
 				CreatedAt:   now,
 				UpdatedAt:   now,
 			}
@@ -161,6 +187,10 @@ func (h *McpServerHandler) Servers() http.Handler {
 				envBlob, _ := json.Marshal(*body.Env)
 				_ = h.secrets.Set(r.Context(), "mcp_env_"+id, string(envBlob))
 			}
+			if body.Headers != nil {
+				hb, _ := json.Marshal(*body.Headers)
+				_ = h.secrets.Set(r.Context(), "mcp_headers_"+id, string(hb))
+			}
 
 			_ = json.NewEncoder(w).Encode(map[string]string{"id": id})
 
@@ -175,6 +205,7 @@ func (h *McpServerHandler) Servers() http.Handler {
 				return
 			}
 			_ = h.secrets.Delete(r.Context(), "mcp_env_"+id)
+			_ = h.secrets.Delete(r.Context(), "mcp_headers_"+id)
 			_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
 
 		default:
@@ -193,9 +224,12 @@ func (h *McpServerHandler) Test() http.Handler {
 		w.Header().Set("Content-Type", "application/json")
 
 		var body struct {
-			Command string            `json:"command"`
-			Args    []string          `json:"args"`
-			Env     map[string]string `json:"env"`
+			Transport string            `json:"transport"`
+			URL       string            `json:"url"`
+			Command   string            `json:"command"`
+			Args      []string          `json:"args"`
+			Env       map[string]string `json:"env"`
+			Headers   map[string]string `json:"headers"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, "invalid request body", http.StatusBadRequest)
@@ -205,9 +239,15 @@ func (h *McpServerHandler) Test() http.Handler {
 		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 		defer cancel()
 
-		client, err := mcpclient.Dial(ctx, body.Command, body.Args, body.Env)
-		if err != nil {
-			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		var client *mcpclient.Client
+		var derr error
+		if body.Transport == "http" {
+			client, derr = mcpclient.DialHTTP(ctx, body.URL, body.Headers)
+		} else {
+			client, derr = mcpclient.DialStdio(ctx, body.Command, body.Args, body.Env)
+		}
+		if derr != nil {
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": derr.Error()})
 			return
 		}
 		defer client.Close()
@@ -249,11 +289,8 @@ func (h *McpServerHandler) Call() http.Handler {
 			return
 		}
 
-		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
-		defer cancel()
-
 		// Find the server config by id.
-		servers, err := h.repo.List(ctx, "default")
+		servers, err := h.repo.List(r.Context(), "default")
 		if err != nil {
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
@@ -270,15 +307,14 @@ func (h *McpServerHandler) Call() http.Handler {
 			return
 		}
 
-		env := h.envFor(ctx, body.ServerID)
-		client, err := mcpclient.Dial(ctx, found.Command, found.ArgsList(), env)
+		client, err := h.dialServer(r.Context(), *found)
 		if err != nil {
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
 		defer client.Close()
 
-		result, err := client.Call(ctx, body.Tool, body.ToolArgs)
+		result, err := client.Call(r.Context(), body.Tool, body.ToolArgs)
 		if err != nil {
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return

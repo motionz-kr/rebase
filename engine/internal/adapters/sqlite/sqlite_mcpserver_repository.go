@@ -17,15 +17,15 @@ func NewSQLiteMcpServerRepository(db *sql.DB) *SQLiteMcpServerRepository {
 
 func (r *SQLiteMcpServerRepository) Create(ctx context.Context, s *domain.McpServer) error {
 	_, err := r.db.ExecContext(ctx, `
-		INSERT INTO mcp_servers (id, workspace_id, name, command, args, enabled, trusted, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, s.ID, s.WorkspaceID, s.Name, s.Command, s.Args, s.Enabled, s.Trusted, s.CreatedAt, s.UpdatedAt)
+		INSERT INTO mcp_servers (id, workspace_id, name, command, args, enabled, trusted, transport, url, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, s.ID, s.WorkspaceID, s.Name, s.Command, s.Args, s.Enabled, s.Trusted, s.Transport, s.URL, s.CreatedAt, s.UpdatedAt)
 	return err
 }
 
 func (r *SQLiteMcpServerRepository) List(ctx context.Context, workspaceID string) ([]domain.McpServer, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, workspace_id, name, command, args, enabled, trusted, created_at, updated_at
+		SELECT id, workspace_id, name, command, args, enabled, trusted, transport, url, created_at, updated_at
 		FROM mcp_servers WHERE workspace_id = ? ORDER BY name
 	`, workspaceID)
 	if err != nil {
@@ -35,7 +35,7 @@ func (r *SQLiteMcpServerRepository) List(ctx context.Context, workspaceID string
 	var out []domain.McpServer
 	for rows.Next() {
 		var s domain.McpServer
-		if err := rows.Scan(&s.ID, &s.WorkspaceID, &s.Name, &s.Command, &s.Args, &s.Enabled, &s.Trusted, &s.CreatedAt, &s.UpdatedAt); err != nil {
+		if err := rows.Scan(&s.ID, &s.WorkspaceID, &s.Name, &s.Command, &s.Args, &s.Enabled, &s.Trusted, &s.Transport, &s.URL, &s.CreatedAt, &s.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, s)
@@ -46,9 +46,9 @@ func (r *SQLiteMcpServerRepository) List(ctx context.Context, workspaceID string
 func (r *SQLiteMcpServerRepository) Update(ctx context.Context, s *domain.McpServer) error {
 	s.UpdatedAt = time.Now()
 	res, err := r.db.ExecContext(ctx, `
-		UPDATE mcp_servers SET name = ?, command = ?, args = ?, enabled = ?, trusted = ?, updated_at = ?
+		UPDATE mcp_servers SET name = ?, command = ?, args = ?, enabled = ?, trusted = ?, transport = ?, url = ?, updated_at = ?
 		WHERE id = ?
-	`, s.Name, s.Command, s.Args, s.Enabled, s.Trusted, s.UpdatedAt, s.ID)
+	`, s.Name, s.Command, s.Args, s.Enabled, s.Trusted, s.Transport, s.URL, s.UpdatedAt, s.ID)
 	if err != nil {
 		return err
 	}

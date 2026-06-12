@@ -14,8 +14,24 @@ export function parseEnv(s: string): Record<string, string> {
   return out;
 }
 
-export function validateServer(s: { name: string; command: string }): string {
+export function parseHeaders(s: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const line of s.split('\n')) {
+    const t = line.trim();
+    if (!t || t.startsWith('#')) continue;
+    const c = t.indexOf(':');
+    if (c <= 0) continue;
+    out[t.slice(0, c).trim()] = t.slice(c + 1).trim();
+  }
+  return out;
+}
+
+export function validateServer(s: { name: string; command: string; transport?: string; url?: string }): string {
   if (!s.name.trim()) return '서버 이름을 입력하세요.';
+  if (s.transport === 'http') {
+    if (!(s.url ?? '').trim()) return 'URL을 입력하세요.';
+    return '';
+  }
   if (!s.command.trim()) return '실행 명령을 입력하세요.';
   return '';
 }

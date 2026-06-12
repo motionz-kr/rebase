@@ -16,8 +16,18 @@ type McpServer struct {
 	Args        string    `json:"args"` // JSON array
 	Enabled     bool      `json:"enabled"`
 	Trusted     bool      `json:"trusted"`
+	Transport   string    `json:"transport"` // "stdio" | "http" (blank = stdio)
+	URL         string    `json:"url"`       // endpoint for http transport
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
+}
+
+// TransportKind returns the transport, defaulting blank to "stdio".
+func (s McpServer) TransportKind() string {
+	if strings.TrimSpace(s.Transport) == "" {
+		return "stdio"
+	}
+	return s.Transport
 }
 
 // ArgsList parses Args JSON into a slice. Invalid/empty yields nil.

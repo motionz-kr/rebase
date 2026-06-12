@@ -2,6 +2,18 @@ package domain
 
 import "testing"
 
+func TestMcpServerTransportKind(t *testing.T) {
+	if (McpServer{}).TransportKind() != "stdio" {
+		t.Error("empty Transport should default to stdio")
+	}
+	if (McpServer{Transport: "http"}).TransportKind() != "http" {
+		t.Error("http should pass through")
+	}
+	if (McpServer{Transport: "  "}).TransportKind() != "stdio" {
+		t.Error("blank should default to stdio")
+	}
+}
+
 func TestMcpServerArgsList(t *testing.T) {
 	s := McpServer{Args: `["-y","@modelcontextprotocol/server-everything"]`}
 	got := s.ArgsList()

@@ -1,37 +1,31 @@
-// Package mcpclient is an outbound MCP client over stdio: it spawns an external
-// MCP server process and speaks newline-delimited JSON-RPC 2.0 (initialize,
-// tools/list, tools/call). Requests are serialized (one in flight at a time).
+// Package mcpclient is an outbound MCP client that speaks JSON-RPC 2.0 to an
+// external server over a pluggable transport (stdio or Streamable HTTP):
+// initialize, tools/list, tools/call.
 package mcpclient
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
-	"sync"
 
 	"github.com/smlee/database-local-engine/engine/internal/ports"
 )
 
 type Client struct {
-	mu  sync.Mutex
-	w   io.Writer
-	r   *bufio.Reader
-	cmd *exec.Cmd // nil in tests
-	id  int
+	t transport
 }
 
+// newClient wraps a stdio transport over the given pipes (used by tests).
 func newClient(w io.Writer, r io.Reader) *Client {
-	br := bufio.NewReader(r)
-	return &Client{w: w, r: br}
+	return &Client{t: newStdio(w, r)}
 }
 
-// Dial spawns the server process, performs the initialize handshake, and
+// DialStdio spawns the server process, performs the initialize handshake, and
 // returns a ready client. env is merged onto the current environment.
-func Dial(ctx context.Context, command string, args []string, env map[string]string) (*Client, error) {
+func DialStdio(ctx context.Context, command string, args []string, env map[string]string) (*Client, error) {
 	cmd := exec.CommandContext(ctx, command, args...)
 	cmd.Env = os.Environ()
 	for k, v := range env {
@@ -49,8 +43,20 @@ func Dial(ctx context.Context, command string, args []string, env map[string]str
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("spawn %q: %w", command, err)
 	}
-	c := newClient(stdin, stdout)
-	c.cmd = cmd
+	st := newStdio(stdin, stdout)
+	st.cmd = cmd
+	c := &Client{t: st}
+	if err := c.initialize(ctx); err != nil {
+		_ = c.Close()
+		return nil, err
+	}
+	return c, nil
+}
+
+// DialHTTP connects to a Streamable HTTP MCP server at url with the given
+// request headers (e.g. Authorization), performing the initialize handshake.
+func DialHTTP(ctx context.Context, url string, headers map[string]string) (*Client, error) {
+	c := &Client{t: newHTTP(url, headers)}
 	if err := c.initialize(ctx); err != nil {
 		_ = c.Close()
 		return nil, err
@@ -74,46 +80,8 @@ type rpcResp struct {
 	} `json:"error"`
 }
 
-// notify writes a JSON-RPC notification (no id, no reply expected).
-func (c *Client) notify(method string, params any) error {
-	b, _ := json.Marshal(rpcReq{Jsonrpc: "2.0", Method: method, Params: params})
-	_, err := c.w.Write(append(b, '\n'))
-	return err
-}
-
-// request sends a request and reads responses until the matching id arrives,
-// skipping notifications/logs the server may interleave.
-func (c *Client) request(method string, params any) (json.RawMessage, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.id++
-	id := c.id
-	b, _ := json.Marshal(rpcReq{Jsonrpc: "2.0", ID: &id, Method: method, Params: params})
-	if _, err := c.w.Write(append(b, '\n')); err != nil {
-		return nil, err
-	}
-	for {
-		line, err := c.r.ReadBytes('\n')
-		if err != nil {
-			return nil, err
-		}
-		var resp rpcResp
-		if json.Unmarshal(line, &resp) != nil || resp.ID == nil {
-			continue
-		}
-		if *resp.ID != id {
-			continue
-		}
-		if resp.Error != nil {
-			return nil, fmt.Errorf("rpc error %d: %s", resp.Error.Code, resp.Error.Message)
-		}
-		return resp.Result, nil
-	}
-}
-
 func (c *Client) initialize(ctx context.Context) error {
-	_ = ctx
-	_, err := c.request("initialize", map[string]any{
+	_, err := c.t.request(ctx, "initialize", map[string]any{
 		"protocolVersion": "2024-11-05",
 		"capabilities":    map[string]any{},
 		"clientInfo":      map[string]any{"name": "rebase", "version": "0.1.0"},
@@ -121,13 +89,12 @@ func (c *Client) initialize(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return c.notify("notifications/initialized", map[string]any{})
+	return c.t.notify(ctx, "notifications/initialized", map[string]any{})
 }
 
 // ListTools returns the server's tool catalog mapped to ports.ToolSpec.
 func (c *Client) ListTools(ctx context.Context) ([]ports.ToolSpec, error) {
-	_ = ctx
-	raw, err := c.request("tools/list", map[string]any{})
+	raw, err := c.t.request(ctx, "tools/list", map[string]any{})
 	if err != nil {
 		return nil, err
 	}
@@ -148,12 +115,10 @@ func (c *Client) ListTools(ctx context.Context) ([]ports.ToolSpec, error) {
 	return specs, nil
 }
 
-// Call invokes a tool and returns its result. MCP content text parts are
-// concatenated; if the text parses as JSON it is returned as the decoded value,
-// otherwise as a string. isError surfaces as a Go error.
+// Call invokes a tool. MCP content text parts are concatenated; JSON text is
+// decoded, otherwise returned as a string. isError surfaces as a Go error.
 func (c *Client) Call(ctx context.Context, name string, args map[string]any) (any, error) {
-	_ = ctx
-	raw, err := c.request("tools/call", map[string]any{"name": name, "arguments": args})
+	raw, err := c.t.request(ctx, "tools/call", map[string]any{"name": name, "arguments": args})
 	if err != nil {
 		return nil, err
 	}
@@ -181,14 +146,5 @@ func (c *Client) Call(ctx context.Context, name string, args map[string]any) (an
 	return text, nil
 }
 
-// Close terminates the server process (best-effort).
-func (c *Client) Close() error {
-	if wc, ok := c.w.(io.Closer); ok {
-		_ = wc.Close()
-	}
-	if c.cmd != nil && c.cmd.Process != nil {
-		_ = c.cmd.Process.Kill()
-		_ = c.cmd.Wait()
-	}
-	return nil
-}
+// Close releases the transport (terminates a stdio process; no-op for HTTP).
+func (c *Client) Close() error { return c.t.Close() }
