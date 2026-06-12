@@ -36,6 +36,8 @@ func newMcpRepo(t *testing.T) (*SQLiteMcpServerRepository, *sql.DB) {
 			args TEXT NOT NULL DEFAULT '[]',
 			enabled INTEGER NOT NULL DEFAULT 1,
 			trusted INTEGER NOT NULL DEFAULT 0,
+			transport TEXT NOT NULL DEFAULT 'stdio',
+			url TEXT NOT NULL DEFAULT '',
 			created_at DATETIME NOT NULL,
 			updated_at DATETIME NOT NULL,
 			FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
@@ -53,6 +55,7 @@ func TestMcpServerRepo_RoundTrip(t *testing.T) {
 
 	s := &domain.McpServer{ID: "s1", WorkspaceID: "default", Name: "everything",
 		Command: "npx", Args: `["-y","srv"]`, Enabled: true, Trusted: false,
+		Transport: "http", URL: "https://x",
 		CreatedAt: time.Now(), UpdatedAt: time.Now()}
 	if err := repo.Create(ctx, s); err != nil {
 		t.Fatalf("create: %v", err)
@@ -61,6 +64,9 @@ func TestMcpServerRepo_RoundTrip(t *testing.T) {
 	list, err := repo.List(ctx, "default")
 	if err != nil || len(list) != 1 || list[0].Command != "npx" {
 		t.Fatalf("list: %v %+v", err, list)
+	}
+	if list[0].Transport != "http" || list[0].URL != "https://x" {
+		t.Fatalf("transport/url not persisted: %+v", list[0])
 	}
 	s.Trusted = true
 	if err := repo.Update(ctx, s); err != nil {
