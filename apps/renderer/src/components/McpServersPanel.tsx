@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Plug, Trash2, AlertTriangle } from 'lucide-react';
-import { parseArgs, parseEnv, validateServer } from '../lib/mcpServerForm';
+import { parseArgs, parseEnv, parseHeaders, validateServer } from '../lib/mcpServerForm';
 import type { McpServer } from '../global';
 
 const WORKSPACE_ID = 'default';
@@ -19,6 +19,9 @@ export const McpServersPanel: React.FC = () => {
 
   // add-form state
   const [name, setName] = useState('');
+  const [transport, setTransport] = useState<'stdio' | 'http'>('stdio');
+  const [url, setUrl] = useState('');
+  const [headersText, setHeadersText] = useState('');
   const [command, setCommand] = useState('');
   const [argsText, setArgsText] = useState('');
   const [envText, setEnvText] = useState('');
@@ -45,6 +48,8 @@ export const McpServersPanel: React.FC = () => {
     await window.electronAPI.mcpServersSave({
       id: server.id,
       name: server.name,
+      transport: server.transport,
+      url: server.url,
       command: server.command,
       args: server.args,
       enabled: patch.enabled ?? server.enabled,
@@ -60,11 +65,11 @@ export const McpServersPanel: React.FC = () => {
 
   const runTest = async () => {
     setTest({ kind: 'testing' });
-    const res = await window.electronAPI.mcpServersTest({
-      command,
-      args: parseArgs(argsText),
-      env: parseEnv(envText),
-    });
+    const payload =
+      transport === 'http'
+        ? { transport: 'http', url, headers: parseHeaders(headersText) }
+        : { transport: 'stdio', command, args: parseArgs(argsText), env: parseEnv(envText) };
+    const res = await window.electronAPI.mcpServersTest(payload);
     if (!res.success) {
       setTest({ kind: 'err', message: res.error || '연결 실패' });
       return;
@@ -79,6 +84,8 @@ export const McpServersPanel: React.FC = () => {
 
   const resetForm = () => {
     setName('');
+    setUrl('');
+    setHeadersText('');
     setCommand('');
     setArgsText('');
     setEnvText('');
@@ -88,7 +95,7 @@ export const McpServersPanel: React.FC = () => {
   };
 
   const add = async () => {
-    const err = validateServer({ name, command });
+    const err = validateServer({ name, command, transport, url });
     if (err) {
       setFormError(err);
       return;
@@ -96,14 +103,11 @@ export const McpServersPanel: React.FC = () => {
     setFormError('');
     setSaving(true);
     try {
-      await window.electronAPI.mcpServersSave({
-        name,
-        command,
-        args: parseArgs(argsText),
-        enabled: true,
-        trusted,
-        env: parseEnv(envText),
-      });
+      const input =
+        transport === 'http'
+          ? { name, transport: 'http', url, enabled: true, trusted, headers: parseHeaders(headersText) }
+          : { name, transport: 'stdio', command, args: parseArgs(argsText), enabled: true, trusted, env: parseEnv(envText) };
+      await window.electronAPI.mcpServersSave(input);
       resetForm();
       await refresh();
     } finally {
@@ -130,9 +134,11 @@ export const McpServersPanel: React.FC = () => {
             <div className="mcp-srv-row-main">
               <div className="mcp-srv-row-name">
                 <span className="mcp-srv-name">{s.name}</span>
-                <span className="mcp-srv-badge">stdio</span>
+                <span className="mcp-srv-badge">{s.transport || 'stdio'}</span>
               </div>
-              <div className="mcp-srv-cmd">{[s.command, ...s.args].join(' ')}</div>
+              <div className="mcp-srv-cmd">
+                {(s.transport || 'stdio') === 'http' ? s.url : [s.command, ...(s.args ?? [])].join(' ')}
+              </div>
             </div>
             <div className="mcp-srv-row-actions">
               <label className="mcp-srv-toggle">
@@ -154,32 +160,65 @@ export const McpServersPanel: React.FC = () => {
       <div className="mcp-srv-form">
         <div className="mcp-srv-form-head">서버 추가</div>
         <label className="mcp-srv-field">
+          <span>전송</span>
+          <select value={transport} onChange={(e) => setTransport(e.target.value as 'stdio' | 'http')}>
+            <option value="stdio">stdio (로컬 프로세스)</option>
+            <option value="http">http (원격 서버)</option>
+          </select>
+        </label>
+        <label className="mcp-srv-field">
           <span>이름</span>
           <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="my-tools" />
         </label>
-        <label className="mcp-srv-field">
-          <span>명령</span>
-          <input type="text" value={command} onChange={(e) => setCommand(e.target.value)} placeholder="npx" />
-        </label>
-        <label className="mcp-srv-field">
-          <span>인자</span>
-          <input
-            type="text"
-            value={argsText}
-            onChange={(e) => setArgsText(e.target.value)}
-            placeholder="-y @modelcontextprotocol/server-filesystem /tmp"
-          />
-        </label>
-        <label className="mcp-srv-field">
-          <span>환경 변수</span>
-          <textarea
-            value={envText}
-            onChange={(e) => setEnvText(e.target.value)}
-            rows={2}
-            placeholder={'KEY=value\nTOKEN=...'}
-          />
-        </label>
-        <p className="mcp-srv-note">환경 변수는 추가 시 저장되며, 활성/신뢰 토글 시에도 유지됩니다 (변경하려면 다시 추가).</p>
+        {transport === 'http' ? (
+          <>
+            <label className="mcp-srv-field">
+              <span>URL</span>
+              <input
+                type="text"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder="https://example.com/mcp"
+              />
+            </label>
+            <label className="mcp-srv-field">
+              <span>헤더</span>
+              <textarea
+                value={headersText}
+                onChange={(e) => setHeadersText(e.target.value)}
+                rows={2}
+                placeholder={'Authorization: Bearer ...'}
+              />
+            </label>
+            <p className="mcp-srv-note">헤더는 추가 시 저장되며, 활성/신뢰 토글 시에도 유지됩니다 (변경하려면 다시 추가).</p>
+          </>
+        ) : (
+          <>
+            <label className="mcp-srv-field">
+              <span>명령</span>
+              <input type="text" value={command} onChange={(e) => setCommand(e.target.value)} placeholder="npx" />
+            </label>
+            <label className="mcp-srv-field">
+              <span>인자</span>
+              <input
+                type="text"
+                value={argsText}
+                onChange={(e) => setArgsText(e.target.value)}
+                placeholder="-y @modelcontextprotocol/server-filesystem /tmp"
+              />
+            </label>
+            <label className="mcp-srv-field">
+              <span>환경 변수</span>
+              <textarea
+                value={envText}
+                onChange={(e) => setEnvText(e.target.value)}
+                rows={2}
+                placeholder={'KEY=value\nTOKEN=...'}
+              />
+            </label>
+            <p className="mcp-srv-note">환경 변수는 추가 시 저장되며, 활성/신뢰 토글 시에도 유지됩니다 (변경하려면 다시 추가).</p>
+          </>
+        )}
         <label className="mcp-srv-check">
           <input type="checkbox" checked={trusted} onChange={(e) => setTrusted(e.target.checked)} />
           <span>신뢰함 (도구를 제안 없이 바로 실행)</span>
@@ -188,7 +227,11 @@ export const McpServersPanel: React.FC = () => {
         {formError && <div className="mcp-srv-error">{formError}</div>}
 
         <div className="mcp-srv-form-actions">
-          <button className="btn btn-secondary btn-sm" onClick={() => void runTest()} disabled={!command.trim() || test.kind === 'testing'}>
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={() => void runTest()}
+            disabled={(transport === 'http' ? !url.trim() : !command.trim()) || test.kind === 'testing'}
+          >
             {test.kind === 'testing' ? '테스트 중…' : '연결 테스트'}
           </button>
           <button className="btn btn-primary btn-sm" onClick={() => void add()} disabled={saving}>

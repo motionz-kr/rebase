@@ -181,6 +181,8 @@ export interface McpServer {
   id: string;
   workspaceId: string;
   name: string;
+  transport: string;
+  url: string;
   command: string;
   args: string[];
   enabled: boolean;
@@ -190,11 +192,14 @@ export interface McpServer {
 export interface McpServerInput {
   id?: string;
   name: string;
-  command: string;
-  args: string[];
+  transport?: string;
+  url?: string;
+  command?: string;
+  args?: string[];
   enabled: boolean;
   trusted: boolean;
   env?: Record<string, string>;
+  headers?: Record<string, string>;
 }
 
 export interface AnalyzeResult {
@@ -261,7 +266,7 @@ declare global {
       mcpServersList: (workspaceId: string) => Promise<ResultWrapper<McpServer[]>>;
       mcpServersSave: (server: McpServerInput) => Promise<ResultWrapper<{ id: string }>>;
       mcpServersDelete: (id: string) => Promise<ResultWrapper<{ ok: boolean }>>;
-      mcpServersTest: (payload: { command: string; args: string[]; env: Record<string, string> }) => Promise<ResultWrapper<{ tools?: { name: string; description: string }[]; error?: string }>>;
+      mcpServersTest: (payload: { transport?: string; url?: string; command?: string; args?: string[]; env?: Record<string, string>; headers?: Record<string, string> }) => Promise<ResultWrapper<{ tools?: { name: string; description: string }[]; error?: string }>>;
       mcpServersCall: (payload: { serverId: string; tool: string; toolArgs: Record<string, unknown> }) => Promise<ResultWrapper<{ result?: unknown; error?: string }>>;
       updateCheck: () => Promise<void>;
       updateDownload: () => Promise<void>;
