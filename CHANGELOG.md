@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.0](https://github.com/motionz-kr/rebase/compare/v0.22.0...v0.23.0) (2026-06-12)
+
+
+### Features
+
+* Agent MCP 클라이언트 HTTP 전송 (Streamable HTTP) ([#36](https://github.com/motionz-kr/rebase/issues/36)) ([#134](https://github.com/motionz-kr/rebase/issues/134)) ([6a94492](https://github.com/motionz-kr/rebase/commit/6a944929dd5242b4379f5cbc5febc4447262ca6e))
+
 ## [0.22.0](https://github.com/motionz-kr/rebase/compare/v0.21.0...v0.22.0) (2026-06-09)
 
 
