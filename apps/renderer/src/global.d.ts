@@ -219,6 +219,8 @@ export interface AnalyzeResult {
 }
 
 declare global {
+  const __APP_VERSION__: string;
+
   interface Window {
     electronAPI: {
       checkEngineHealth: () => Promise<HealthResult>;

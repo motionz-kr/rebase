@@ -12,6 +12,7 @@ import {
   ChevronRight,
   Bot,
   DownloadCloud,
+  Settings,
 } from 'lucide-react';
 import { clampSidebarWidth, SIDEBAR_DEFAULT, clampModalWidth, MODAL_DEFAULT, loadNum, saveNum } from './lib/uiPrefs';
 import { loadHidden, saveHidden, type HiddenStore } from './lib/tableVisibility';
@@ -34,7 +35,7 @@ import { MongoDocumentView } from './components/MongoDocumentView';
 import { MongoQueryEditor } from './components/MongoQueryEditor';
 import { MongoIndexManager } from './components/MongoIndexManager';
 import { MongoSchemaPanel } from './components/MongoSchemaPanel';
-import { SettingsPopover } from './components/SettingsPopover';
+import { SettingsPage } from './components/SettingsPage';
 import { TemplatesPanel } from './components/TemplatesPanel';
 import { TemplateRunner } from './components/TemplateRunner';
 import { DomainBindingsDialog } from './components/DomainBindingsDialog';
@@ -132,6 +133,7 @@ function App() {
   const [redisTab, setRedisTab] = useState<Record<string, 'inspector' | 'console'>>({});
   const [showAgent, setShowAgent] = useState(false);
   const [agentPopped, setAgentPopped] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
   const [showCreateForm, setShowCreateForm] = useState(false);
   // Active tab inside the connection modal: basic info / schema (table visibility) / MCP.
@@ -530,9 +532,17 @@ function App() {
           <button className="icon-btn" onClick={() => window.electronAPI.updateCheck()} title="업데이트 확인">
             <DownloadCloud size={14} />
           </button>
-          <SettingsPopover />
+          <button
+            className={`icon-btn${showSettings ? ' active' : ''}`}
+            onClick={() => setShowSettings(true)}
+            title="설정"
+          >
+            <Settings size={14} />
+          </button>
         </div>
       </header>
+
+      {showSettings && <SettingsPage onClose={() => setShowSettings(false)} />}
 
       <div className="app-body">
         {/* Sidebar: connection tree */}

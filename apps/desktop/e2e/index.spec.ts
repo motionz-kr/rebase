@@ -31,6 +31,8 @@ test.describe('MySQL index management', () => {
     // Expand devdb and open the index manager from the table context menu.
     const dbRow = win.locator(`.tree-row:has(.tree-label:text-is("${MYSQL.database}"))`).first();
     await expect(dbRow).toBeVisible({ timeout: 15_000 });
+    await expect(win.locator('.tree-toolbar')).toHaveCount(0);
+    await expect(dbRow.locator('.tree-row-action')).toBeVisible();
     const tableRow = win.locator(`.tree-row:has(.tree-label:text-is("${TABLE}"))`);
     if ((await tableRow.count()) === 0) await dbRow.click();
     await expect(tableRow).toBeVisible({ timeout: 15_000 });
