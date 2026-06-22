@@ -41,15 +41,23 @@ function sanitizeSettings(parsed: Record<string, unknown>): AgentSettings {
   };
 }
 
+function persistSanitizedSettings(settings: AgentSettings): void {
+  localStorage.setItem(AGENT_SETTINGS_KEY, JSON.stringify({
+    provider: settings.provider,
+    model: settings.model,
+    autonomy: settings.autonomy,
+    dataExposure: settings.dataExposure,
+    responseLanguage: settings.responseLanguage,
+    startupView: settings.startupView,
+  }));
+}
+
 export function loadAgentSettings(): AgentSettings {
   try {
     const raw = localStorage.getItem(AGENT_SETTINGS_KEY);
     if (!raw) return { ...DEFAULTS };
     const parsed = JSON.parse(raw) as Record<string, unknown>;
-    const next = sanitizeSettings(parsed);
-    const storageValue = typeof parsed.apiKey === 'string' ? { ...next, apiKey: parsed.apiKey } : next;
-    localStorage.setItem(AGENT_SETTINGS_KEY, JSON.stringify(storageValue));
-    return next;
+    return sanitizeSettings(parsed);
   } catch {
     return { ...DEFAULTS };
   }
@@ -61,7 +69,7 @@ export function consumeLegacyAgentApiKey(): { provider: Extract<AgentProvider, '
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     const next = sanitizeSettings(parsed);
-    localStorage.setItem(AGENT_SETTINGS_KEY, JSON.stringify(next));
+    persistSanitizedSettings(next);
 
     const apiKey = typeof parsed.apiKey === 'string' ? parsed.apiKey.trim() : '';
     if (!apiKey || (next.provider !== 'anthropic' && next.provider !== 'openai')) return null;
@@ -73,7 +81,7 @@ export function consumeLegacyAgentApiKey(): { provider: Extract<AgentProvider, '
 
 export function saveAgentSettings(patch: Partial<AgentSettings>): AgentSettings {
   const next = { ...loadAgentSettings(), ...patch };
-  localStorage.setItem(AGENT_SETTINGS_KEY, JSON.stringify(next));
+  persistSanitizedSettings(next);
   window.dispatchEvent(new CustomEvent<AgentSettings>(AGENT_SETTINGS_EVENT, { detail: next }));
   return next;
 }
