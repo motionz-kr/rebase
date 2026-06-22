@@ -35,7 +35,9 @@ Config: `release-please-config.json` + `.release-please-manifest.json`
 
 - release-please publishes the Release immediately; the installers appear a few
   minutes later once the build job finishes. Brief window where the Release has
-  notes but no binaries yet.
+  notes but no binaries yet. During that window `latest.yml` / `latest-mac.yml`
+  can return 404; the app suppresses that transient updater error and retries
+  the feed check automatically.
 - Manual fallback: `workflow_dispatch` on the Release workflow re-runs
   release-please (it only creates a release if there are releasable commits).
 
@@ -63,6 +65,10 @@ Config: `release-please-config.json` + `.release-please-manifest.json`
 - `apps/desktop/src/main/updateService.ts` — wraps `autoUpdater`
   (`autoDownload=false`), forwards `update-status` to the renderer, and routes
   download vs. open-page per the policy gate.
+- `apps/desktop/scripts/notarize-after-sign.cjs` — release-only macOS
+  notarization hook. It replaces electron-builder's built-in notarization so
+  transient `notarytool` HTTP errors can be retried before the release publish
+  fails.
 - IPC: `update-check` / `update-download` / `update-install` (+ a dev-only
   `update-simulate` for UI testing), `update-status` event stream.
 - `apps/renderer/src/lib/updateStatus.ts` — pure reducer (event → UI phase).

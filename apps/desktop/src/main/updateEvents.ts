@@ -11,6 +11,15 @@ function notesToString(notes: unknown): string | undefined {
   return undefined; // release notes can be an array of objects; keep it simple
 }
 
+function errorMessage(payload: unknown): string {
+  return payload instanceof Error ? payload.message : String(payload);
+}
+
+export function isUpdateMetadataPendingError(payload: unknown): boolean {
+  const message = errorMessage(payload);
+  return /Cannot find latest(?:-[a-z0-9]+)?\.yml in the latest release artifacts/i.test(message) && /\b404\b/.test(message);
+}
+
 export function mapUpdaterEvent(event: string, payload: unknown): UpdateStatus | null {
   const p = (payload ?? {}) as {
     version?: string;
@@ -38,7 +47,8 @@ export function mapUpdaterEvent(event: string, payload: unknown): UpdateStatus |
     case 'update-downloaded':
       return { kind: 'downloaded', version: p.version ?? '' };
     case 'error':
-      return { kind: 'error', message: payload instanceof Error ? payload.message : String(payload) };
+      if (isUpdateMetadataPendingError(payload)) return null;
+      return { kind: 'error', message: errorMessage(payload) };
     default:
       return null;
   }

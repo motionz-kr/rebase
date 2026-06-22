@@ -35,6 +35,24 @@ describe('mapUpdaterEvent', () => {
   it('maps error to a message string', () => {
     expect(mapUpdaterEvent('error', new Error('boom'))).toEqual({ kind: 'error', message: 'boom' });
   });
+  it('suppresses transient missing update metadata errors while release assets are publishing', () => {
+    expect(
+      mapUpdaterEvent(
+        'error',
+        new Error(
+          'Cannot find latest-mac.yml in the latest release artifacts (https://github.com/motionz-kr/rebase/releases/download/v0.24.0/latest-mac.yml): HttpError: 404'
+        )
+      )
+    ).toBeNull();
+    expect(
+      mapUpdaterEvent(
+        'error',
+        new Error(
+          'Cannot find latest.yml in the latest release artifacts (https://github.com/motionz-kr/rebase/releases/download/v0.24.0/latest.yml): HttpError: 404'
+        )
+      )
+    ).toBeNull();
+  });
   it('ignores unknown events', () => {
     expect(mapUpdaterEvent('something-else', {})).toBeNull();
   });
