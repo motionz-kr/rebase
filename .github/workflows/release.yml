@@ -134,8 +134,10 @@ jobs:
       # on Windows makes electron-builder treat "" as a bad cert path and fail
       # (`Env WIN_CSC_LINK is not correct, cannot resolve ...`). Empty != unset. So set
       # them via $GITHUB_ENV on mac only, and never set CSC_LINK on Windows (win stays
-      # unsigned, as before). electron-builder auto-notarizes when APPLE_API_KEY{,_ID,_ISSUER}
-      # are present. The multi-line base64 .p12 is written with the $GITHUB_ENV heredoc form.
+      # unsigned, as before). Built-in electron-builder notarization is disabled in
+      # electron-builder.json; our afterSign hook handles notarization so plain-text
+      # notarytool HTTP errors can be retried and reported clearly. The multi-line
+      # base64 .p12 is written with the $GITHUB_ENV heredoc form.
       - name: Prepare signing env
         env:
           APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
@@ -153,6 +155,7 @@ jobs:
               echo "APPLE_API_ISSUER=$MAC_APPLE_API_ISSUER"
               echo "CSC_KEY_PASSWORD=$MAC_CSC_KEY_PASSWORD"
               echo "CSC_IDENTITY_AUTO_DISCOVERY=true"
+              echo "REBASE_NOTARIZE=1"
               echo "CSC_LINK<<__CSC_EOF__"
               printf '%s\n' "$MAC_CSC_LINK"
               echo "__CSC_EOF__"

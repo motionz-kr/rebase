@@ -65,6 +65,10 @@ Config: `release-please-config.json` + `.release-please-manifest.json`
 - `apps/desktop/src/main/updateService.ts` — wraps `autoUpdater`
   (`autoDownload=false`), forwards `update-status` to the renderer, and routes
   download vs. open-page per the policy gate.
+- `apps/desktop/scripts/notarize-after-sign.cjs` — release-only macOS
+  notarization hook. It replaces electron-builder's built-in notarization so
+  transient `notarytool` HTTP errors can be retried before the release publish
+  fails.
 - IPC: `update-check` / `update-download` / `update-install` (+ a dev-only
   `update-simulate` for UI testing), `update-status` event stream.
 - `apps/renderer/src/lib/updateStatus.ts` — pure reducer (event → UI phase).
