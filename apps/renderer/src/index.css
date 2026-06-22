@@ -37,6 +37,7 @@
   --bg-input: #1e1f22;
   --bg-hover: rgba(255, 255, 255, 0.06);
   --bg-active: rgba(255, 255, 255, 0.09);
+  --app-header-bg: #2b2d30;
 
   --border: #393b40;
   --border-strong: #4a4d52;
@@ -79,6 +80,7 @@
   --bg-input: #ffffff;
   --bg-hover: rgba(0, 0, 0, 0.05);
   --bg-active: rgba(0, 0, 0, 0.08);
+  --app-header-bg: #f3f4f6;
 
   --border: #e3e5e8;
   --border-strong: #c8cbd0;
@@ -233,7 +235,7 @@ label {
 }
 .btn-primary {
   background: var(--accent);
-  color: #0a0c10;
+  color: #fff;
   font-weight: 600;
 }
 .btn-primary:hover:not(:disabled) {

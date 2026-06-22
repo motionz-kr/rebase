@@ -46,7 +46,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     runId: string,
     profileId: string,
     messages: Array<{ role: string; text: string }>,
-    options?: { provider?: string; apiKey?: string; model?: string; dataExposure?: string }
+    options?: { provider?: string; apiKey?: string; model?: string; dataExposure?: string; responseLanguage?: string }
   ) => ipcRenderer.invoke('agent-run', runId, profileId, messages, options),
   generateNarration: (
     runId: string,

@@ -5,8 +5,7 @@ import {
   getSuggestions,
   filterByPrefix,
   currentWord,
-  currentClause,
-  dotPrefix,
+  shouldShowAutocomplete,
   type SchemaInfo,
   type SqlSuggestion,
   type SuggestionKind,
@@ -85,9 +84,7 @@ export const SqlAutocomplete: React.FC<Props> = ({ editor, monaco, schema }) => 
       wordRef.current = word;
 
       const filtered = filterByPrefix(getSuggestions(schema, textBefore), word);
-      const clause = currentClause(textBefore);
-      const showEmpty = clause === 'from' || clause === 'join' || !!dotPrefix(textBefore);
-      if (filtered.length === 0 || (word.length === 0 && !showEmpty)) return setVisible(false);
+      if (filtered.length === 0 || !shouldShowAutocomplete(textBefore)) return setVisible(false);
 
       const vis = editor.getScrolledVisiblePosition(position);
       if (!vis) return setVisible(false);

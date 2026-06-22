@@ -25,6 +25,7 @@ type AgentService struct {
 	policy   Policy
 	secrets  []string
 	domain   string
+	language string
 }
 
 func NewAgentService(p ports.LLMProvider, reg *Registry, maxSteps int) *AgentService {
@@ -50,6 +51,10 @@ func (s *AgentService) SetSecrets(secrets []string) { s.secrets = secrets }
 // prompt (glossary + rules + tenant/soft-delete bindings). Empty = no-op.
 func (s *AgentService) SetDomainContext(ctx string) { s.domain = ctx }
 
+// SetResponseLanguage controls the natural language used for final text
+// responses. Tool arguments and SQL identifiers should remain unchanged.
+func (s *AgentService) SetResponseLanguage(language string) { s.language = language }
+
 // redact replaces every registered secret with a placeholder. Empty secrets are
 // ignored so they can't blank out unrelated text.
 func Redact(text string, secrets []string) string {
@@ -67,6 +72,12 @@ func (s *AgentService) request(messages []ports.LLMMessage, specs []ports.ToolSp
 	system := s.system
 	if strings.TrimSpace(s.domain) != "" {
 		system = s.system + "\n\n" + s.domain
+	}
+	switch s.language {
+	case "english":
+		system += "\n\nResponse language: Respond in English unless the user explicitly asks for another language. Keep SQL, identifiers, and data values unchanged."
+	case "korean":
+		system += "\n\nResponse language: Respond in Korean unless the user explicitly asks for another language. Keep SQL, identifiers, and data values unchanged."
 	}
 	if len(s.secrets) == 0 {
 		return ports.LLMRequest{System: system, Messages: messages, Tools: specs}

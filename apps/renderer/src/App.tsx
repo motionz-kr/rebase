@@ -13,6 +13,9 @@ import {
   Bot,
   DownloadCloud,
   Settings,
+  BookOpen,
+  History,
+  LayoutTemplate,
 } from 'lucide-react';
 import { clampSidebarWidth, SIDEBAR_DEFAULT, clampModalWidth, MODAL_DEFAULT, loadNum, saveNum } from './lib/uiPrefs';
 import { loadHidden, saveHidden, type HiddenStore } from './lib/tableVisibility';
@@ -75,6 +78,7 @@ export interface HealthResult {
 }
 
 const DRIVER_LABEL: Record<string, string> = { mysql: 'MY', postgres: 'PG', redis: 'RS', sqlite: 'SQ', sqlserver: 'MS', mongodb: 'MG' };
+type LibraryView = 'saved' | 'history' | 'templates';
 
 function App() {
   const [status, setStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking');
@@ -140,8 +144,7 @@ function App() {
   const [formTab, setFormTab] = useState<'basic' | 'schema' | 'mcp'>('basic');
   const [connectionError, setConnectionError] = useState<string | null>(null);
 
-  // Focused connection's secondary sidebar panel (saved/history/templates)
-  const [sideTab, setSideTab] = useState<'saved' | 'history' | 'templates'>('saved');
+  const [libraryView, setLibraryView] = useState<LibraryView | null>(null);
 
   // Template integration state
   const [templateView, setTemplateView] = useState<Record<string, TemplateDef | null>>({});
@@ -202,7 +205,7 @@ function App() {
 
   // Load schema (tables + columns) for TemplateRunner when templates tab active
   useEffect(() => {
-    if (sideTab !== 'templates') return;
+    if (libraryView !== 'templates') return;
     const fp = conns.focusedId ? profiles.find((p) => p.id === conns.focusedId) : null;
     if (!fp || fp.driver === 'redis' || fp.driver === 'mongodb') return;
     if (conns.byId[fp.id!]?.status !== 'connected') return;
@@ -215,7 +218,7 @@ function App() {
       }
     }).catch(() => { /* ignore */ });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sideTab, conns.focusedId]);
+  }, [libraryView, conns.focusedId]);
 
   // Escape closes the top-most open modal. Every modal overlay closes on its own
   // click handler, so we just trigger that on the last .modal-overlay in the DOM.
@@ -478,6 +481,118 @@ function App() {
     setTimeout(() => setSelectedQueryText(''), 100);
   };
 
+  const handleSelectLibraryQuery = (queryText: string) => {
+    setLibraryView(null);
+    handleSelectQuery(queryText);
+  };
+
+  const openLibrary = (view: LibraryView = 'saved') => {
+    setLibraryView(view);
+  };
+
+  const renderLibraryPanel = () => {
+    if (!focusedProfile || conns.byId[focusedProfile.id!]?.status !== 'connected' || !libraryView) return null;
+    const libraryMeta: Record<LibraryView, { title: string; description: string; icon: React.ReactNode }> = {
+      saved: {
+        title: 'Saved Queries',
+        description: '자주 쓰는 쿼리를 빠르게 찾아 현재 에디터로 불러옵니다.',
+        icon: <BookOpen size={17} />,
+      },
+      history: {
+        title: 'Query History',
+        description: '최근 실행 결과와 SQL을 확인하고 필요한 쿼리를 다시 불러옵니다.',
+        icon: <History size={17} />,
+      },
+      templates: {
+        title: 'Templates',
+        description: '업무 목적별 SQL 템플릿을 선택하고 파라미터를 채워 실행합니다.',
+        icon: <LayoutTemplate size={17} />,
+      },
+    };
+    const activeMeta = libraryMeta[libraryView];
+
+    return (
+      <div className="modal-overlay library-modal-overlay" onClick={() => setLibraryView(null)}>
+        <div
+          className="library-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Query library"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="library-modal-head">
+            <div className="library-modal-title">
+              <span className="library-modal-icon">{activeMeta.icon}</span>
+              <div>
+                <h2>{activeMeta.title}</h2>
+                <p>{activeMeta.description}</p>
+              </div>
+            </div>
+            <div className="library-modal-context">
+              <span className={`driver-chip sm ${focusedProfile.driver}`}>{DRIVER_LABEL[focusedProfile.driver]}</span>
+              <span>{focusedProfile.name}</span>
+            </div>
+            <button className="icon-btn" onClick={() => setLibraryView(null)} aria-label="닫기">
+              <X size={15} />
+            </button>
+          </div>
+
+          <div className="library-modal-tabs" role="tablist" aria-label="Query library sections">
+            <button
+              className={`library-tab${libraryView === 'saved' ? ' active' : ''}`}
+              onClick={() => setLibraryView('saved')}
+              role="tab"
+              aria-selected={libraryView === 'saved'}
+            >
+              <BookOpen size={14} /> Saved
+            </button>
+            <button
+              className={`library-tab${libraryView === 'history' ? ' active' : ''}`}
+              onClick={() => setLibraryView('history')}
+              role="tab"
+              aria-selected={libraryView === 'history'}
+            >
+              <History size={14} /> History
+            </button>
+            <button
+              className={`library-tab${libraryView === 'templates' ? ' active' : ''}`}
+              onClick={() => setLibraryView('templates')}
+              role="tab"
+              aria-selected={libraryView === 'templates'}
+            >
+              <LayoutTemplate size={14} /> Templates
+            </button>
+          </div>
+
+          <div className="library-modal-body">
+            {libraryView === 'saved' ? (
+              <SavedQueries
+                profileId={focusedProfile.id!}
+                onSelectQuery={handleSelectLibraryQuery}
+                refreshTrigger={savedTrigger}
+                onRefresh={() => setSavedTrigger((n) => n + 1)}
+              />
+            ) : libraryView === 'history' ? (
+              <QueryHistory profileId={focusedProfile.id!} onSelectQuery={handleSelectLibraryQuery} refreshTrigger={historyTrigger} />
+            ) : (
+              <TemplatesPanel
+                onSelectTemplate={(t) => {
+                  setLibraryView(null);
+                  setTemplateView((m) => ({ ...m, [focusedProfile.id!]: t }));
+                  setErTab((prev) => ({ ...prev, [focusedProfile.id!]: null }));
+                  setOpenTable((prev) => ({ ...prev, [focusedProfile.id!]: null }));
+                }}
+                onOpenDomainSettings={() => setDomainDialogOpen(true)}
+                onNewTemplate={() => setSaveTplOpen(true)}
+                reloadKey={tplReload}
+              />
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   if (typeof window.electronAPI === 'undefined') {
     return (
       <div className="boot-screen">
@@ -543,6 +658,7 @@ function App() {
       </header>
 
       {showSettings && <SettingsPage onClose={() => setShowSettings(false)} />}
+      {renderLibraryPanel()}
 
       <div className="app-body">
         {/* Sidebar: connection tree */}
@@ -880,45 +996,6 @@ function App() {
               })}
             </div>
 
-          {/* Focused connection: saved queries / history (driver-agnostic) */}
-          {focusedProfile && conns.byId[focusedProfile.id!]?.status === 'connected' && (
-            <div className="sidebar-focused-panel">
-              <div className="seg-tabs">
-                <button className={`seg-tab ${sideTab === 'saved' ? 'active' : ''}`} onClick={() => setSideTab('saved')}>
-                  Saved
-                </button>
-                <button className={`seg-tab ${sideTab === 'history' ? 'active' : ''}`} onClick={() => setSideTab('history')}>
-                  History
-                </button>
-                <button className={`seg-tab ${sideTab === 'templates' ? 'active' : ''}`} onClick={() => setSideTab('templates')}>
-                  Templates
-                </button>
-              </div>
-              <div className="sidebar-focused-body">
-                {sideTab === 'saved' ? (
-                  <SavedQueries
-                    profileId={focusedProfile.id!}
-                    onSelectQuery={handleSelectQuery}
-                    refreshTrigger={savedTrigger}
-                    onRefresh={() => setSavedTrigger((n) => n + 1)}
-                  />
-                ) : sideTab === 'history' ? (
-                  <QueryHistory profileId={focusedProfile.id!} onSelectQuery={handleSelectQuery} refreshTrigger={historyTrigger} />
-                ) : (
-                  <TemplatesPanel
-                    onSelectTemplate={(t) => {
-                      setTemplateView((m) => ({ ...m, [focusedProfile.id!]: t }));
-                      setErTab((prev) => ({ ...prev, [focusedProfile.id!]: null }));
-                      setOpenTable((prev) => ({ ...prev, [focusedProfile.id!]: null }));
-                    }}
-                    onOpenDomainSettings={() => setDomainDialogOpen(true)}
-                    onNewTemplate={() => setSaveTplOpen(true)}
-                    reloadKey={tplReload}
-                  />
-                )}
-              </div>
-            </div>
-          )}
         </aside>
 
         <div
@@ -975,6 +1052,7 @@ function App() {
 
               return (
                 <div key={id} className="conn-panel" style={{ display: focused ? 'flex' : 'none' }}>
+                  <div className="conn-panel-body">
                   {profile.driver === 'redis' ? (
                     <div className="redis-pane">
                       <div className="redis-tabs">
@@ -990,14 +1068,19 @@ function App() {
                         >
                           Console
                         </button>
+                        <span className="redis-tabs-fill" />
+                        <button className="btn btn-secondary btn-sm query-library-action" onClick={() => openLibrary()}>
+                          <BookOpen size={13} /> Query Library
+                        </button>
                       </div>
                       {redisTab[id] === 'console' ? (
-                        <RedisConsole
-                          profileId={id}
-                          onRan={() => setHistoryTrigger((n) => n + 1)}
-                          onSaved={() => setSavedTrigger((n) => n + 1)}
-                          loadRequest={focused && loadReq?.profileId === id ? { text: loadReq.text, nonce: loadReq.nonce } : undefined}
-                        />
+	                        <RedisConsole
+	                          profileId={id}
+	                          onRan={() => setHistoryTrigger((n) => n + 1)}
+	                          onSaved={() => setSavedTrigger((n) => n + 1)}
+	                          loadRequest={focused && loadReq?.profileId === id ? { text: loadReq.text, nonce: loadReq.nonce } : undefined}
+	                          agentTitlesEnabled={showAgent}
+	                        />
                       ) : (
                         <RedisValueInspector
                           key={`${id}:${redisKeys[id] ?? '∅'}`}
@@ -1053,6 +1136,9 @@ function App() {
                             >
                               스키마
                             </button>
+                            <button className="btn btn-secondary btn-sm query-library-action" onClick={() => openLibrary()}>
+                              <BookOpen size={13} /> Query Library
+                            </button>
                           </div>
                           <div className="mongo-workspace-body">
                             {mv && mv.mode === 'documents' ? (
@@ -1077,13 +1163,14 @@ function App() {
                                 collection={mv.collection}
                               />
                             ) : (
-                              <MongoQueryEditor
-                                profileId={id}
-                                view={mv ? { database: mv.database, collection: mv.collection } : null}
-                                onRan={() => setHistoryTrigger((n) => n + 1)}
-                                onSaved={() => setSavedTrigger((n) => n + 1)}
-                                loadRequest={focused && loadReq?.profileId === id ? { text: loadReq.text, nonce: loadReq.nonce } : undefined}
-                              />
+	                              <MongoQueryEditor
+	                                profileId={id}
+	                                view={mv ? { database: mv.database, collection: mv.collection } : null}
+	                                onRan={() => setHistoryTrigger((n) => n + 1)}
+	                                onSaved={() => setSavedTrigger((n) => n + 1)}
+	                                loadRequest={focused && loadReq?.profileId === id ? { text: loadReq.text, nonce: loadReq.nonce } : undefined}
+	                                agentTitlesEnabled={showAgent}
+	                              />
                             )}
                           </div>
                         </div>
@@ -1134,8 +1221,11 @@ function App() {
                       loadTriggerQuery={focused ? selectedQueryText : ''}
                       runQueryRequest={focused && runReq?.profileId === id ? { sql: runReq.sql, nonce: runReq.nonce } : undefined}
                       schemaVersion={schemaVersion}
+                      agentTitlesEnabled={showAgent}
+                      onOpenLibrary={() => openLibrary()}
                     />
                   )}
+                  </div>
                 </div>
               );
             })
@@ -1172,6 +1262,7 @@ function App() {
       {saveTplOpen && (
         <SaveTemplateDialog
           initialSql={selectedQueryText || ''}
+          profileId={conns.focusedId ?? ''}
           onClose={() => setSaveTplOpen(false)}
           onSaved={() => setTplReload((n) => n + 1)}
         />

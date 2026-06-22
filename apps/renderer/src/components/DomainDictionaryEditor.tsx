@@ -65,7 +65,7 @@ export function DomainDictionaryEditor({ profileId, glossaryJson, notes, tables,
     const data = status?.data as Record<string, unknown> | undefined;
     const ready = !!(status?.success && (data?.['present'] || data?.['loggedIn']));
     if (!ready) {
-      setAiHint('AI 미설정 — 어시스턴트에서 provider/키를 설정하세요.');
+      setAiHint('AI 미설정 — 설정 - Agent에서 provider/키를 설정하세요.');
       return;
     }
     setAiBusy(true); setAiHint('');

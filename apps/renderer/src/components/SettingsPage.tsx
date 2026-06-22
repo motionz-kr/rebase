@@ -1,15 +1,17 @@
 import React, { useEffect, useReducer, useState } from 'react';
-import { AlertTriangle, CheckCircle2, DownloadCloud, Info, Monitor, Moon, RefreshCw, Settings, Sun, X } from 'lucide-react';
+import { AlertTriangle, Bot, CheckCircle2, DownloadCloud, Info, Monitor, Moon, RefreshCw, Settings, Sun, X } from 'lucide-react';
 import { useTheme } from '../lib/theme-context';
 import type { ThemeSource } from '../lib/theme';
 import { initialUpdateState, updateReducer, type UpdateUiState } from '../lib/updateStatus';
 import { formatBytes, formatEta } from '../lib/updateFormat';
+import { AgentSettingsPanel } from './AgentSettingsPanel';
 
-type SettingsSection = 'general' | 'theme';
+type SettingsSection = 'general' | 'theme' | 'agent';
 
 const MENU: { id: SettingsSection; label: string; description: string; icon: React.ReactNode }[] = [
   { id: 'general', label: '일반', description: '버전 및 업데이트', icon: <Info size={15} /> },
   { id: 'theme', label: '테마', description: '화면 표시 방식', icon: <Sun size={15} /> },
+  { id: 'agent', label: 'Agent', description: 'LLM 및 실행 정책', icon: <Bot size={15} /> },
 ];
 
 const THEME_OPTIONS: { value: ThemeSource; label: string; description: string; icon: React.ReactNode }[] = [
@@ -179,6 +181,18 @@ export const SettingsPage: React.FC<{ onClose: () => void }> = ({ onClose }) => 
                     </button>
                   ))}
                 </div>
+              </section>
+            )}
+
+            {section === 'agent' && (
+              <section className="settings-section settings-agent-section">
+                <div className="settings-section-head">
+                  <div>
+                    <h3>Agent</h3>
+                    <p>LLM provider, 로그인 방식, 실행 정책과 데이터 노출 범위를 설정합니다.</p>
+                  </div>
+                </div>
+                <AgentSettingsPanel />
               </section>
             )}
           </main>

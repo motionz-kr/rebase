@@ -263,6 +263,7 @@ func (h *AgentHandler) Run() http.Handler {
 			APIKey       string             `json:"apiKey"`
 			Model        string             `json:"model"`
 			DataExposure string             `json:"dataExposure"`
+			ResponseLanguage string          `json:"responseLanguage"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, "invalid request body", http.StatusBadRequest)
@@ -303,6 +304,7 @@ func (h *AgentHandler) Run() http.Handler {
 		}
 		svc := agent.NewAgentService(provider, registry, 16)
 		svc.SetPolicy(agent.Policy{DataExposure: body.DataExposure})
+		svc.SetResponseLanguage(body.ResponseLanguage)
 		// Never let the connection password / secret ref reach the provider.
 		svc.SetSecrets([]string{password, profile.SecretRef})
 		// Only surface tenant columns to the domain block when they were

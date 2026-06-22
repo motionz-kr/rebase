@@ -161,6 +161,7 @@ func (h *WorkspaceHandler) AddHistory() http.Handler {
 		var req struct {
 			WorkspaceID  string  `json:"workspaceId"`
 			ProfileID    string  `json:"profileId"`
+			Name         string  `json:"name"`
 			QueryText    string  `json:"queryText"`
 			DurationMs   int64   `json:"durationMs"`
 			Success      bool    `json:"success"`
@@ -172,7 +173,7 @@ func (h *WorkspaceHandler) AddHistory() http.Handler {
 			return
 		}
 
-		entry, err := h.service.AddHistory(r.Context(), req.WorkspaceID, req.ProfileID, req.QueryText, req.DurationMs, req.Success, req.ErrorMessage, req.RowCount)
+		entry, err := h.service.AddHistory(r.Context(), req.WorkspaceID, req.ProfileID, req.Name, req.QueryText, req.DurationMs, req.Success, req.ErrorMessage, req.RowCount)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

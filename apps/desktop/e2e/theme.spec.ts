@@ -66,3 +66,23 @@ test('the settings page shows version and update status', async ({ firstWindow }
   await expect(settings).toContainText('새 버전 9.9.9 사용 가능');
   await expect(settings).toContainText('테스트 릴리스');
 });
+
+test('agent settings are managed from the settings page', async ({ firstWindow }) => {
+  await firstWindow.locator('.icon-btn[title="설정"]').click();
+  const settings = firstWindow.locator('.settings-page');
+  await expect(settings).toBeVisible();
+
+  await settings.locator('.settings-menu-item', { hasText: 'Agent' }).click();
+  await expect(settings.locator('.settings-menu-item', { hasText: 'Agent' })).toHaveAttribute('aria-current', 'page');
+  await expect(settings.locator('.settings-section-head')).toContainText('Agent');
+  await expect(settings.locator('.agent-settings')).toBeVisible();
+  const agentSettings = settings.locator('.agent-settings');
+  await expect(agentSettings.locator('label').filter({ hasText: /^Provider/ })).toHaveCount(1);
+  await expect(agentSettings.locator('label').filter({ hasText: /^Model/ })).toHaveCount(1);
+  await expect(agentSettings.locator('label').filter({ hasText: /^Data exposure/ })).toHaveCount(1);
+
+  await settings.locator('.icon-btn[aria-label="설정 닫기"]').click();
+  await firstWindow.locator('.agent-toggle').click();
+  await expect(firstWindow.locator('.agent-chat')).toBeVisible();
+  await expect(firstWindow.locator('.agent-head .icon-btn[title="Agent settings"]')).toHaveCount(0);
+});

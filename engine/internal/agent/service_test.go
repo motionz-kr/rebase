@@ -259,6 +259,16 @@ func TestServiceInjectsDomainContext(t *testing.T) {
 	}
 }
 
+func TestServiceInjectsResponseLanguage(t *testing.T) {
+	svc := NewAgentService(nil, nil, 16)
+	svc.SetResponseLanguage("english")
+
+	req := svc.request([]ports.LLMMessage{{Role: "user", Text: "hi"}}, nil)
+	if !strings.Contains(req.System, "Respond in English") {
+		t.Errorf("system should include English language instruction, got:\n%s", req.System)
+	}
+}
+
 func TestServiceNoDomainContextUnchanged(t *testing.T) {
 	svc := NewAgentService(nil, nil, 16)
 	req := svc.request([]ports.LLMMessage{{Role: "user", Text: "hi"}}, nil)

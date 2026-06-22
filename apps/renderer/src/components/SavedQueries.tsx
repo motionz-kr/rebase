@@ -77,7 +77,10 @@ export const SavedQueries: React.FC<SavedQueriesProps> = ({ profileId, onSelectQ
   return (
     <div className="list-panel">
       <div className="panel-head">
-        <h3>Saved queries</h3>
+        <div>
+          <h3>Saved queries</h3>
+          <p>{displayed.length} queries available</p>
+        </div>
         <button
           className={`star ${filterFavorite ? 'on' : ''}`}
           onClick={() => setFilterFavorite(!filterFavorite)}

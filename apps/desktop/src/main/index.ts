@@ -638,6 +638,7 @@ app.whenReady().then(() => {
         apiKey: options?.apiKey ?? '',
         model: options?.model ?? '',
         dataExposure: options?.dataExposure ?? 'unrestricted',
+        responseLanguage: options?.responseLanguage ?? 'korean',
       });
 
       const req = http.request(
