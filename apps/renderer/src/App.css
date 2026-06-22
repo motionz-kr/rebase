@@ -77,6 +77,71 @@
   gap: 8px;
 }
 
+.topbar-toggle-group {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-panel-2);
+}
+.topbar-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 550;
+  cursor: pointer;
+}
+.topbar-toggle:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+.topbar-toggle.active {
+  background: var(--accent);
+  color: #fff;
+}
+.topbar-toggle.active:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+.engine-error-bar {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 34px;
+  padding: 0 14px 0 82px;
+  background: #101214;
+  border-bottom: 1px solid #2f3438;
+  color: #fff;
+  font-size: 12.5px;
+  flex-shrink: 0;
+}
+.engine-error-bar svg {
+  color: var(--red);
+  flex-shrink: 0;
+}
+.engine-error-bar strong {
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.engine-error-bar span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #d7dbdf;
+}
+
 .status-pill {
   display: inline-flex;
   align-items: center;
@@ -2772,7 +2837,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.agent-toggle.active {
+.btn.agent-toggle.active {
   border-color: var(--accent);
   color: var(--accent);
 }

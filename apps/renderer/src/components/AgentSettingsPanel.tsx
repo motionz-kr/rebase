@@ -272,6 +272,14 @@ export function AgentSettingsPanel() {
       )}
 
       <label>
+        Startup mode
+        <select value={settings.startupView} onChange={(e) => updateSettings({ startupView: e.target.value as AgentSettings['startupView'] })}>
+          <option value="default">Default workspace</option>
+          <option value="agent">Agent mode (expanded)</option>
+        </select>
+      </label>
+
+      <label>
         Autonomy
         <select value={settings.autonomy} onChange={(e) => updateSettings({ autonomy: e.target.value as AgentSettings['autonomy'] })}>
           <option value="approval">Approval (you run every write)</option>

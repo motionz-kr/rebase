@@ -3,7 +3,6 @@ import {
   Database,
   Plus,
   Pencil,
-  RefreshCw,
   Trash2,
   Unplug,
   X,
@@ -11,7 +10,6 @@ import {
   Server,
   ChevronRight,
   Bot,
-  DownloadCloud,
   Settings,
   BookOpen,
   History,
@@ -21,7 +19,6 @@ import { clampSidebarWidth, SIDEBAR_DEFAULT, clampModalWidth, MODAL_DEFAULT, loa
 import { loadHidden, saveHidden, type HiddenStore } from './lib/tableVisibility';
 import { SchemaExplorer } from './components/SchemaExplorer';
 import { ConnectionTablePrefs } from './components/ConnectionTablePrefs';
-import { UpdateButton } from './components/UpdateButton';
 import { McpConnectPanel } from './components/McpConnectPanel';
 import { McpServersPanel } from './components/McpServersPanel';
 import { QueryEditor } from './components/QueryEditor';
@@ -44,6 +41,7 @@ import { TemplateRunner } from './components/TemplateRunner';
 import { DomainBindingsDialog } from './components/DomainBindingsDialog';
 import { SaveTemplateDialog } from './components/SaveTemplateDialog';
 import type { TemplateDef } from './lib/templateTypes';
+import { loadAgentSettings } from './lib/agentSettings';
 import { connectionsReducer, initialConnectionsState } from './state/connections';
 import './App.css';
 
@@ -80,11 +78,10 @@ export interface HealthResult {
 const DRIVER_LABEL: Record<string, string> = { mysql: 'MY', postgres: 'PG', redis: 'RS', sqlite: 'SQ', sqlserver: 'MS', mongodb: 'MG' };
 type LibraryView = 'saved' | 'history' | 'templates';
 
+const shouldStartInAgentMode = () => loadAgentSettings().startupView === 'agent';
+
 function App() {
-  const [status, setStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking');
-  const [engineInfo, setEngineInfo] = useState<{ port?: number; pid?: number } | null>(null);
   const [engineError, setEngineError] = useState<string | null>(null);
-  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const [sidebarWidth, setSidebarWidth] = useState(() => clampSidebarWidth(loadNum('rebase.ui.sidebarWidth', SIDEBAR_DEFAULT)));
   useEffect(() => saveNum('rebase.ui.sidebarWidth', sidebarWidth), [sidebarWidth]);
@@ -135,8 +132,8 @@ function App() {
   const [redisKeys, setRedisKeys] = useState<Record<string, string | null>>({});
   const [redisRefresh, setRedisRefresh] = useState<Record<string, number>>({});
   const [redisTab, setRedisTab] = useState<Record<string, 'inspector' | 'console'>>({});
-  const [showAgent, setShowAgent] = useState(false);
-  const [agentPopped, setAgentPopped] = useState(false);
+  const [showAgent, setShowAgent] = useState(shouldStartInAgentMode);
+  const [agentPopped, setAgentPopped] = useState(shouldStartInAgentMode);
   const [showSettings, setShowSettings] = useState(false);
 
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -430,30 +427,20 @@ function App() {
     });
   };
 
-  const checkHealth = useCallback(async (manual = false) => {
-    if (manual) setIsRefreshing(true);
+  const checkHealth = useCallback(async () => {
     try {
       if (window.electronAPI && typeof window.electronAPI.checkEngineHealth === 'function') {
         const res: HealthResult = await window.electronAPI.checkEngineHealth();
         if (res.success) {
-          setStatus('connected');
-          setEngineInfo({ port: res.port, pid: res.pid });
           setEngineError(null);
         } else {
-          setStatus('disconnected');
-          setEngineInfo(null);
           setEngineError(res.error || 'Engine health check failed');
         }
       } else {
-        setStatus('disconnected');
         setEngineError('electronAPI not found. Run inside Electron.');
       }
     } catch (e) {
-      setStatus('disconnected');
-      setEngineInfo(null);
       setEngineError(e instanceof Error ? e.message : 'Failed to call checkEngineHealth');
-    } finally {
-      if (manual) setTimeout(() => setIsRefreshing(false), 500);
     }
   }, []);
 
@@ -628,25 +615,16 @@ function App() {
           </span>
         </div>
         <div className="topbar-status">
-          <UpdateButton />
-          <button
-            className={`btn btn-secondary btn-sm agent-toggle${showAgent ? ' active' : ''}`}
-            onClick={() => setShowAgent((v) => !v)}
-            title="Toggle the AI agent panel"
-          >
-            <Bot size={14} /> Agent
-          </button>
-          <span className={`status-pill ${status}`}>
-            <span className="status-dot" />
-            {status === 'connected' ? 'Engine ready' : status === 'checking' ? 'Connecting' : 'Engine down'}
-            {engineInfo?.port && <span className="status-port">:{engineInfo.port}</span>}
-          </span>
-          <button className="icon-btn" onClick={() => checkHealth(true)} title="Refresh engine health" disabled={isRefreshing}>
-            <RefreshCw size={14} className={isRefreshing ? 'spin' : ''} />
-          </button>
-          <button className="icon-btn" onClick={() => window.electronAPI.updateCheck()} title="업데이트 확인">
-            <DownloadCloud size={14} />
-          </button>
+          <div className="topbar-toggle-group" role="group" aria-label="Header panels">
+            <button
+              className={`topbar-toggle agent-toggle${showAgent ? ' active' : ''}`}
+              onClick={() => setShowAgent((v) => !v)}
+              aria-pressed={showAgent}
+              title="Toggle the AI agent panel"
+            >
+              <Bot size={14} /> Agent
+            </button>
+          </div>
           <button
             className={`icon-btn${showSettings ? ' active' : ''}`}
             onClick={() => setShowSettings(true)}
@@ -659,6 +637,13 @@ function App() {
 
       {showSettings && <SettingsPage onClose={() => setShowSettings(false)} />}
       {renderLibraryPanel()}
+      {engineError && (
+        <div className="engine-error-bar" role="status">
+          <AlertTriangle size={14} />
+          <strong>Connection error</strong>
+          <span>{engineError}</span>
+        </div>
+      )}
 
       <div className="app-body">
         {/* Sidebar: connection tree */}
@@ -1014,14 +999,6 @@ function App() {
               </div>
               <h2>Open a connection</h2>
               <p>Click a connection in the sidebar to connect. Open as many as you like — dev, prod, qa — and switch between them.</p>
-              {engineError && (
-                <div className="alert error" style={{ marginTop: 16 }}>
-                  <AlertTriangle size={14} />
-                  <span>
-                    <strong>Engine:</strong> {engineError}
-                  </span>
-                </div>
-              )}
             </div>
           ) : (
             conns.order.map((id) => {

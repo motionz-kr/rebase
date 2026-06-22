@@ -259,6 +259,17 @@ func TestServiceInjectsDomainContext(t *testing.T) {
 	}
 }
 
+func TestServicePromptGuidesStorageQuestions(t *testing.T) {
+	svc := NewAgentService(nil, nil, 16)
+	req := svc.request([]ports.LLMMessage{{Role: "user", Text: "데이터베이스 용량은 얼마나 남아있죠?"}}, nil)
+	if !strings.Contains(req.System, "database_storage_summary") {
+		t.Errorf("system prompt should route storage questions to the storage tool, got:\n%s", req.System)
+	}
+	if !strings.Contains(req.System, "database usage from OS/cloud free disk space") {
+		t.Errorf("system prompt should distinguish DB usage from OS/cloud free disk space, got:\n%s", req.System)
+	}
+}
+
 func TestServiceInjectsResponseLanguage(t *testing.T) {
 	svc := NewAgentService(nil, nil, 16)
 	svc.SetResponseLanguage("english")

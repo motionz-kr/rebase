@@ -34,7 +34,9 @@ func NewAgentService(p ports.LLMProvider, reg *Registry, maxSteps int) *AgentSer
 	}
 	return &AgentService{provider: p, registry: reg, maxSteps: maxSteps,
 		system: "You are a database assistant. Use the provided tools to inspect the schema and answer precisely. " +
-			"To change data or schema, call propose_write — never claim a change was applied unless the user ran it."}
+			"To change data or schema, call propose_write — never claim a change was applied unless the user ran it. " +
+			"For storage or capacity questions, first use database_storage_summary or run_select to report the database-visible usage numbers. " +
+			"Clearly separate database usage from OS/cloud free disk space; if free disk space is unavailable from the tools, say that only that value is unavailable and provide the retrieved usage summary first."}
 }
 
 // SetPolicy configures the data-exposure gate (default: unrestricted).

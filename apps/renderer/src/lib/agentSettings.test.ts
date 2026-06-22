@@ -15,14 +15,16 @@ describe('agentSettings', () => {
     expect(s.dataExposure).toBe('metadata');
     expect(s.autonomy).toBe('approval');
     expect(s.responseLanguage).toBe('korean');
+    expect(s.startupView).toBe('default');
   });
   it('reads stored settings', () => {
-    localStorage.setItem(AGENT_SETTINGS_KEY, JSON.stringify({ provider: 'openai', model: 'gpt-x', dataExposure: 'unrestricted', autonomy: 'autonomous', responseLanguage: 'english' }));
+    localStorage.setItem(AGENT_SETTINGS_KEY, JSON.stringify({ provider: 'openai', model: 'gpt-x', dataExposure: 'unrestricted', autonomy: 'autonomous', responseLanguage: 'english', startupView: 'agent' }));
     const s = loadAgentSettings();
     expect(s.provider).toBe('openai');
     expect(s.model).toBe('gpt-x');
     expect(s.autonomy).toBe('autonomous');
     expect(s.responseLanguage).toBe('english');
+    expect(s.startupView).toBe('agent');
   });
   it('survives malformed JSON', () => {
     localStorage.setItem(AGENT_SETTINGS_KEY, '{bad');
@@ -52,11 +54,16 @@ describe('agentSettings', () => {
     expect(next.model).toBe('gpt-4o');
     expect(next.dataExposure).toBe('metadata');
     expect(next.responseLanguage).toBe('korean');
+    expect(next.startupView).toBe('default');
     expect(loadAgentSettings().provider).toBe('openai');
   });
   it('sanitizes invalid response language', () => {
     localStorage.setItem(AGENT_SETTINGS_KEY, JSON.stringify({ responseLanguage: 'spanish' }));
     expect(loadAgentSettings().responseLanguage).toBe('korean');
+  });
+  it('sanitizes invalid startup view', () => {
+    localStorage.setItem(AGENT_SETTINGS_KEY, JSON.stringify({ startupView: 'sidebar' }));
+    expect(loadAgentSettings().startupView).toBe('default');
   });
   it('includes the current custom model in provider options', () => {
     expect(modelOptionsForProvider('openai-oauth', 'custom-model')).toContain('custom-model');

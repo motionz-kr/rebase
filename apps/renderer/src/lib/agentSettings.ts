@@ -12,6 +12,7 @@ export interface AgentSettings {
   autonomy: 'approval' | 'autonomous';
   dataExposure: 'metadata' | 'on_request' | 'unrestricted';
   responseLanguage: 'korean' | 'english';
+  startupView: 'default' | 'agent';
 }
 
 const DEFAULTS: AgentSettings = {
@@ -20,6 +21,7 @@ const DEFAULTS: AgentSettings = {
   autonomy: 'approval',
   dataExposure: 'metadata',
   responseLanguage: 'korean',
+  startupView: 'default',
 };
 
 function sanitizeSettings(parsed: Record<string, unknown>): AgentSettings {
@@ -35,6 +37,7 @@ function sanitizeSettings(parsed: Record<string, unknown>): AgentSettings {
         ? parsed.dataExposure
         : DEFAULTS.dataExposure,
     responseLanguage: parsed.responseLanguage === 'english' ? 'english' : DEFAULTS.responseLanguage,
+    startupView: parsed.startupView === 'agent' ? 'agent' : DEFAULTS.startupView,
   };
 }
 

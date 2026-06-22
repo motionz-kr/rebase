@@ -154,6 +154,23 @@ func intArg(args map[string]any, key string, def int64) int64 {
 	return def
 }
 
+func storageSummaryQueries(driver string, limit int64) (string, string) {
+	switch driver {
+	case "postgres":
+		return "SELECT current_database() AS database_name, pg_database_size(current_database()) AS total_bytes",
+			fmt.Sprintf("SELECT schemaname || '.' || relname AS table_name, n_live_tup::bigint AS table_rows, pg_relation_size(relid) AS data_bytes, pg_indexes_size(relid) AS index_bytes, pg_total_relation_size(relid) AS total_bytes FROM pg_stat_user_tables ORDER BY pg_total_relation_size(relid) DESC LIMIT %d", limit)
+	case "sqlite":
+		return "SELECT 'sqlite' AS database_name, (SELECT page_count FROM pragma_page_count()) * (SELECT page_size FROM pragma_page_size()) AS total_bytes",
+			"SELECT name AS table_name, NULL AS table_rows, NULL AS data_bytes, NULL AS index_bytes, NULL AS total_bytes FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+	case "sqlserver":
+		return "SELECT DB_NAME() AS database_name, SUM(size) * 8 * 1024 AS total_bytes FROM sys.database_files",
+			fmt.Sprintf("SELECT TOP %d s.name + '.' + t.name AS table_name, SUM(p.rows) AS table_rows, SUM(a.used_pages) * 8 * 1024 AS total_bytes, SUM(a.data_pages) * 8 * 1024 AS data_bytes, (SUM(a.used_pages) - SUM(a.data_pages)) * 8 * 1024 AS index_bytes FROM sys.tables t JOIN sys.schemas s ON s.schema_id = t.schema_id JOIN sys.indexes i ON t.object_id = i.object_id JOIN sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id JOIN sys.allocation_units a ON p.partition_id = a.container_id GROUP BY s.name, t.name ORDER BY total_bytes DESC", limit)
+	default:
+		return "SELECT DATABASE() AS database_name, COUNT(*) AS table_count, COALESCE(SUM(data_length), 0) AS data_bytes, COALESCE(SUM(index_length), 0) AS index_bytes, COALESCE(SUM(data_length + index_length), 0) AS total_bytes FROM information_schema.tables WHERE table_schema = DATABASE()",
+			fmt.Sprintf("SELECT table_name, table_rows, data_length AS data_bytes, index_length AS index_bytes, data_length + index_length AS total_bytes FROM information_schema.tables WHERE table_schema = DATABASE() ORDER BY total_bytes DESC LIMIT %d", limit)
+	}
+}
+
 // NewSQLRegistry builds the read-only tool set bound to one connection profile.
 func NewSQLRegistry(conn sqlReader, p domain.ConnectionProfile, password, database string) *Registry {
 	r := &Registry{tools: map[string]Tool{}}
@@ -237,6 +254,36 @@ func NewSQLRegistry(conn sqlReader, p domain.ConnectionProfile, password, databa
 		},
 		Run: func(ctx context.Context, args map[string]any) (any, error) {
 			return runReadQuery(ctx, conn, p, password, strArg(args, "sql"))
+		},
+	})
+
+	r.add(Tool{
+		Spec: ports.ToolSpec{
+			Name: "database_storage_summary",
+			Description: "Read database-visible storage usage: current database total bytes and largest tables. " +
+				"Does not report OS/cloud free disk space; use the returned diskFreeAvailable flag to explain that limitation.",
+			Schema: map[string]any{"type": "object", "properties": map[string]any{"limit": map[string]any{"type": "integer"}}},
+		},
+		Run: func(ctx context.Context, args map[string]any) (any, error) {
+			limit := intArg(args, "limit", 10)
+			if limit > 50 {
+				limit = 50
+			}
+			totalSQL, topTablesSQL := storageSummaryQueries(p.Driver, limit)
+			total, err := runReadQuery(ctx, conn, p, password, totalSQL)
+			if err != nil {
+				return nil, err
+			}
+			topTables, err := runReadQuery(ctx, conn, p, password, topTablesSQL)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{
+				"databaseUsage":     total,
+				"largestTables":     topTables,
+				"diskFreeAvailable": false,
+				"diskFreeNote":      "OS or cloud free disk space is outside the current database tools. Use host metrics such as df -h or managed database free-storage metrics.",
+			}, nil
 		},
 	})
 

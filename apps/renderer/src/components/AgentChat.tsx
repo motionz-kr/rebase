@@ -47,6 +47,10 @@ interface ExtRun {
   output?: string;
 }
 
+function isProposeWriteTool(name: string): boolean {
+  return prettyToolName(name) === 'propose_write';
+}
+
 interface AgentChatProps {
   profileId: string | null;
   connectionName?: string;
@@ -132,7 +136,7 @@ export const AgentChat: React.FC<AgentChatProps> = ({
     if (settings.autonomy !== 'autonomous') return;
     messages.forEach((m, i) =>
       m.tools.forEach((t, j) => {
-        if (t.name !== 'propose_write') return;
+        if (!isProposeWriteTool(t.name)) return;
         const key = `${i}:${j}`;
         const sql = String(t.args?.sql ?? '');
         if (!proposals[key] && sql && classifyStatement(sql).risk === 'safe') {
@@ -340,7 +344,7 @@ export const AgentChat: React.FC<AgentChatProps> = ({
               )}
             </div>
             {m.tools.map((t, j) => {
-              if (t.name !== 'propose_write') return null;
+              if (!isProposeWriteTool(t.name)) return null;
               const sql = String(t.args?.sql ?? '');
               const key = `${i}:${j}`;
               const cls = classifyStatement(sql);

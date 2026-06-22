@@ -79,10 +79,50 @@ test('agent settings are managed from the settings page', async ({ firstWindow }
   const agentSettings = settings.locator('.agent-settings');
   await expect(agentSettings.locator('label').filter({ hasText: /^Provider/ })).toHaveCount(1);
   await expect(agentSettings.locator('label').filter({ hasText: /^Model/ })).toHaveCount(1);
+  await expect(agentSettings.locator('label').filter({ hasText: /^Startup mode/ })).toHaveCount(1);
   await expect(agentSettings.locator('label').filter({ hasText: /^Data exposure/ })).toHaveCount(1);
 
   await settings.locator('.icon-btn[aria-label="설정 닫기"]').click();
   await firstWindow.locator('.agent-toggle').click();
   await expect(firstWindow.locator('.agent-chat')).toBeVisible();
   await expect(firstWindow.locator('.agent-head .icon-btn[title="Agent settings"]')).toHaveCount(0);
+});
+
+test('agent startup mode opens the expanded agent panel on app load', async ({ firstWindow }) => {
+  await expect(firstWindow.locator('.agent-chat')).toHaveCount(0);
+
+  await firstWindow.locator('.icon-btn[title="설정"]').click();
+  const settings = firstWindow.locator('.settings-page');
+  await settings.locator('.settings-menu-item', { hasText: 'Agent' }).click();
+  await settings.locator('label', { hasText: 'Startup mode' }).locator('select').selectOption('agent');
+  await settings.locator('.icon-btn[aria-label="설정 닫기"]').click();
+
+  await firstWindow.reload();
+  await firstWindow.waitForLoadState('domcontentloaded');
+  await expect(firstWindow.locator('.agent-chat')).toBeVisible();
+  await expect(firstWindow.locator('.agent-dock.popped')).toBeVisible();
+  await expect(firstWindow.locator('.agent-head .icon-btn[title="Dock to side"]')).toBeVisible();
+  await expect(firstWindow.locator('.topbar-toggle.agent-toggle')).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('the top bar hides healthy engine chrome and shows errors only when needed', async ({ app, firstWindow }) => {
+  await expect(firstWindow.getByText('Engine ready')).toHaveCount(0);
+  await expect(firstWindow.locator('.icon-btn[title="Refresh engine health"]')).toHaveCount(0);
+  await expect(firstWindow.locator('.icon-btn[title="업데이트 확인"]')).toHaveCount(0);
+
+  const agentToggle = firstWindow.locator('.topbar-toggle.agent-toggle');
+  await expect(agentToggle).toHaveAttribute('aria-pressed', 'false');
+  await agentToggle.click();
+  await expect(agentToggle).toHaveAttribute('aria-pressed', 'true');
+  await expect(firstWindow.locator('.agent-chat')).toBeVisible();
+
+  await app.evaluate(async ({ ipcMain }) => {
+    ipcMain.removeHandler('check-engine-health');
+    ipcMain.handle('check-engine-health', async () => ({
+      success: false,
+      error: 'Engine socket unavailable',
+    }));
+  });
+  await expect(firstWindow.locator('.engine-error-bar')).toContainText('Connection error', { timeout: 4000 });
+  await expect(firstWindow.locator('.engine-error-bar')).toContainText('Engine socket unavailable');
 });

@@ -203,6 +203,26 @@ func TestRegistryTableStats(t *testing.T) {
 	}
 }
 
+func TestRegistryDatabaseStorageSummary(t *testing.T) {
+	conn := &fakeSQL{oneRow: []any{int64(2), int64(1024), int64(512), int64(1536)}}
+	reg := NewSQLRegistry(conn, domainProfile(), "", "devdb")
+	out, err := reg.Dispatch(context.Background(), "database_storage_summary", map[string]any{"limit": float64(5)})
+	if err != nil {
+		t.Fatalf("database_storage_summary: %v", err)
+	}
+	if !conn.lastReadOnly {
+		t.Error("database_storage_summary must run read-only")
+	}
+	if !containsSub(conn.lastQuery, "information_schema.tables") || !containsSub(conn.lastQuery, "ORDER BY total_bytes DESC LIMIT 5") {
+		t.Errorf("mysql storage summary should read information_schema with the requested limit, got %q", conn.lastQuery)
+	}
+	b, _ := json.Marshal(out)
+	s := string(b)
+	if !containsSub(s, `"diskFreeAvailable":false`) || !containsSub(s, "databaseUsage") || !containsSub(s, "largestTables") {
+		t.Errorf("storage summary should include usage, largest tables, and disk-free limitation: %s", s)
+	}
+}
+
 func TestRegistryFindDuplicateIndexes(t *testing.T) {
 	conn := &fakeSQL{idxList: []ports.Index{
 		{Name: "idx_a", Columns: []string{"email"}},
