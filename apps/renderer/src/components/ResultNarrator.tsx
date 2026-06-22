@@ -94,7 +94,7 @@ export function ResultNarrator({ profileId, sql, columns, rows }: Props) {
           {running ? '생성 중…' : '문장 생성'}
         </button>
       </div>
-      {!aiReady && <p className="narrator-hint">AI 미설정 — 기본 요약을 생성합니다. (어시스턴트에서 AI를 설정하면 더 풍부한 문장)</p>}
+      {!aiReady && <p className="narrator-hint">AI 미설정 — 기본 요약을 생성합니다. (설정 - Agent에서 AI를 설정하면 더 풍부한 문장)</p>}
       {needsConsent && (
         <label className="narrator-consent">
           <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />

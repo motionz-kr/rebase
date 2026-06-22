@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import MonacoEditor, { loader } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
-import { Play, Square, Save, Plus, X, Lock, Pencil, AlertTriangle, ShieldAlert, AlignLeft, ListTree } from 'lucide-react';
+import { Play, Square, Save, Plus, X, Lock, Pencil, AlertTriangle, ShieldAlert, AlignLeft, ListTree, BookOpen } from 'lucide-react';
 import { ResultGrid } from './ResultGrid';
 import { SqlAutocomplete } from './SqlAutocomplete';
 import { RiskConfirmDialog } from './RiskConfirmDialog';
@@ -16,6 +16,7 @@ import type { SchemaInfo } from '../lib/sqlCompletion';
 import type { AnalyzeResult } from '../global';
 import { clampEditorHeight, EDITOR_DEFAULT, loadNum, saveNum } from '../lib/uiPrefs';
 import { useTheme } from '../lib/theme-context';
+import { generateQueryTitle } from '../lib/queryTitle';
 
 loader.config({ monaco });
 
@@ -72,6 +73,8 @@ interface QueryEditorProps {
   // actions like "recent rows"). The nonce makes repeat requests of the same SQL fire.
   runQueryRequest?: { sql: string; nonce: number };
   schemaVersion?: number;
+  agentTitlesEnabled?: boolean;
+  onOpenLibrary?: () => void;
 }
 
 const DRIVER_LABEL: Record<string, string> = { mysql: 'MY', postgres: 'PG', redis: 'RS', sqlite: 'SQ', sqlserver: 'MS' };
@@ -96,7 +99,7 @@ const newTab = (id: string, name: string, query: string): QueryTab => ({
   lastExec: null,
 });
 
-export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, database, connectionName, safeMode = false, onQueryExecuted, loadTriggerQuery, runQueryRequest, schemaVersion }) => {
+export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, database, connectionName, safeMode = false, onQueryExecuted, loadTriggerQuery, runQueryRequest, schemaVersion, agentTitlesEnabled = false, onOpenLibrary }) => {
   const [tabs, setTabs] = useState<QueryTab[]>([
     newTab(
       'tab-1',
@@ -118,6 +121,8 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
   const [writeMode, setWriteMode] = useState(false);
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [saveQueryName, setSaveQueryName] = useState('');
+  const [saveNameTouched, setSaveNameTouched] = useState(false);
+  const [titleSuggesting, setTitleSuggesting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   // Analyze gate: when a risky statement is intercepted, hold the pending
@@ -163,6 +168,22 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
 
   // Load this connection's schema (tables + columns) for autocompletion.
   const [schema, setSchema] = useState<SchemaInfo>({ tables: [] });
+  const logQueryHistory = useCallback(async (payload: {
+    queryText: string;
+    durationMs: number;
+    success: boolean;
+    errorMessage: string | null | undefined;
+    rowCount: number | null | undefined;
+  }) => {
+    const name = await generateQueryTitle({ profileId, queryText: payload.queryText, agentEnabled: agentTitlesEnabled });
+    return window.electronAPI.addQueryHistory({
+      workspaceId: 'default',
+      profileId,
+      name,
+      ...payload,
+    });
+  }, [profileId, agentTitlesEnabled]);
+
   useEffect(() => {
     let ignore = false;
     (async () => {
@@ -214,10 +235,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
               error: null,
             };
 
-            window.electronAPI
-              .addQueryHistory({
-                workspaceId: 'default',
-                profileId,
+            void logQueryHistory({
                 queryText: tab.query,
                 durationMs: updated.elapsedTimeMs,
                 success: true,
@@ -233,10 +251,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
             updated.queryId = null;
             updated.lastExec = { sql: tab.query, durationMs: updated.elapsedTimeMs, error: chunk.message };
 
-            window.electronAPI
-              .addQueryHistory({
-                workspaceId: 'default',
-                profileId,
+            void logQueryHistory({
                 queryText: tab.query,
                 durationMs: updated.elapsedTimeMs,
                 success: false,
@@ -253,7 +268,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     });
 
     return cleanup;
-  }, [profileId, onQueryExecuted]);
+  }, [logQueryHistory, onQueryExecuted]);
 
   const activeTab = tabs.find((t) => t.id === activeTabId) || tabs[0];
 
@@ -368,10 +383,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
       }
       if (r.result) {
         collected.push(r.result);
-        window.electronAPI
-          .addQueryHistory({
-            workspaceId: 'default',
-            profileId,
+        void logQueryHistory({
             queryText: stmt,
             durationMs: 0,
             success: !r.result.error,
@@ -577,6 +589,19 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     if (activeTabId === tabId) setActiveTabId(filtered[filtered.length - 1].id);
   };
 
+  const openSaveModal = () => {
+    setSaveQueryName('');
+    setSaveNameTouched(false);
+    setShowSaveModal(true);
+  };
+
+  const closeSaveModal = () => {
+    setShowSaveModal(false);
+    setSaveQueryName('');
+    setSaveNameTouched(false);
+    setTitleSuggesting(false);
+  };
+
   const handleSaveSQL = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!saveQueryName.trim()) return;
@@ -591,8 +616,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
       });
       if (res.success) {
         setTabs((prev) => prev.map((t) => (t.id === activeTabId ? { ...t, name: saveQueryName } : t)));
-        setShowSaveModal(false);
-        setSaveQueryName('');
+        closeSaveModal();
         onQueryExecuted?.();
       } else {
         alert('Failed to save query: ' + (res.error || 'Unknown error'));
@@ -603,6 +627,22 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
       setIsSaving(false);
     }
   };
+
+  useEffect(() => {
+    if (!showSaveModal || saveNameTouched) return;
+    let ignore = false;
+    setTitleSuggesting(true);
+    generateQueryTitle({ profileId, queryText: activeTab.query, agentEnabled: true })
+      .then((title) => {
+        if (!ignore) setSaveQueryName(title);
+      })
+      .finally(() => {
+        if (!ignore) setTitleSuggesting(false);
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [showSaveModal, saveNameTouched, profileId, activeTab.query]);
 
   const prompt = activeTab.policyPrompt;
 
@@ -633,6 +673,12 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
         <button className="etab-add" onClick={createTab} title="New query tab">
           <Plus size={15} />
         </button>
+        <span className="editor-tabs-fill" />
+        {onOpenLibrary && (
+          <button className="btn btn-secondary btn-sm query-library-action" onClick={onOpenLibrary}>
+            <BookOpen size={13} /> Query Library
+          </button>
+        )}
       </div>
 
       {/* Monaco */}
@@ -728,7 +774,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
           </button>
           <button
             className="btn btn-secondary btn-sm"
-            onClick={() => setShowSaveModal(true)}
+            onClick={openSaveModal}
             disabled={!activeTab.query.trim() || activeTab.loading}
           >
             <Save size={13} /> Save
@@ -911,7 +957,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
 
       {/* Save modal */}
       {showSaveModal && (
-        <div className="modal-overlay" onClick={() => setShowSaveModal(false)}>
+        <div className="modal-overlay" onClick={closeSaveModal}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h3>Save query</h3>
             <form onSubmit={handleSaveSQL}>
@@ -919,15 +965,18 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
                 <label>Query name</label>
                 <input
                   type="text"
-                  placeholder="e.g. Active users"
+                  placeholder={titleSuggesting ? 'AI 제목 생성 중…' : 'e.g. Active users'}
                   value={saveQueryName}
-                  onChange={(e) => setSaveQueryName(e.target.value)}
+                  onChange={(e) => {
+                    setSaveNameTouched(true);
+                    setSaveQueryName(e.target.value);
+                  }}
                   autoFocus
                   required
                 />
               </div>
               <div className="form-actions">
-                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowSaveModal(false)}>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={closeSaveModal}>
                   Cancel
                 </button>
                 <button type="submit" className="btn btn-primary btn-sm" disabled={isSaving || !saveQueryName.trim()}>

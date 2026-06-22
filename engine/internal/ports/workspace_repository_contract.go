@@ -162,6 +162,7 @@ func VerifyWorkspaceRepositoryContract(t *testing.T, repo WorkspaceRepository) {
 			ID:           "h-1",
 			WorkspaceID:  ws2.ID,
 			ProfileID:    "prof-1",
+			Name:         "Users lookup",
 			QueryText:    "SELECT * FROM users",
 			ExecutedAt:   time.Now().Round(time.Second),
 			DurationMs:   120,
@@ -175,6 +176,7 @@ func VerifyWorkspaceRepositoryContract(t *testing.T, repo WorkspaceRepository) {
 			ID:           "h-2",
 			WorkspaceID:  ws2.ID,
 			ProfileID:    "prof-1",
+			Name:         "Invalid table",
 			QueryText:    "SELECT * FROM invalid_table",
 			ExecutedAt:   time.Now().Round(time.Second),
 			DurationMs:   45,
@@ -199,7 +201,7 @@ func VerifyWorkspaceRepositoryContract(t *testing.T, repo WorkspaceRepository) {
 		if err != nil {
 			t.Fatalf("failed to get history: %v", err)
 		}
-		if got.QueryText != h1.QueryText || got.DurationMs != h1.DurationMs || got.Success != h1.Success {
+		if got.Name != h1.Name || got.QueryText != h1.QueryText || got.DurationMs != h1.DurationMs || got.Success != h1.Success {
 			t.Errorf("history mismatch: %+v vs %+v", got, h1)
 		}
 

@@ -227,8 +227,8 @@ func (r *SQLiteWorkspaceRepository) ListQueries(ctx context.Context, workspaceID
 
 func (r *SQLiteWorkspaceRepository) AddHistory(ctx context.Context, h *domain.QueryHistory) error {
 	query := `
-		INSERT INTO query_history (id, workspace_id, profile_id, query_text, executed_at, duration_ms, success, error_message, row_count, remote_id, version, sync_state)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO query_history (id, workspace_id, profile_id, name, query_text, executed_at, duration_ms, success, error_message, row_count, remote_id, version, sync_state)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 	successInt := 0
 	if h.Success {
@@ -239,6 +239,7 @@ func (r *SQLiteWorkspaceRepository) AddHistory(ctx context.Context, h *domain.Qu
 		h.ID,
 		h.WorkspaceID,
 		h.ProfileID,
+		h.Name,
 		h.QueryText,
 		h.ExecutedAt,
 		h.DurationMs,
@@ -257,7 +258,7 @@ func (r *SQLiteWorkspaceRepository) AddHistory(ctx context.Context, h *domain.Qu
 
 func (r *SQLiteWorkspaceRepository) GetHistory(ctx context.Context, id string) (*domain.QueryHistory, error) {
 	query := `
-		SELECT id, workspace_id, profile_id, query_text, executed_at, duration_ms, success, error_message, row_count, remote_id, version, sync_state
+		SELECT id, workspace_id, profile_id, name, query_text, executed_at, duration_ms, success, error_message, row_count, remote_id, version, sync_state
 		FROM query_history
 		WHERE id = ?
 	`
@@ -268,6 +269,7 @@ func (r *SQLiteWorkspaceRepository) GetHistory(ctx context.Context, id string) (
 		&h.ID,
 		&h.WorkspaceID,
 		&h.ProfileID,
+		&h.Name,
 		&h.QueryText,
 		&h.ExecutedAt,
 		&h.DurationMs,
@@ -290,7 +292,7 @@ func (r *SQLiteWorkspaceRepository) GetHistory(ctx context.Context, id string) (
 
 func (r *SQLiteWorkspaceRepository) ListHistory(ctx context.Context, workspaceID string, profileID string) ([]*domain.QueryHistory, error) {
 	query := `
-		SELECT id, workspace_id, profile_id, query_text, executed_at, duration_ms, success, error_message, row_count, remote_id, version, sync_state
+		SELECT id, workspace_id, profile_id, name, query_text, executed_at, duration_ms, success, error_message, row_count, remote_id, version, sync_state
 		FROM query_history
 		WHERE workspace_id = ? AND profile_id = ?
 		ORDER BY executed_at DESC
@@ -309,6 +311,7 @@ func (r *SQLiteWorkspaceRepository) ListHistory(ctx context.Context, workspaceID
 			&h.ID,
 			&h.WorkspaceID,
 			&h.ProfileID,
+			&h.Name,
 			&h.QueryText,
 			&h.ExecutedAt,
 			&h.DurationMs,

@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { TemplateParam } from '../lib/templateTypes';
+import { generateQueryTitle } from '../lib/queryTitle';
 
 function scanParams(sql: string): TemplateParam[] {
   const out: TemplateParam[] = [];
@@ -22,17 +23,30 @@ function scanParams(sql: string): TemplateParam[] {
 
 interface Props {
   initialSql?: string;
+  profileId?: string;
   onClose: () => void;
   onSaved: () => void;
 }
 
-export function SaveTemplateDialog({ initialSql = '', onClose, onSaved }: Props) {
+export function SaveTemplateDialog({ initialSql = '', profileId = '', onClose, onSaved }: Props) {
   const [name, setName] = useState('');
+  const [nameTouched, setNameTouched] = useState(false);
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('내 템플릿');
   const [sql, setSql] = useState(initialSql);
   const params = useMemo(() => scanParams(sql), [sql]);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!sql.trim() || nameTouched) return;
+    let ignore = false;
+    generateQueryTitle({ profileId, queryText: sql, agentEnabled: true }).then((title) => {
+      if (!ignore) setName(title);
+    });
+    return () => {
+      ignore = true;
+    };
+  }, [sql, profileId, nameTouched]);
 
   async function save() {
     if (!name.trim() || !sql.trim()) return;
@@ -57,7 +71,7 @@ export function SaveTemplateDialog({ initialSql = '', onClose, onSaved }: Props)
       <div className="risk-dialog">
         <header className="risk-header"><span className="risk-verb">새 템플릿 저장</span></header>
         <section className="risk-body">
-          <div className="form-field"><label>이름 *</label><input value={name} onChange={(e) => setName(e.target.value)} /></div>
+          <div className="form-field"><label>이름 *</label><input value={name} onChange={(e) => { setNameTouched(true); setName(e.target.value); }} /></div>
           <div className="form-field"><label>설명</label><input value={description} onChange={(e) => setDescription(e.target.value)} /></div>
           <div className="form-field"><label>카테고리</label><input value={category} onChange={(e) => setCategory(e.target.value)} /></div>
           <div className="form-field">

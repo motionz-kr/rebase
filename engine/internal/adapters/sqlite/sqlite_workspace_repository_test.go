@@ -69,6 +69,7 @@ func TestSQLiteWorkspaceRepository_Contract(t *testing.T) {
 					id TEXT PRIMARY KEY,
 					workspace_id TEXT NOT NULL,
 					profile_id TEXT NOT NULL,
+					name TEXT NOT NULL DEFAULT '',
 					query_text TEXT NOT NULL,
 					executed_at DATETIME NOT NULL,
 					duration_ms INTEGER NOT NULL,

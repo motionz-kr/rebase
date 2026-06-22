@@ -6,6 +6,7 @@ import {
   getSuggestions,
   currentWord,
   filterByPrefix,
+  shouldShowAutocomplete,
   type SchemaInfo,
   type SqlSuggestion,
 } from './sqlCompletion';
@@ -140,5 +141,18 @@ describe('getSuggestions', () => {
     expect(sug?.kind).toBe('column');
     expect(sug?.detail).toContain('users');
     expect(sug?.detail).toContain('varchar');
+  });
+});
+
+describe('shouldShowAutocomplete', () => {
+  test('does not open after whitespace or statement terminators', () => {
+    expect(shouldShowAutocomplete('SELECT * FROM ')).toBe(false);
+    expect(shouldShowAutocomplete('SELECT * FROM users;')).toBe(false);
+  });
+
+  test('opens while typing a token or after dot completion', () => {
+    expect(shouldShowAutocomplete('SELECT * FROM us')).toBe(true);
+    expect(shouldShowAutocomplete('SELECT u.')).toBe(true);
+    expect(shouldShowAutocomplete('SELECT u.na')).toBe(true);
   });
 });

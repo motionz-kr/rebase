@@ -6,13 +6,13 @@ import (
 )
 
 type Workspace struct {
-	ID        string     `json:"id"`
-	Name      string     `json:"name"`
-	RemoteID  *string    `json:"remoteId"`
-	Version   int        `json:"version"`
-	SyncState string     `json:"syncState"` // local, synced, pending
-	CreatedAt time.Time  `json:"createdAt"`
-	UpdatedAt time.Time  `json:"updatedAt"`
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	RemoteID  *string   `json:"remoteId"`
+	Version   int       `json:"version"`
+	SyncState string    `json:"syncState"` // local, synced, pending
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 func (w Workspace) Validate() error {
@@ -29,17 +29,17 @@ func (w Workspace) Validate() error {
 }
 
 type SavedQuery struct {
-	ID          string     `json:"id"`
-	WorkspaceID string     `json:"workspaceId"`
-	ProfileID   string     `json:"profileId"`
-	Name        string     `json:"name"`
-	QueryText   string     `json:"queryText"`
-	IsFavorite  bool       `json:"isFavorite"`
-	RemoteID    *string    `json:"remoteId"`
-	Version     int        `json:"version"`
-	SyncState   string     `json:"syncState"`
-	CreatedAt   time.Time  `json:"createdAt"`
-	UpdatedAt   time.Time  `json:"updatedAt"`
+	ID          string    `json:"id"`
+	WorkspaceID string    `json:"workspaceId"`
+	ProfileID   string    `json:"profileId"`
+	Name        string    `json:"name"`
+	QueryText   string    `json:"queryText"`
+	IsFavorite  bool      `json:"isFavorite"`
+	RemoteID    *string   `json:"remoteId"`
+	Version     int       `json:"version"`
+	SyncState   string    `json:"syncState"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
 func (q SavedQuery) Validate() error {
@@ -65,18 +65,19 @@ func (q SavedQuery) Validate() error {
 }
 
 type QueryHistory struct {
-	ID           string     `json:"id"`
-	WorkspaceID  string     `json:"workspaceId"`
-	ProfileID    string     `json:"profileId"`
-	QueryText    string     `json:"queryText"`
-	ExecutedAt   time.Time  `json:"executedAt"`
-	DurationMs   int64      `json:"durationMs"`
-	Success      bool       `json:"success"`
-	ErrorMessage *string    `json:"errorMessage"`
-	RowCount     *int64     `json:"rowCount"`
-	RemoteID     *string    `json:"remoteId"`
-	Version      int        `json:"version"`
-	SyncState    string     `json:"syncState"`
+	ID           string    `json:"id"`
+	WorkspaceID  string    `json:"workspaceId"`
+	ProfileID    string    `json:"profileId"`
+	Name         string    `json:"name"`
+	QueryText    string    `json:"queryText"`
+	ExecutedAt   time.Time `json:"executedAt"`
+	DurationMs   int64     `json:"durationMs"`
+	Success      bool      `json:"success"`
+	ErrorMessage *string   `json:"errorMessage"`
+	RowCount     *int64    `json:"rowCount"`
+	RemoteID     *string   `json:"remoteId"`
+	Version      int       `json:"version"`
+	SyncState    string    `json:"syncState"`
 }
 
 func (h QueryHistory) Validate() error {

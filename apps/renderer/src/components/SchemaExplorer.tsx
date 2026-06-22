@@ -39,7 +39,6 @@ interface DatabaseNode {
 export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, driver, hiddenStore, onSchemaChanged, onOpenTableData, onRunQuery, onOpenErDiagram }) => {
   const [databases, setDatabases] = useState<DatabaseNode[]>([]);
   const [loading, setLoading] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Right-click context menu + DDL viewer
@@ -204,43 +203,6 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
     );
   };
 
-  // Connection-wide refresh: re-list databases (so newly-created ones appear)
-  // while preserving which databases were expanded, re-fetching their contents.
-  const refreshAll = async () => {
-    setRefreshing(true);
-    onSchemaChanged?.();
-    const openNames = new Set(databases.filter((d) => d.isOpen).map((d) => d.name));
-    try {
-      const res = await window.electronAPI.listDatabases(profileId);
-      if (!res.success || !res.data) {
-        setError(res.error || 'Failed to list databases');
-        return;
-      }
-      const base: DatabaseNode[] = res.data.map((db) => ({ name: db.name, isOpen: openNames.has(db.name), isLoading: false }));
-      await Promise.all(
-        base.map(async (node) => {
-          if (!node.isOpen) return;
-          try {
-            const [tRes, vRes] = await Promise.all([
-              window.electronAPI.listTables(profileId, node.name),
-              window.electronAPI.listViews(profileId, node.name),
-            ]);
-            if (tRes.success && tRes.data) node.tables = tRes.data.map((t) => ({ name: t.name, isOpen: false, isLoading: false }));
-            if (vRes.success && vRes.data) node.views = vRes.data.map((v) => v.name);
-          } catch (err) {
-            console.error(err);
-          }
-        }),
-      );
-      setError(null);
-      setDatabases(base);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'An error occurred while refreshing');
-    } finally {
-      setRefreshing(false);
-    }
-  };
-
   useEffect(() => {
     if (driver === 'redis') return;
     // Intentional load-on-mount; loadDatabases manages its own state.
@@ -362,20 +324,10 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
 
   return (
     <>
-      <div className="tree-toolbar">
-        <button
-          className="icon-btn tree-refresh-all"
-          title="새로고침 (DB 목록·열린 테이블 다시 불러오기)"
-          onClick={() => void refreshAll()}
-          disabled={refreshing}
-        >
-          <RefreshCw size={13} className={refreshing ? 'icon-spin' : ''} />
-        </button>
-      </div>
       <div className="tree">
       {databases.map((db) => (
         <div key={db.name} className="tree-node">
-          <div className="tree-row" onClick={() => toggleDatabase(db.name)} onContextMenu={(e) => openDbMenu(e, db.name)}>
+          <div className="tree-row tree-db-row" onClick={() => toggleDatabase(db.name)} onContextMenu={(e) => openDbMenu(e, db.name)}>
             <span className={`tree-chevron ${db.isOpen ? 'open' : ''}`}>
               <ChevronRight size={14} />
             </span>
@@ -386,10 +338,11 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
             {db.isLoading && <span className="spinner" />}
             <button
               className="tree-row-action"
-              title="이 데이터베이스 새로고침"
+              title="새로고침"
+              disabled={db.isLoading}
               onClick={(e) => { e.stopPropagation(); void refreshDatabase(db.name); }}
             >
-              <RefreshCw size={12} />
+              <RefreshCw size={12} className={db.isLoading ? 'icon-spin' : ''} />
             </button>
           </div>
 

@@ -1,8 +1,7 @@
 import { test, expect } from './fixtures';
 import { isPortOpen, MYSQL } from './dbProbe';
 import { withConn } from './db';
-import { connectMySql } from './helpers';
-import * as path from 'path';
+import { connectMySql, typeQuery } from './helpers';
 
 // Live E2E for the task-templates feature (#105): connect → Templates tab →
 // set domain bindings → run the "duplicate by column" built-in template →
@@ -32,7 +31,7 @@ test.describe('Task templates', () => {
     await withConn((c) => c.query(`DROP TABLE IF EXISTS ${TABLE}`));
   });
 
-  test('Templates tab → domain settings → run dup-by-column template', async ({ app, firstWindow: win }) => {
+  test('Templates tab → domain settings → run dup-by-column template', async ({ app, firstWindow: win }, testInfo) => {
     test.setTimeout(120_000);
     await app.evaluate(async ({ BrowserWindow }) => {
       const w = BrowserWindow.getAllWindows()[0];
@@ -42,8 +41,27 @@ test.describe('Task templates', () => {
 
     await connectMySql(win, 'Templates MySQL');
 
-    // Open the Templates sidebar tab.
-    await win.locator('.seg-tab', { hasText: 'Templates' }).click();
+    await typeQuery(win, `SELECT * FROM ${TABLE} WHERE phone = '010-1111-2222'`);
+    await win.locator('.editor-toolbar button', { hasText: 'Save' }).click();
+    const saveQueryDialog = win.locator('.modal', { hasText: 'Save query' });
+    await expect(saveQueryDialog).toBeVisible({ timeout: 10_000 });
+    const titleInput = saveQueryDialog.locator('input[type="text"]');
+    await expect(titleInput).not.toHaveValue('', { timeout: 10_000 });
+    const generatedTitle = await titleInput.inputValue();
+    await saveQueryDialog.locator('button[type="submit"]').click();
+    await expect(saveQueryDialog).toHaveCount(0);
+
+    // The old lower sidebar panel and separate Saved/History/Templates buttons are gone;
+    // one Query Library button opens the large modal and its internal sections.
+    await expect(win.locator('.conn-library-action')).toHaveCount(0);
+    await win.locator('.query-library-action', { hasText: 'Query Library' }).click();
+    await expect(win.locator('.library-modal')).toBeVisible({ timeout: 10_000 });
+    await expect(win.locator('.library-modal .list-panel')).toContainText(generatedTitle);
+
+    await win.locator('.library-tab', { hasText: 'History' }).click();
+    await expect(win.locator('.library-modal .list-panel')).toContainText(/History|No query history/);
+
+    await win.locator('.library-tab', { hasText: 'Templates' }).click();
     await expect(win.locator('.templates-panel')).toBeVisible({ timeout: 10_000 });
 
     // Built-in templates listed by category.
@@ -74,7 +92,7 @@ test.describe('Task templates', () => {
     await expect(runner.locator('.grid-body .grid-row').first()).toBeVisible();
 
     await win.waitForTimeout(400);
-    await win.screenshot({ path: path.resolve(__dirname, '..', '..', '..', 'docs', 'task-templates.png') });
+    await win.screenshot({ path: testInfo.outputPath('task-templates.png') });
 
     // Follow-up bar present.
     await expect(runner.locator('.template-followups button', { hasText: 'CSV' })).toBeVisible();

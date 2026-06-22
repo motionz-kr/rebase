@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import { fallbackQueryTitle } from '../lib/queryTitle';
 
 interface QueryHistoryEntry {
   id: string;
   workspaceId: string;
   profileId: string;
+  name?: string;
   queryText: string;
   executedAt: string;
   durationMs: number;
@@ -45,7 +47,10 @@ export const QueryHistory: React.FC<QueryHistoryProps> = ({ profileId, onSelectQ
   return (
     <div className="list-panel">
       <div className="panel-head">
-        <h3>History</h3>
+        <div>
+          <h3>History</h3>
+          <p>{history.length} recent executions</p>
+        </div>
       </div>
 
       {loading ? (
@@ -63,6 +68,7 @@ export const QueryHistory: React.FC<QueryHistoryProps> = ({ profileId, onSelectQ
               <span className="badge meta">{entry.durationMs}ms</span>
               {entry.rowCount !== null && <span className="badge meta">{entry.rowCount} rows</span>}
             </div>
+            <div className="hist-title">{entry.name?.trim() || fallbackQueryTitle(entry.queryText)}</div>
             <pre className="hist-preview">{entry.queryText}</pre>
             {entry.errorMessage && <div className="hist-err">{entry.errorMessage}</div>}
             <div className="hist-time">{new Date(entry.executedAt).toLocaleString()}</div>

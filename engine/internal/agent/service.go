@@ -25,6 +25,7 @@ type AgentService struct {
 	policy   Policy
 	secrets  []string
 	domain   string
+	language string
 }
 
 func NewAgentService(p ports.LLMProvider, reg *Registry, maxSteps int) *AgentService {
@@ -33,7 +34,9 @@ func NewAgentService(p ports.LLMProvider, reg *Registry, maxSteps int) *AgentSer
 	}
 	return &AgentService{provider: p, registry: reg, maxSteps: maxSteps,
 		system: "You are a database assistant. Use the provided tools to inspect the schema and answer precisely. " +
-			"To change data or schema, call propose_write — never claim a change was applied unless the user ran it."}
+			"To change data or schema, call propose_write — never claim a change was applied unless the user ran it. " +
+			"For storage or capacity questions, first use database_storage_summary or run_select to report the database-visible usage numbers. " +
+			"Clearly separate database usage from OS/cloud free disk space; if free disk space is unavailable from the tools, say that only that value is unavailable and provide the retrieved usage summary first."}
 }
 
 // SetPolicy configures the data-exposure gate (default: unrestricted).
@@ -49,6 +52,10 @@ func (s *AgentService) SetSecrets(secrets []string) { s.secrets = secrets }
 // SetDomainContext registers a domain-context block appended to the system
 // prompt (glossary + rules + tenant/soft-delete bindings). Empty = no-op.
 func (s *AgentService) SetDomainContext(ctx string) { s.domain = ctx }
+
+// SetResponseLanguage controls the natural language used for final text
+// responses. Tool arguments and SQL identifiers should remain unchanged.
+func (s *AgentService) SetResponseLanguage(language string) { s.language = language }
 
 // redact replaces every registered secret with a placeholder. Empty secrets are
 // ignored so they can't blank out unrelated text.
@@ -67,6 +74,12 @@ func (s *AgentService) request(messages []ports.LLMMessage, specs []ports.ToolSp
 	system := s.system
 	if strings.TrimSpace(s.domain) != "" {
 		system = s.system + "\n\n" + s.domain
+	}
+	switch s.language {
+	case "english":
+		system += "\n\nResponse language: Respond in English unless the user explicitly asks for another language. Keep SQL, identifiers, and data values unchanged."
+	case "korean":
+		system += "\n\nResponse language: Respond in Korean unless the user explicitly asks for another language. Keep SQL, identifiers, and data values unchanged."
 	}
 	if len(s.secrets) == 0 {
 		return ports.LLMRequest{System: system, Messages: messages, Tools: specs}

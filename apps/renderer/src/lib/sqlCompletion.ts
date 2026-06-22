@@ -127,6 +127,10 @@ export function filterByPrefix(suggestions: SqlSuggestion[], prefix: string): Sq
   return suggestions.filter((s) => s.label.toLowerCase().startsWith(p));
 }
 
+export function shouldShowAutocomplete(textBeforeCursor: string): boolean {
+  return currentWord(textBeforeCursor).length > 0 || !!dotPrefix(textBeforeCursor);
+}
+
 export function getSuggestions(schema: SchemaInfo, textBeforeCursor: string): SqlSuggestion[] {
   const refs = parseTableRefs(textBeforeCursor);
 

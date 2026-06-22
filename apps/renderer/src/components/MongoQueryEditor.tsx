@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { AlertTriangle, Play, LayoutGrid, Braces, Save } from 'lucide-react';
 import { parseMongoCommand } from '../lib/mongoQuery';
 import { MongoResultView } from './MongoResultView';
+import { generateQueryTitle } from '../lib/queryTitle';
 
 interface Props {
   profileId: string;
@@ -13,11 +14,12 @@ interface Props {
   onSaved?: () => void;
   /** Load a command (from saved/history) into the editor. Does not auto-run. */
   loadRequest?: { text: string; nonce: number };
+  agentTitlesEnabled?: boolean;
 }
 
 const PLACEHOLDER = 'db.collection.find({})';
 
-export const MongoQueryEditor: React.FC<Props> = ({ profileId, view, onRan, onSaved, loadRequest }) => {
+export const MongoQueryEditor: React.FC<Props> = ({ profileId, view, onRan, onSaved, loadRequest, agentTitlesEnabled = false }) => {
   const [text, setText] = useState('');
   const [documents, setDocuments] = useState<string[]>([]);
   const [countResult, setCountResult] = useState<number | null>(null);
@@ -37,11 +39,12 @@ export const MongoQueryEditor: React.FC<Props> = ({ profileId, view, onRan, onSa
 
   // Record the raw command into the cross-driver query history (same shape as
   // the SQL editor) so the History panel renders mongo runs.
-  const recordHistory = (raw: string, startTime: number, success: boolean, errorMessage: string | null, rowCount: number | null) => {
+  const recordHistory = async (raw: string, startTime: number, success: boolean, errorMessage: string | null, rowCount: number | null) => {
     window.electronAPI
       .addQueryHistory({
         workspaceId: 'default',
         profileId,
+        name: await generateQueryTitle({ profileId, queryText: raw, agentEnabled: agentTitlesEnabled }),
         queryText: raw,
         durationMs: Date.now() - startTime,
         success,
@@ -81,35 +84,35 @@ export const MongoQueryEditor: React.FC<Props> = ({ profileId, view, onRan, onSa
         });
         if (res.success && res.data) {
           setDocuments(res.data.documents);
-          recordHistory(raw, startTime, true, null, res.data.documents.length);
+          void recordHistory(raw, startTime, true, null, res.data.documents.length);
         } else {
           setError(res.error || '실행 실패');
-          recordHistory(raw, startTime, false, res.error || '실행 실패', null);
+          void recordHistory(raw, startTime, false, res.error || '실행 실패', null);
         }
       } else if (parsed.op === 'aggregate') {
         const res = await window.electronAPI.mongoAggregate(profileId, database, collection, parsed.pipeline, parsed.limit);
         if (res.success && res.data) {
           setDocuments(res.data.documents);
-          recordHistory(raw, startTime, true, null, res.data.documents.length);
+          void recordHistory(raw, startTime, true, null, res.data.documents.length);
         } else {
           setError(res.error || '실행 실패');
-          recordHistory(raw, startTime, false, res.error || '실행 실패', null);
+          void recordHistory(raw, startTime, false, res.error || '실행 실패', null);
         }
       } else {
         const res = await window.electronAPI.mongoCount(profileId, database, collection, parsed.filter);
         if (res.success && res.data) {
           setDocuments([]);
           setCountResult(res.data.count);
-          recordHistory(raw, startTime, true, null, res.data.count);
+          void recordHistory(raw, startTime, true, null, res.data.count);
         } else {
           setError(res.error || '실행 실패');
-          recordHistory(raw, startTime, false, res.error || '실행 실패', null);
+          void recordHistory(raw, startTime, false, res.error || '실행 실패', null);
         }
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : '실행 중 오류';
       setError(msg);
-      recordHistory(raw, startTime, false, msg, null);
+      void recordHistory(raw, startTime, false, msg, null);
     } finally {
       setLoading(false);
     }
@@ -118,7 +121,8 @@ export const MongoQueryEditor: React.FC<Props> = ({ profileId, view, onRan, onSa
   const saveCommand = async () => {
     const raw = text.trim();
     if (!raw) return;
-    const name = window.prompt('저장할 이름', raw.slice(0, 40));
+    const defaultName = await generateQueryTitle({ profileId, queryText: raw, agentEnabled: true });
+    const name = window.prompt('저장할 이름', defaultName);
     if (!name || !name.trim()) return;
     try {
       const res = await window.electronAPI.saveQuery({

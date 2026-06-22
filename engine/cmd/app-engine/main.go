@@ -252,6 +252,14 @@ func main() {
 			`,
 			Checksum: "mcp-servers-transport-v1",
 		},
+		{
+			Version: 12,
+			Name:    "add_query_history_name",
+			SQL: `
+				ALTER TABLE query_history ADD COLUMN name TEXT NOT NULL DEFAULT '';
+			`,
+			Checksum: "query-history-name-v1",
+		},
 	}
 	if err := migrationRunner.Run(migrations); err != nil {
 		log.Fatalf("failed to run migrations: %v", err)

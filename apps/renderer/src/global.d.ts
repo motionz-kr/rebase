@@ -78,6 +78,7 @@ export interface QueryHistoryEntry {
   id: string;
   workspaceId: string;
   profileId: string;
+  name: string;
   queryText: string;
   executedAt: string;
   durationMs: number;
@@ -219,6 +220,8 @@ export interface AnalyzeResult {
 }
 
 declare global {
+  const __APP_VERSION__: string;
+
   interface Window {
     electronAPI: {
       checkEngineHealth: () => Promise<HealthResult>;
@@ -250,7 +253,7 @@ declare global {
         runId: string,
         profileId: string,
         messages: Array<{ role: string; text: string }>,
-        options?: { provider?: string; apiKey?: string; model?: string; dataExposure?: string }
+        options?: { provider?: string; apiKey?: string; model?: string; dataExposure?: string; responseLanguage?: string }
       ) => Promise<ResultWrapper<{ success: boolean }>>;
       agentCancel: (runId: string) => Promise<ResultWrapper<{ success: boolean }>>;
       agentCliStatus: (

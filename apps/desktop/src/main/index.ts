@@ -638,6 +638,7 @@ app.whenReady().then(() => {
         apiKey: options?.apiKey ?? '',
         model: options?.model ?? '',
         dataExposure: options?.dataExposure ?? 'unrestricted',
+        responseLanguage: options?.responseLanguage ?? 'korean',
       });
 
       const req = http.request(
@@ -653,6 +654,7 @@ app.whenReady().then(() => {
           },
         },
         (res) => {
+          let sawDone = false;
           if (res.statusCode && res.statusCode >= 400) {
             let errBody = '';
             res.on('data', (c) => (errBody += c));
@@ -672,6 +674,7 @@ app.whenReady().then(() => {
             if (!line.trim()) return;
             try {
               const data = JSON.parse(line);
+              if (data?.kind === 'done') sawDone = true;
               if (mainWindow) mainWindow.webContents.send('agent-stream-chunk', runId, data);
             } catch (e) {
               console.error('Failed to parse agent NDJSON line:', e);
@@ -680,6 +683,9 @@ app.whenReady().then(() => {
           res.on('close', () => {
             rl.close();
             activeStreams.delete(runId);
+            if (!sawDone && mainWindow) {
+              mainWindow.webContents.send('agent-stream-chunk', runId, { kind: 'done' });
+            }
           });
         }
       );

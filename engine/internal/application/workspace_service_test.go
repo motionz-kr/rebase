@@ -40,9 +40,12 @@ func TestWorkspaceService(t *testing.T) {
 
 	t.Run("Add & List Query History", func(t *testing.T) {
 		rowCount := int64(5)
-		h, err := service.AddHistory(ctx, "ws-1", "prof-1", "SELECT 1", 100, true, nil, &rowCount)
+		h, err := service.AddHistory(ctx, "ws-1", "prof-1", "SELECT one", "SELECT 1", 100, true, nil, &rowCount)
 		if err != nil {
 			t.Fatalf("failed to add history: %v", err)
+		}
+		if h.Name != "SELECT one" {
+			t.Errorf("expected history name SELECT one, got %q", h.Name)
 		}
 		if h.DurationMs != 100 {
 			t.Errorf("expected duration 100, got %d", h.DurationMs)

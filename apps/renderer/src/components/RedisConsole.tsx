@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { TerminalSquare, CornerDownLeft, AlertTriangle, Save } from 'lucide-react';
 import { tokenizeCommand, isDangerousCommand } from '../lib/redisCommand';
+import { generateQueryTitle } from '../lib/queryTitle';
 
 interface RedisConsoleProps {
   profileId: string;
@@ -10,6 +11,7 @@ interface RedisConsoleProps {
   onSaved?: () => void;
   /** Load a command (from saved/history) into the input. Does not auto-run. */
   loadRequest?: { text: string; nonce: number };
+  agentTitlesEnabled?: boolean;
 }
 
 interface ConsoleEntry {
@@ -18,7 +20,7 @@ interface ConsoleEntry {
   isError: boolean;
 }
 
-export const RedisConsole: React.FC<RedisConsoleProps> = ({ profileId, onRan, onSaved, loadRequest }) => {
+export const RedisConsole: React.FC<RedisConsoleProps> = ({ profileId, onRan, onSaved, loadRequest, agentTitlesEnabled = false }) => {
   const [input, setInput] = useState('');
   const [entries, setEntries] = useState<ConsoleEntry[]>([]);
   const [busy, setBusy] = useState(false);
@@ -76,6 +78,7 @@ export const RedisConsole: React.FC<RedisConsoleProps> = ({ profileId, onRan, on
       .addQueryHistory({
         workspaceId: 'default',
         profileId,
+        name: await generateQueryTitle({ profileId, queryText: raw, agentEnabled: agentTitlesEnabled }),
         queryText: raw,
         durationMs: Date.now() - startTime,
         success,
@@ -89,7 +92,8 @@ export const RedisConsole: React.FC<RedisConsoleProps> = ({ profileId, onRan, on
   const saveCommand = async () => {
     const raw = input.trim();
     if (!raw) return;
-    const name = window.prompt('저장할 이름', raw.slice(0, 40));
+    const defaultName = await generateQueryTitle({ profileId, queryText: raw, agentEnabled: true });
+    const name = window.prompt('저장할 이름', defaultName);
     if (!name || !name.trim()) return;
     try {
       const res = await window.electronAPI.saveQuery({

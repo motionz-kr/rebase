@@ -87,11 +87,12 @@ func (s *WorkspaceService) ListQueries(ctx context.Context, workspaceID string) 
 	return s.repo.ListQueries(ctx, workspaceID)
 }
 
-func (s *WorkspaceService) AddHistory(ctx context.Context, workspaceID, profileID, queryText string, durationMs int64, success bool, errorMessage *string, rowCount *int64) (*domain.QueryHistory, error) {
+func (s *WorkspaceService) AddHistory(ctx context.Context, workspaceID, profileID, name, queryText string, durationMs int64, success bool, errorMessage *string, rowCount *int64) (*domain.QueryHistory, error) {
 	h := &domain.QueryHistory{
 		ID:           uuid.NewString(),
 		WorkspaceID:  workspaceID,
 		ProfileID:    profileID,
+		Name:         name,
 		QueryText:    queryText,
 		ExecutedAt:   time.Now(),
 		DurationMs:   durationMs,
