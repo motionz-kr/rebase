@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.24.0](https://github.com/motionz-kr/rebase/compare/v0.23.0...v0.24.0) (2026-06-22)
+
+
+### Features
+
+* **agent:** Agent 설정과 쿼리 라이브러리 개선 ([#140](https://github.com/motionz-kr/rebase/issues/140)) ([7c0d8c9](https://github.com/motionz-kr/rebase/commit/7c0d8c95170c6c80ab0da69ef5f3021033f5a71a))
+
 ## [0.23.0](https://github.com/motionz-kr/rebase/compare/v0.22.0...v0.23.0) (2026-06-12)
 
 
