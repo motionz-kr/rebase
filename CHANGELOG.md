@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.24.1](https://github.com/motionz-kr/rebase/compare/v0.24.0...v0.24.1) (2026-06-22)
+
+
+### Bug Fixes
+
+* **release:** update feed 404와 mac notarization 안정화 ([#142](https://github.com/motionz-kr/rebase/issues/142)) ([6f088cd](https://github.com/motionz-kr/rebase/commit/6f088cd60fe748698583c1c631fb8c209e9e1435))
+
 ## [0.24.0](https://github.com/motionz-kr/rebase/compare/v0.23.0...v0.24.0) (2026-06-22)
 
 
