@@ -7,9 +7,9 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/lib/pq v1.12.3
 	github.com/microsoft/go-mssqldb v1.10.0
-	github.com/redis/go-redis/v9 v9.20.0
-	go.mongodb.org/mongo-driver/v2 v2.6.0
-	modernc.org/sqlite v1.51.0
+	github.com/redis/go-redis/v9 v9.21.0
+	go.mongodb.org/mongo-driver/v2 v2.7.0
+	modernc.org/sqlite v1.53.0
 )
 
 require (
@@ -30,9 +30,9 @@ require (
 	go.uber.org/atomic v1.11.0 // indirect
 	golang.org/x/crypto v0.50.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/sys v0.43.0 // indirect
+	golang.org/x/sys v0.44.0 // indirect
 	golang.org/x/text v0.36.0 // indirect
-	modernc.org/libc v1.72.3 // indirect
+	modernc.org/libc v1.73.4 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
