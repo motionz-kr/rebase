@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.24.3](https://github.com/motionz-kr/rebase/compare/v0.24.2...v0.24.3) (2026-09-14)
+
+
+### Bug Fixes
+
+* **ui:** preserve selected database in query editor ([#164](https://github.com/motionz-kr/rebase/issues/164)) ([b19bde8](https://github.com/motionz-kr/rebase/commit/b19bde86a385c8cd81053fc65b383c5c549c6f98))
+
 ## [0.24.2](https://github.com/motionz-kr/rebase/compare/v0.24.1...v0.24.2) (2026-09-14)
 
 
