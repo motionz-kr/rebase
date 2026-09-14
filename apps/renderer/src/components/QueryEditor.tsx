@@ -101,6 +101,10 @@ const newTab = (id: string, name: string, query: string): QueryTab => ({
 });
 
 export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, database, connectionName, safeMode = false, onQueryExecuted, loadTriggerQuery, queryRequest, schemaVersion, agentTitlesEnabled = false, onOpenLibrary }) => {
+  const requestedDatabase = queryRequest?.database;
+  const requestedNonce = queryRequest?.nonce;
+  const requestedSql = queryRequest?.sql;
+  const requestedExecute = queryRequest?.execute;
   const [tabs, setTabs] = useState<QueryTab[]>([
     newTab(
       'tab-1',
@@ -154,11 +158,11 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
   // A database context request comes from the schema explorer. It changes the
   // editor context without replacing or executing the current SQL.
   useEffect(() => {
-    if (!queryRequest) return;
-    setActiveDatabase(queryRequest.database);
+    if (!requestedDatabase) return;
+    setActiveDatabase(requestedDatabase);
     setEditView(null);
     editorInstance?.focus();
-  }, [queryRequest?.nonce, queryRequest?.database, editorInstance]);
+  }, [requestedDatabase, requestedNonce, editorInstance]);
 
   // Drag-resizable SQL editor height (the splitter below it grows/shrinks the
   // results area inversely). Persisted across sessions.
@@ -547,13 +551,13 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
 
   // One-click "load this SQL and run it" requests (e.g. table → recent rows).
   useEffect(() => {
-    if (!queryRequest || !queryRequest.execute) return;
-    const sql = queryRequest.sql;
-    setActiveDatabase(queryRequest.database);
+    if (!requestedExecute || !requestedSql || !requestedDatabase) return;
+    const sql = requestedSql;
+    setActiveDatabase(requestedDatabase);
     setTabs((prev) => prev.map((t) => (t.id === activeTabId ? { ...t, query: sql } : t)));
-    void executeQuery({ sqlOverride: sql, databaseOverride: queryRequest.database });
+    void executeQuery({ sqlOverride: sql, databaseOverride: requestedDatabase });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queryRequest?.nonce]);
+  }, [requestedExecute, requestedSql, requestedDatabase, requestedNonce]);
 
   const formatQuery = () => {
     const formatted = formatSql(activeTab.query, driver);
