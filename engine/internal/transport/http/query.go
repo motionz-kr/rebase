@@ -60,6 +60,9 @@ func (h *QueryHandler) checkToken(r *http.Request) bool {
 
 type ExecuteQueryRequest struct {
 	ProfileID string `json:"profileId"`
+	// Database is the schema/database selected in the SQL editor. Empty keeps
+	// the connection profile's default database for backwards compatibility.
+	Database  string `json:"database"`
 	Query     string `json:"query"`
 	QueryID   string `json:"queryId"`
 	// AllowWrite must be set for any statement that is not confidently
@@ -75,6 +78,13 @@ type ExecuteQueryRequest struct {
 	// Acknowledged confirms the user saw the safe-mode risk report and chose to
 	// force-run a high-risk statement on a production (safe-mode) connection.
 	Acknowledged bool `json:"acknowledged"`
+}
+
+func profileForDatabase(profile domain.ConnectionProfile, database string) domain.ConnectionProfile {
+	if database != "" && profile.Driver != "sqlite" {
+		profile.Database = database
+	}
+	return profile
 }
 
 // defaultRowLimit caps how many rows a query streams to the renderer unless the
@@ -198,6 +208,11 @@ func (h *QueryHandler) ExecuteQuery() http.Handler {
 			return
 		}
 
+		// Schema explorer actions may target a database different from the
+		// connection profile's initial database. Keep the profile immutable and
+		// apply the selected database only to this query execution.
+		executionProfile := profileForDatabase(*profile, req.Database)
+
 		flusher, ok := w.(http.Flusher)
 		if !ok {
 			http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
@@ -282,7 +297,7 @@ func (h *QueryHandler) ExecuteQuery() http.Handler {
 		readOnly := !req.AllowWrite
 
 		// Execute stream
-		rowsAffected, executeErr := connector.ExecuteQueryStream(queryCtx, *profile, password, req.Query, readOnly, onSessionStart, onHeader, onRow)
+		rowsAffected, executeErr := connector.ExecuteQueryStream(queryCtx, executionProfile, password, req.Query, readOnly, onSessionStart, onHeader, onRow)
 
 		// Hitting the row cap is a successful, truncated result — not an error.
 		if executeErr != nil && !errors.Is(executeErr, errRowLimitReached) {

@@ -3,7 +3,7 @@ import { isPortOpen, MYSQL } from './dbProbe';
 import { withConn } from './db';
 import { connectMySql } from './helpers';
 
-// One-click "recent rows" from the table context menu: loads
+// Database context actions and one-click "recent rows" from the table context menu: loads
 // SELECT * ... ORDER BY <pk> DESC LIMIT 500 into the editor and runs it.
 // Uses a throwaway table (read-only query, but isolated for determinism).
 const TABLE = 'recent_e2e_fixture';
@@ -25,20 +25,30 @@ test.describe('MySQL recent-rows quick query', () => {
     }
   });
 
-  test('context-menu top item loads and runs the recent-rows query', async ({ firstWindow: win }) => {
+  test('database query input and table recent-rows actions use the selected schema', async ({ firstWindow: win }) => {
     await connectMySql(win);
 
     const dbRow = win.locator(`.tree-row:has(.tree-label:text-is("${MYSQL.database}"))`).first();
     await expect(dbRow).toBeVisible({ timeout: 15_000 });
+
+    // The database context menu enters the SQL editor with that database
+    // selected, without executing the existing query.
+    await dbRow.click({ button: 'right' });
+    const queryInput = win.locator('.ctx-menu .ctx-item').first();
+    await expect(queryInput).toContainText('쿼리 입력');
+    await queryInput.click();
+    await expect(win.locator('.editor-conn-db')).toHaveText(MYSQL.database);
+
     const tableRow = win.locator(`.tree-row:has(.tree-label:text-is("${TABLE}"))`);
     if ((await tableRow.count()) === 0) await dbRow.click();
     await expect(tableRow).toBeVisible({ timeout: 15_000 });
     await tableRow.click({ button: 'right' });
 
-    // The top menu item is the recent-rows quick query.
-    const top = win.locator('.ctx-menu .ctx-item').first();
-    await expect(top).toContainText('최근 500개 조회');
-    await top.click();
+    // The recent-rows action remains available below the new top-level query
+    // input action.
+    const recentRows = win.locator('.ctx-menu .ctx-item').filter({ hasText: '최근 500개 조회' });
+    await expect(recentRows).toBeVisible();
+    await recentRows.click();
 
     // The editor receives the ordered query and it auto-runs.
     await expect(win.locator('.conn-panel:not([style*="none"]) .monaco-editor').first()).toContainText(
