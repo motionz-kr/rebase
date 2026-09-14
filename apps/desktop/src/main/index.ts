@@ -522,6 +522,7 @@ app.whenReady().then(() => {
       const port = engineManager.getPort()!;
       const postData = JSON.stringify({
         profileId,
+        database: options?.database ?? '',
         query,
         queryId,
         allowWrite: options?.allowWrite ?? false,

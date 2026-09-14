@@ -17,7 +17,8 @@ interface SchemaExplorerProps {
   onDisconnect: () => void;
   onSchemaChanged?: () => void;
   onOpenTableData?: (db: string, table: string) => void;
-  onRunQuery?: (sql: string) => void;
+  onOpenQuery?: (db: string) => void;
+  onRunQuery?: (request: { database: string; sql: string }) => void;
   onOpenErDiagram?: (db: string) => void;
 }
 
@@ -36,7 +37,7 @@ interface DatabaseNode {
   isLoading: boolean;
 }
 
-export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, driver, hiddenStore, onSchemaChanged, onOpenTableData, onRunQuery, onOpenErDiagram }) => {
+export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, driver, hiddenStore, onSchemaChanged, onOpenTableData, onOpenQuery, onRunQuery, onOpenErDiagram }) => {
   const [databases, setDatabases] = useState<DatabaseNode[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -129,7 +130,7 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
     } catch {
       /* fall back to no ORDER BY */
     }
-    onRunQuery?.(buildRecentRowsQuery(driver as Driver, table, pk, 500));
+    onRunQuery?.({ database: dbName, sql: buildRecentRowsQuery(driver as Driver, table, pk, 500) });
   };
 
   const showDDL = async (dbName: string, table: string) => {
@@ -511,6 +512,10 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
 
       {dbMenu && (
         <div className="ctx-menu" style={{ top: dbMenu.y, left: dbMenu.x }} onClick={(e) => e.stopPropagation()}>
+          <button className="ctx-item" onClick={() => { onOpenQuery?.(dbMenu.db); setDbMenu(null); }}>
+            <FileCode size={13} /> 쿼리 입력
+          </button>
+          <div className="ctx-sep" />
           <button className="ctx-item" onClick={() => { void refreshDatabase(dbMenu.db); setDbMenu(null); }}>
             <RefreshCw size={13} /> 새로고침
           </button>

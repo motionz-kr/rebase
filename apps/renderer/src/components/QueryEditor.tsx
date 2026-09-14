@@ -17,6 +17,7 @@ import type { AnalyzeResult } from '../global';
 import { clampEditorHeight, EDITOR_DEFAULT, loadNum, saveNum } from '../lib/uiPrefs';
 import { useTheme } from '../lib/theme-context';
 import { generateQueryTitle } from '../lib/queryTitle';
+import type { SqlQueryRequest } from '../lib/queryRequest';
 
 loader.config({ monaco });
 
@@ -69,9 +70,9 @@ interface QueryEditorProps {
   safeMode?: boolean;
   onQueryExecuted?: () => void;
   loadTriggerQuery?: string;
-  // A request to load a SQL into the active tab AND run it immediately (one-click
-  // actions like "recent rows"). The nonce makes repeat requests of the same SQL fire.
-  runQueryRequest?: { sql: string; nonce: number };
+  // A request to change the active database context; optionally load a SQL into
+  // the active tab and run it immediately. The nonce makes repeat requests fire.
+  queryRequest?: SqlQueryRequest;
   schemaVersion?: number;
   agentTitlesEnabled?: boolean;
   onOpenLibrary?: () => void;
@@ -99,7 +100,11 @@ const newTab = (id: string, name: string, query: string): QueryTab => ({
   lastExec: null,
 });
 
-export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, database, connectionName, safeMode = false, onQueryExecuted, loadTriggerQuery, runQueryRequest, schemaVersion, agentTitlesEnabled = false, onOpenLibrary }) => {
+export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, database, connectionName, safeMode = false, onQueryExecuted, loadTriggerQuery, queryRequest, schemaVersion, agentTitlesEnabled = false, onOpenLibrary }) => {
+  const requestedDatabase = queryRequest?.database;
+  const requestedNonce = queryRequest?.nonce;
+  const requestedSql = queryRequest?.sql;
+  const requestedExecute = queryRequest?.execute;
   const [tabs, setTabs] = useState<QueryTab[]>([
     newTab(
       'tab-1',
@@ -115,6 +120,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
   ]);
   const [activeTabId, setActiveTabId] = useState('tab-1');
   const { resolved } = useTheme();
+  const [activeDatabase, setActiveDatabase] = useState(database);
   // When the run query is a plain single-table SELECT *, the result is shown in
   // an editable table view (add/edit/delete) instead of the read-only grid.
   const [editView, setEditView] = useState<EditableQuery | null>(null);
@@ -131,6 +137,10 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
   const pendingRunRef = useRef<null | (() => void)>(null);
 
   useEffect(() => {
+    setActiveDatabase(database);
+  }, [database]);
+
+  useEffect(() => {
     if (loadTriggerQuery) {
       setTabs((prev) => prev.map((t) => (t.id === activeTabId ? { ...t, query: loadTriggerQuery } : t)));
     }
@@ -144,6 +154,15 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
 
   // The Monaco editor + monaco namespace, exposed for the custom autocomplete.
   const [editorInstance, setEditorInstance] = useState<monaco.editor.IStandaloneCodeEditor | null>(null);
+
+  // A database context request comes from the schema explorer. It changes the
+  // editor context without replacing or executing the current SQL.
+  useEffect(() => {
+    if (!requestedDatabase) return;
+    setActiveDatabase(requestedDatabase);
+    setEditView(null);
+    editorInstance?.focus();
+  }, [requestedDatabase, requestedNonce, editorInstance]);
 
   // Drag-resizable SQL editor height (the splitter below it grows/shrinks the
   // results area inversely). Persisted across sessions.
@@ -188,7 +207,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     let ignore = false;
     (async () => {
       try {
-        const res = await window.electronAPI.getSchemaCompletion(profileId, database);
+        const res = await window.electronAPI.getSchemaCompletion(profileId, activeDatabase);
         if (!ignore && res.success && res.data) {
           setSchema({ tables: res.data.tables });
         }
@@ -199,7 +218,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     return () => {
       ignore = true;
     };
-  }, [profileId, database, schemaVersion]);
+  }, [profileId, activeDatabase, schemaVersion]);
 
   useEffect(() => {
     const cleanup = window.electronAPI.onQueryStreamChunk((queryId, chunk) => {
@@ -287,7 +306,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
   // ignores it because the tab's queryId is never set to these ids.
   const runSingleStatementCollected = (
     stmt: string,
-    opts: { allowWrite: boolean; confirmDestructive: boolean; fetchAll: boolean }
+    opts: { database: string; allowWrite: boolean; confirmDestructive: boolean; fetchAll: boolean }
   ): Promise<{ result?: ResultSet; policy?: PolicyPrompt }> =>
     new Promise((resolve) => {
       const queryId = `query-${crypto.randomUUID()}`;
@@ -347,7 +366,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
   // stopping on the first error or policy block.
   const runMultiStatements = async (
     statements: string[],
-    opts: { allowWrite: boolean; confirmDestructive: boolean; fetchAll: boolean }
+    opts: { database: string; allowWrite: boolean; confirmDestructive: boolean; fetchAll: boolean }
   ) => {
     const startTime = Date.now();
     multiAbortRef.current = false;
@@ -431,6 +450,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     fetchAll?: boolean;
     sqlOverride?: string;
     acknowledged?: boolean;
+    databaseOverride?: string;
   }) => {
     if (activeTab.loading) return;
 
@@ -439,13 +459,14 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     const fetchAll = override?.fetchAll ?? false;
     const acknowledged = override?.acknowledged ?? false;
     const sql = override?.sqlOverride ?? activeTab.query;
+    const queryDatabase = override?.databaseOverride ?? activeDatabase;
 
     // A script of several statements runs sequentially with one result set each
     // (DataGrip-style). A single statement keeps the existing streaming path.
     const statements = splitStatements(sql);
     if (statements.length > 1) {
       setEditView(null);
-      await runMultiStatements(statements, { allowWrite, confirmDestructive, fetchAll });
+      await runMultiStatements(statements, { database: queryDatabase, allowWrite, confirmDestructive, fetchAll });
       return;
     }
 
@@ -463,7 +484,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     // show the RiskConfirmDialog before streaming. If analysis fails, fall through.
     if (!acknowledged && isRiskyStatement(sql)) {
       try {
-        const analyzeRes = await window.electronAPI.analyzeQuery(profileId, sql, database);
+        const analyzeRes = await window.electronAPI.analyzeQuery(profileId, sql, queryDatabase);
         if (analyzeRes.success && analyzeRes.data) {
           // Capture the run continuation — will be called when user confirms.
           pendingRunRef.current = () => {
@@ -506,6 +527,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
 
     try {
       const res = await window.electronAPI.executeQueryStream(queryId, profileId, sql, {
+        database: queryDatabase,
         allowWrite,
         confirmDestructive,
         fetchAll,
@@ -529,12 +551,13 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
 
   // One-click "load this SQL and run it" requests (e.g. table → recent rows).
   useEffect(() => {
-    if (!runQueryRequest) return;
-    const sql = runQueryRequest.sql;
+    if (!requestedExecute || !requestedSql || !requestedDatabase) return;
+    const sql = requestedSql;
+    setActiveDatabase(requestedDatabase);
     setTabs((prev) => prev.map((t) => (t.id === activeTabId ? { ...t, query: sql } : t)));
-    void executeQuery({ sqlOverride: sql });
+    void executeQuery({ sqlOverride: sql, databaseOverride: requestedDatabase });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [runQueryRequest?.nonce]);
+  }, [requestedExecute, requestedSql, requestedDatabase, requestedNonce]);
 
   const formatQuery = () => {
     const formatted = formatSql(activeTab.query, driver);
@@ -650,10 +673,10 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     <div className="editor">
       {/* Tabs */}
       <div className="editor-tabs">
-        <div className="editor-conn" title={`${connectionName} · ${driver} · ${database}`}>
+        <div className="editor-conn" title={`${connectionName} · ${driver} · ${activeDatabase}`}>
           <span className={`driver-chip sm ${driver}`}>{DRIVER_LABEL[driver]}</span>
           <span className="editor-conn-name">{connectionName}</span>
-          {database && <span className="editor-conn-db">{database}</span>}
+          {activeDatabase && <span className="editor-conn-db">{activeDatabase}</span>}
         </div>
         <span className="editor-tabs-sep" />
         {tabs.map((tab) => (
@@ -833,7 +856,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
             key={`edit.${editView.table}.${editView.orderBy?.col ?? ''}.${editView.orderBy?.dir ?? ''}.${editView.limit ?? ''}`}
             profileId={profileId}
             driver={driver as 'mysql' | 'postgres'}
-            database={database}
+            database={activeDatabase}
             table={editView.table}
             initialOrderBy={editView.orderBy ?? undefined}
             limit={editView.limit ?? undefined}
