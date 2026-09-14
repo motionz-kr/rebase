@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.24.2](https://github.com/motionz-kr/rebase/compare/v0.24.1...v0.24.2) (2026-09-14)
+
+
+### Bug Fixes
+
+* **release:** harden macOS artifacts and test gating ([b1f8f95](https://github.com/motionz-kr/rebase/commit/b1f8f957b3c9bd4e769925774d3c3a0c3a8063b6))
+
 ## [0.24.1](https://github.com/motionz-kr/rebase/compare/v0.24.0...v0.24.1) (2026-06-22)
 
 
