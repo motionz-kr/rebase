@@ -38,6 +38,10 @@ Config: `release-please-config.json` + `.release-please-manifest.json`
   notes but no binaries yet. During that window `latest.yml` / `latest-mac.yml`
   can return 404; the app suppresses that transient updater error and retries
   the feed check automatically.
+- The macOS job builds and publishes the updater-compatible zip independently
+  from the DMG. DMG creation is retried on the GitHub runner but remains
+  best-effort because `hdiutil` can fail for infrastructure reasons; a DMG
+  failure must not remove the macOS zip or `latest-mac.yml` from the release.
 - Manual fallback: `workflow_dispatch` on the Release workflow re-runs
   release-please (it only creates a release if there are releasable commits).
 

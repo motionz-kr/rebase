@@ -90,24 +90,46 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         shell: bash
-        # GitHub's macOS runners intermittently fail DMG creation with
-        # "hdiutil: ... Device not configured" (a flaky disk-image subsystem,
-        # not a code problem). Retry the build up to 3x, detaching any stale
-        # Rebase DMG volume a failed attempt left mounted before retrying.
+        # Build the macOS zip independently from the DMG. GitHub's macOS
+        # runners intermittently fail DMG creation with "hdiutil: ... Device
+        # not configured". A DMG failure must not prevent the zip and updater
+        # metadata from being published.
         run: |
-          attempt=1; max=3
-          until pnpm exec electron-builder --${{ matrix.platform }} --publish never; do
-            if [ "$attempt" -ge "$max" ]; then
-              echo "::error::electron-builder (package) failed after $max attempts"; exit 1
-            fi
-            echo "::warning::electron-builder (package) attempt $attempt failed; cleaning up, retrying in 15s"
+          set -o pipefail
+
+          cleanup_mac_volumes() {
             if [ "${{ matrix.platform }}" = "mac" ]; then
               for v in $(ls /Volumes 2>/dev/null | grep -i '^Rebase' || true); do
                 hdiutil detach "/Volumes/$v" -force 2>/dev/null || true
               done
             fi
-            attempt=$((attempt + 1)); sleep 15
-          done
+          }
+
+          retry_builder() {
+            local label="$1"; shift
+            local attempt=1; local max=3
+            until "$@"; do
+              if [ "$attempt" -ge "$max" ]; then
+                echo "::error::electron-builder ($label) failed after $max attempts"
+                return 1
+              fi
+              echo "::warning::electron-builder ($label) attempt $attempt failed; cleaning up, retrying in 15s"
+              cleanup_mac_volumes
+              attempt=$((attempt + 1))
+              sleep 15
+            done
+          }
+
+          if [ "${{ matrix.platform }}" = "mac" ]; then
+            # DMG is best-effort; the zip is the required macOS distribution
+            # artifact and is also the updater's preferred package.
+            if ! retry_builder "mac DMG package" pnpm exec electron-builder --mac dmg --publish never; then
+              echo "::warning::macOS DMG packaging failed; continuing with zip-only release"
+            fi
+            retry_builder "mac zip package" pnpm exec electron-builder --mac zip --publish never
+          else
+            retry_builder "windows package" pnpm exec electron-builder --win --publish never
+          fi
 
       # Smoke-test the packaged app: launch it and fail if the main process
       # can't load a bundled module. This catches dependency-bundling regressions
@@ -172,21 +194,41 @@ jobs:
           # ($GITHUB_ENV), set on mac only — never as empty strings on Windows.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
-        # Same hdiutil flakiness as the package step; retry. Re-uploading an asset
-        # that a prior attempt already pushed is safe — electron-builder's GitHub
-        # publisher overwrites an existing artifact (422 already_exists → delete +
-        # re-upload), so a retry never hard-fails on a duplicate.
+        # Publish the macOS DMG on a best-effort basis, then publish the zip last
+        # so latest-mac.yml points at the updater-compatible zip even if DMG
+        # creation remains flaky. Re-uploading an existing asset is safe because
+        # electron-builder's GitHub publisher replaces it.
         run: |
-          attempt=1; max=3
-          until pnpm exec electron-builder --${{ matrix.platform }} --publish always; do
-            if [ "$attempt" -ge "$max" ]; then
-              echo "::error::electron-builder (publish) failed after $max attempts"; exit 1
-            fi
-            echo "::warning::electron-builder (publish) attempt $attempt failed; cleaning up, retrying in 15s"
+          set -o pipefail
+
+          cleanup_mac_volumes() {
             if [ "${{ matrix.platform }}" = "mac" ]; then
               for v in $(ls /Volumes 2>/dev/null | grep -i '^Rebase' || true); do
                 hdiutil detach "/Volumes/$v" -force 2>/dev/null || true
               done
             fi
-            attempt=$((attempt + 1)); sleep 15
-          done
+          }
+
+          retry_builder() {
+            local label="$1"; shift
+            local attempt=1; local max=3
+            until "$@"; do
+              if [ "$attempt" -ge "$max" ]; then
+                echo "::error::electron-builder ($label) failed after $max attempts"
+                return 1
+              fi
+              echo "::warning::electron-builder ($label) attempt $attempt failed; cleaning up, retrying in 15s"
+              cleanup_mac_volumes
+              attempt=$((attempt + 1))
+              sleep 15
+            done
+          }
+
+          if [ "${{ matrix.platform }}" = "mac" ]; then
+            if ! retry_builder "mac DMG publish" pnpm exec electron-builder --mac dmg --publish always; then
+              echo "::warning::macOS DMG publish failed; continuing with zip-only release"
+            fi
+            retry_builder "mac zip publish" pnpm exec electron-builder --mac zip --publish always
+          else
+            retry_builder "windows publish" pnpm exec electron-builder --win --publish always
+          fi

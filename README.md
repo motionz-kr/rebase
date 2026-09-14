@@ -135,6 +135,10 @@ cd apps/desktop \
 # → apps/desktop/release/Rebase-<version>-arm64.dmg
 ```
 
+The automated release workflow publishes the macOS zip independently from the
+DMG so a transient `hdiutil` failure does not remove the updater-compatible
+zip from the release. The DMG is still retried and published when available.
+
 Use `--win` (or `--linux`) to package other targets; CI builds macOS and Windows
 installers for every release. The unsigned macOS build runs locally (ad-hoc
 signed). To distribute to other Macs either:

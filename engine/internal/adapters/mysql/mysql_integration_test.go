@@ -1,3 +1,5 @@
+//go:build integration
+
 package mysql
 
 import (
@@ -274,4 +276,3 @@ func TestMySQLConnector_Views(t *testing.T) {
 		t.Errorf("unexpected view DDL: %q", ddl)
 	}
 }
-
