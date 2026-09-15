@@ -33,18 +33,11 @@ permissions:
   pull-requests: write
 
 jobs:
-  release-please:
+  resolve-platform:
     runs-on: ubuntu-latest
     outputs:
-      release_created: ${{ steps.rp.outputs.releases_created }}
-      tag_name: ${{ steps.rp.outputs['.--tag_name'] }}
       build_matrix: ${{ steps.platform_matrix.outputs.include }}
     steps:
-      - uses: googleapis/release-please-action@v5
-        id: rp
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Resolve release platform matrix
         id: platform_matrix
         env:
@@ -82,14 +75,32 @@ jobs:
 
           echo "include=$include" >> "$GITHUB_OUTPUT"
 
+  release-please:
+    if: github.event_name != 'workflow_dispatch' || inputs.release_tag == ''
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.rp.outputs.releases_created }}
+      tag_name: ${{ steps.rp.outputs['.--tag_name'] }}
+    steps:
+      - uses: googleapis/release-please-action@v5
+        id: rp
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
   build:
-    needs: release-please
+    needs:
+      - release-please
+      - resolve-platform
     if: >-
-      needs.release-please.outputs.release_created == 'true' ||
-      (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
+      always() &&
+      needs.resolve-platform.result == 'success' &&
+      (
+        needs.release-please.outputs.release_created == 'true' ||
+        (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
+      )
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.release-please.outputs.build_matrix) }}
+      matrix: ${{ fromJSON(needs.resolve-platform.outputs.build_matrix) }}
     runs-on: ${{ matrix.os }}
     steps:
       - name: Validate manual release target
