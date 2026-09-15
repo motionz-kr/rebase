@@ -66,13 +66,13 @@ jobs:
 
           case "$platform" in
             mac)
-              include='[{"os":"macos-14","platform":"mac","goos":"darwin","goarch":"arm64"}]'
+              include='{"include":[{"os":"macos-14","platform":"mac","goos":"darwin","goarch":"arm64"}]}'
               ;;
             win)
-              include='[{"os":"windows-latest","platform":"win","goos":"windows","goarch":"amd64"}]'
+              include='{"include":[{"os":"windows-latest","platform":"win","goos":"windows","goarch":"amd64"}]}'
               ;;
             both)
-              include='[{"os":"macos-14","platform":"mac","goos":"darwin","goarch":"arm64"},{"os":"windows-latest","platform":"win","goos":"windows","goarch":"amd64"}]'
+              include='{"include":[{"os":"macos-14","platform":"mac","goos":"darwin","goarch":"arm64"},{"os":"windows-latest","platform":"win","goos":"windows","goarch":"amd64"}]}'
               ;;
             *)
               echo "::error::Unsupported release platform: $platform"

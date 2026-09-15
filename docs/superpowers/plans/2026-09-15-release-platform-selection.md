@@ -14,8 +14,9 @@ preserving the current both-platform default and existing partial-rebuild flow.
 - When `workflow_dispatch` creates a release, respect the existing `platform`
   input. Keep the `release_tag` rebuild path unchanged.
 - Resolve the selected platform matrix in the prerequisite job and pass it to
-  the build job as JSON; GitHub Actions does not expose `matrix.*` in a
-  job-level `if` expression.
+  the build job as a JSON object containing `include`; GitHub Actions does not
+  expose `matrix.*` in a job-level `if` expression and rejects a bare sequence
+  as the matrix value.
 - Document the trailer convention and validate workflow syntax before merging.
 
 ## Validation
