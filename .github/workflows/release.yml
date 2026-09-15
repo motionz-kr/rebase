@@ -38,49 +38,58 @@ jobs:
     outputs:
       release_created: ${{ steps.rp.outputs.releases_created }}
       tag_name: ${{ steps.rp.outputs['.--tag_name'] }}
+      build_matrix: ${{ steps.platform_matrix.outputs.include }}
     steps:
       - uses: googleapis/release-please-action@v5
         id: rp
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Resolve release platform matrix
+        id: platform_matrix
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_MESSAGE: ${{ github.event.head_commit.message }}
+          REQUESTED_PLATFORM: ${{ inputs.platform }}
+        shell: bash
+        run: |
+          platform=both
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            platform="${REQUESTED_PLATFORM:-both}"
+          elif grep -Fxq 'Release-Platform: mac' <<< "$RELEASE_MESSAGE"; then
+            platform=mac
+          elif grep -Fxq 'Release-Platform: win' <<< "$RELEASE_MESSAGE"; then
+            platform=win
+          elif grep -Fxq 'Release-Platform: both' <<< "$RELEASE_MESSAGE"; then
+            platform=both
+          fi
+
+          case "$platform" in
+            mac)
+              include='[{"os":"macos-14","platform":"mac","goos":"darwin","goarch":"arm64"}]'
+              ;;
+            win)
+              include='[{"os":"windows-latest","platform":"win","goos":"windows","goarch":"amd64"}]'
+              ;;
+            both)
+              include='[{"os":"macos-14","platform":"mac","goos":"darwin","goarch":"arm64"},{"os":"windows-latest","platform":"win","goos":"windows","goarch":"amd64"}]'
+              ;;
+            *)
+              echo "::error::Unsupported release platform: $platform"
+              exit 1
+              ;;
+          esac
+
+          echo "include=$include" >> "$GITHUB_OUTPUT"
+
   build:
     needs: release-please
     if: >-
-      (
-        needs.release-please.outputs.release_created == 'true' &&
-        (
-          (
-            github.event_name == 'push' &&
-            (
-              !contains(github.event.head_commit.message, 'Release-Platform:') ||
-              contains(github.event.head_commit.message, 'Release-Platform: both') ||
-              contains(github.event.head_commit.message, format('Release-Platform: {0}', matrix.platform))
-            )
-          ) ||
-          (
-            github.event_name == 'workflow_dispatch' &&
-            (inputs.platform == 'both' || inputs.platform == matrix.platform)
-          )
-        )
-      ) ||
-      (
-        github.event_name == 'workflow_dispatch' &&
-        inputs.release_tag != '' &&
-        (inputs.platform == 'both' || inputs.platform == matrix.platform)
-      )
+      needs.release-please.outputs.release_created == 'true' ||
+      (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: macos-14
-            platform: mac
-            goos: darwin
-            goarch: arm64
-          - os: windows-latest
-            platform: win
-            goos: windows
-            goarch: amd64
+      matrix: ${{ fromJSON(needs.release-please.outputs.build_matrix) }}
     runs-on: ${{ matrix.os }}
     steps:
       - name: Validate manual release target

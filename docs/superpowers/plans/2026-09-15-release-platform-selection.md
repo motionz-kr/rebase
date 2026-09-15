@@ -13,6 +13,9 @@ preserving the current both-platform default and existing partial-rebuild flow.
   current default of building both platforms.
 - When `workflow_dispatch` creates a release, respect the existing `platform`
   input. Keep the `release_tag` rebuild path unchanged.
+- Resolve the selected platform matrix in the prerequisite job and pass it to
+  the build job as JSON; GitHub Actions does not expose `matrix.*` in a
+  job-level `if` expression.
 - Document the trailer convention and validate workflow syntax before merging.
 
 ## Validation
@@ -20,6 +23,8 @@ preserving the current both-platform default and existing partial-rebuild flow.
 - Inspect the generated release merge message and matrix conditions.
 - Run workflow YAML/actionlint validation when available.
 - Run desktop and renderer build checks, then wait for PR CI and CodeQL.
+- Verify the workflow run graph creates only a macOS build job for the
+  `Release-Platform: mac` trailer.
 - For v0.25.1, merge its Release PR with `Release-Platform: mac` and verify that
   only the macOS release job runs and publishes assets.
 
