@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { typeQuery } from './helpers';
 
 test.describe('SQLite schema query context', () => {
   const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rebase-query-context-'));
@@ -38,6 +39,14 @@ test.describe('SQLite schema query context', () => {
     await expect(queryInput).toContainText('쿼리 입력');
     await queryInput.click();
     await expect(win.locator('.editor-conn-db')).toHaveText(databaseName);
+    await expect(win.locator('.etab .etab-db')).toHaveText(databaseName);
+
+    // A new tab inherits the current schema and keeps the schema visible on
+    // each tab, so switching between tabs remains unambiguous.
+    await win.locator('.etab-add').click();
+    await expect(win.locator('.etab .etab-db')).toHaveCount(2);
+    await expect(win.locator('.etab').nth(0)).toContainText(databaseName);
+    await expect(win.locator('.etab').nth(1)).toContainText(databaseName);
 
     await dbRow.click();
     const tableRow = win.locator('.tree-row:has(.tree-label:text-is("query_context_e2e"))');
@@ -46,5 +55,17 @@ test.describe('SQLite schema query context', () => {
     await win.locator('.ctx-menu .ctx-item').filter({ hasText: '최근 500개 조회' }).click();
     await expect(win.locator('.editor-conn-db')).toHaveText(databaseName);
     await expect(win.locator('.conn-panel:not([style*="none"]) .grid-body .grid-row')).toHaveCount(2, { timeout: 15_000 });
+
+    await typeQuery(win, 'SELECT 1 AS first;\nSELECT 2 AS second;');
+    await win.locator('.editor-toolbar .btn-primary').click();
+    await expect(win.locator('.result-strip .result-chip')).toHaveCount(2, { timeout: 15_000 });
+    await expect(win.locator('.query-statement-glyph-success')).toHaveCount(2);
+
+    await typeQuery(win, 'SELECT 1 AS ok;\nSELECT * FROM missing_query_context_table;\nSELECT 3 AS not_run;');
+    await win.locator('.editor-toolbar .btn-primary').click();
+    await expect(win.locator('.result-strip .result-chip')).toHaveCount(2, { timeout: 15_000 });
+    await expect(win.locator('.query-statement-glyph-success')).toHaveCount(1);
+    await expect(win.locator('.query-statement-glyph-error')).toHaveCount(1);
+    await expect(win.locator('.query-statement-glyph-skipped')).toHaveCount(1);
   });
 });
