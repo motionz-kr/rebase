@@ -67,5 +67,33 @@ test.describe('SQLite schema query context', () => {
     await expect(win.locator('.query-statement-glyph-success')).toHaveCount(1);
     await expect(win.locator('.query-statement-glyph-error')).toHaveCount(1);
     await expect(win.locator('.query-statement-glyph-skipped')).toHaveCount(1);
+
+    // Cmd/Ctrl+Enter targets only the statement containing the caret. The
+    // idle statement has a full-width rectangular outline before it runs.
+    await typeQuery(win, 'SELECT 1 AS first;\nSELECT 2 AS second;\nSELECT 3 AS third;');
+    const editor = win.locator('.conn-panel .monaco-editor').first();
+    const editorLines = editor.locator('.view-lines .view-line');
+    await expect(editorLines).toHaveCount(3);
+    await editorLines.nth(1).click({ position: { x: 70, y: 8 } });
+    const activeBlock = win.locator('.monaco-editor .query-statement-active-block');
+    await expect(activeBlock).toBeVisible();
+    await expect(activeBlock).toHaveCSS('border-style', 'solid');
+    const editorBox = await editor.boundingBox();
+    const activeBlockBox = await activeBlock.boundingBox();
+    expect(editorBox).not.toBeNull();
+    expect(activeBlockBox).not.toBeNull();
+    expect(activeBlockBox?.width ?? 0).toBeGreaterThan((editorBox?.width ?? 0) * 0.75);
+    await win.keyboard.press('ControlOrMeta+Enter');
+
+    await expect(win.locator('.grid-cell[title="second"]')).toBeVisible({ timeout: 15_000 });
+    await expect(win.locator('.grid-cell[title="2"]')).toBeVisible();
+    await expect(win.locator('.exec-sql')).toHaveText('SELECT 2 AS second');
+    await expect(win.locator('.query-statement-glyph-success')).toHaveCount(1);
+    await expect(win.locator('.query-statement-glyph-error, .query-statement-glyph-skipped')).toHaveCount(0);
+    const secondLineBox = await editorLines.nth(1).boundingBox();
+    const successGlyphBox = await win.locator('.query-statement-glyph-success').boundingBox();
+    expect(secondLineBox).not.toBeNull();
+    expect(successGlyphBox).not.toBeNull();
+    expect(Math.abs((successGlyphBox?.y ?? 0) - (secondLineBox?.y ?? 0))).toBeLessThan(3);
   });
 });
