@@ -3,11 +3,11 @@ name: Release
 # Content-driven auto-release. On every push to main, release-please reads the
 # conventional-commit history and maintains a "Release PR" (version bump +
 # CHANGELOG). Merging that Release PR creates the tag + GitHub Release, which in
-# the SAME run triggers the macOS + Windows build that attaches the installers
-# and update metadata (latest*.yml). Doing both in one workflow avoids the
-# GITHUB_TOKEN "no recursive workflow trigger" limitation.
-# workflow_dispatch also supports rebuilding selected platform(s) for an
-# existing release without publishing a new version.
+# the SAME run triggers the installer build. Add a `Release-Platform: mac` or
+# `Release-Platform: win` commit-message trailer to build only one platform;
+# without the trailer, both platforms build. Doing this in one workflow avoids
+# the GITHUB_TOKEN "no recursive workflow trigger" limitation.
+# workflow_dispatch supports platform selection for new releases and rebuilds.
 on:
   push:
     branches:
@@ -19,7 +19,7 @@ on:
         required: false
         type: string
       platform:
-        description: Platform(s) to rebuild when an existing release tag is provided
+        description: Platform(s) to build for a release or existing-tag rebuild
         required: false
         default: both
         type: choice
@@ -47,10 +47,28 @@ jobs:
   build:
     needs: release-please
     if: >-
-      needs.release-please.outputs.release_created == 'true' ||
-      (github.event_name == 'workflow_dispatch' &&
-      inputs.release_tag != '' &&
-      (inputs.platform == 'both' || inputs.platform == matrix.platform))
+      (
+        needs.release-please.outputs.release_created == 'true' &&
+        (
+          (
+            github.event_name == 'push' &&
+            (
+              !contains(github.event.head_commit.message, 'Release-Platform:') ||
+              contains(github.event.head_commit.message, 'Release-Platform: both') ||
+              contains(github.event.head_commit.message, format('Release-Platform: {0}', matrix.platform))
+            )
+          ) ||
+          (
+            github.event_name == 'workflow_dispatch' &&
+            (inputs.platform == 'both' || inputs.platform == matrix.platform)
+          )
+        )
+      ) ||
+      (
+        github.event_name == 'workflow_dispatch' &&
+        inputs.release_tag != '' &&
+        (inputs.platform == 'both' || inputs.platform == matrix.platform)
+      )
     strategy:
       fail-fast: false
       matrix:
