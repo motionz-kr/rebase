@@ -17,6 +17,8 @@ preserving the current both-platform default and existing partial-rebuild flow.
   the build job as a JSON object containing `include`; GitHub Actions does not
   expose `matrix.*` in a job-level `if` expression and rejects a bare sequence
   as the matrix value.
+- For existing-tag `workflow_dispatch` rebuilds, skip release-please and let
+  the build depend on the resolved platform matrix plus the requested tag.
 - Document the trailer convention and validate workflow syntax before merging.
 
 ## Validation
