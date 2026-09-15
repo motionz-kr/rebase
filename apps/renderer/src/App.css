@@ -746,6 +746,15 @@
 .etab:hover {
   background: var(--bg-hover);
 }
+.etab-db {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-3);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
 .etab.active {
   background: var(--bg-input);
   border-color: var(--border);
@@ -787,6 +796,46 @@
   flex-shrink: 0;
   background: var(--bg);
 }
+
+/* Per-statement execution markers, similar to the SQL editor gutter in
+   DataGrip. The glyph is placed on the first line; the bar/tint covers the
+   complete statement range. */
+.query-statement-line-success {
+  background: color-mix(in srgb, var(--green) 5%, transparent);
+}
+.query-statement-line-running {
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+.query-statement-line-error {
+  background: color-mix(in srgb, var(--red) 7%, transparent);
+}
+.query-statement-line-skipped {
+  background: color-mix(in srgb, var(--text-3) 5%, transparent);
+}
+.query-statement-bar {
+  width: 3px;
+  margin-left: 2px;
+  border-radius: 2px;
+}
+.query-statement-bar-success { background: var(--green); }
+.query-statement-bar-running { background: var(--accent); }
+.query-statement-bar-error { background: var(--red); }
+.query-statement-bar-skipped { background: var(--text-3); }
+.query-statement-bar-pending { background: var(--border-strong); }
+.query-statement-glyph {
+  position: relative;
+  width: 14px;
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 14px;
+  text-align: center;
+}
+.query-statement-glyph::after { position: absolute; inset: 0; }
+.query-statement-glyph-success::after { content: '✓'; color: var(--green); }
+.query-statement-glyph-running::after { content: '●'; color: var(--accent); font-size: 9px; }
+.query-statement-glyph-error::after { content: '!'; color: var(--red); font-weight: 700; }
+.query-statement-glyph-skipped::after { content: '–'; color: var(--text-3); }
+.query-statement-glyph-pending::after { content: '·'; color: var(--text-3); }
 
 /* Custom SQL autocomplete dropdown (plain DOM — renders reliably everywhere,
    unlike Monaco's overlay suggest widget). */
