@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.0](https://github.com/motionz-kr/rebase/compare/v0.24.3...v0.25.0) (2026-09-15)
+
+
+### Features
+
+* **ui:** show SQL statement execution status ([#166](https://github.com/motionz-kr/rebase/issues/166)) ([c8d0a0f](https://github.com/motionz-kr/rebase/commit/c8d0a0f5c78525c7eba5e3516533e71ce5a7474c))
+
 ## [0.24.3](https://github.com/motionz-kr/rebase/compare/v0.24.2...v0.24.3) (2026-09-14)
 
 
