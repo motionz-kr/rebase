@@ -837,6 +837,14 @@
 .query-statement-glyph-skipped::after { content: '–'; color: var(--text-3); }
 .query-statement-glyph-pending::after { content: '·'; color: var(--text-3); }
 
+/* The caret's current SQL statement is outlined across the editor content,
+   rather than only highlighting the line where the cursor happens to be. */
+.monaco-editor .query-statement-active-block {
+  border: 1px solid color-mix(in srgb, var(--accent) 72%, transparent);
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--accent) 3%, transparent);
+}
+
 /* Custom SQL autocomplete dropdown (plain DOM — renders reliably everywhere,
    unlike Monaco's overlay suggest widget). */
 .sql-ac {

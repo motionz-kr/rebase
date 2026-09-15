@@ -6,7 +6,8 @@ import { ResultGrid } from './ResultGrid';
 import { SqlAutocomplete } from './SqlAutocomplete';
 import { RiskConfirmDialog } from './RiskConfirmDialog';
 import { formatSql } from '../lib/formatSql';
-import { splitStatementRanges } from '../lib/splitStatements';
+import { splitStatementRanges, type SqlStatementRange } from '../lib/splitStatements';
+import { resolveSqlExecutionTarget } from '../lib/sqlExecutionTarget';
 import { classifyStatement } from '../lib/sqlDanger';
 import { analyzeEditableQuery, type EditableQuery } from '../lib/editableQuery';
 import { TableDataView } from './TableDataView';
@@ -61,6 +62,7 @@ interface QueryTab {
   error: string | null;
   rowsAffected: number | null;
   queryId: string | null;
+  lastExecutedSql: string | null;
   startTime: number | null;
   elapsedTimeMs: number | null;
   policyPrompt: PolicyPrompt | null;
@@ -111,6 +113,7 @@ const newTab = (id: string, name: string, database: string, query: string): Quer
   error: null,
   rowsAffected: null,
   queryId: null,
+  lastExecutedSql: null,
   startTime: null,
   elapsedTimeMs: null,
   policyPrompt: null,
@@ -187,6 +190,38 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
   // The Monaco editor + monaco namespace, exposed for the custom autocomplete.
   const [editorInstance, setEditorInstance] = useState<monaco.editor.IStandaloneCodeEditor | null>(null);
   const statementDecorationsRef = useRef<string[]>([]);
+  const [activeStatementRanges, setActiveStatementRanges] = useState<SqlStatementRange[]>([]);
+
+  // Keep the cursor's statement range live as the caret/selection moves. This
+  // is independent of execution state: an idle statement is still outlined.
+  useEffect(() => {
+    if (!editorInstance) return;
+    const updateActiveStatement = () => {
+      const model = editorInstance.getModel();
+      const position = editorInstance.getPosition();
+      const selection = editorInstance.getSelection();
+      if (!model || !position) {
+        setActiveStatementRanges([]);
+        return;
+      }
+      const target = resolveSqlExecutionTarget(model.getValue(), {
+        cursorOffset: model.getOffsetAt(position),
+        selectionStart: selection ? model.getOffsetAt(selection.getStartPosition()) : undefined,
+        selectionEnd: selection ? model.getOffsetAt(selection.getEndPosition()) : undefined,
+      });
+      setActiveStatementRanges(target?.ranges ?? []);
+    };
+
+    updateActiveStatement();
+    const cursorListener = editorInstance.onDidChangeCursorPosition(updateActiveStatement);
+    const selectionListener = editorInstance.onDidChangeCursorSelection(updateActiveStatement);
+    const contentListener = editorInstance.onDidChangeModelContent(updateActiveStatement);
+    return () => {
+      cursorListener.dispose();
+      selectionListener.dispose();
+      contentListener.dispose();
+    };
+  }, [editorInstance, activeTab.id]);
 
   // Show one DataGrip-like marker per SQL statement. The glyph sits in the
   // editor gutter, while the whole statement gets a subtle state tint and a
@@ -197,7 +232,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     if (!model) return;
 
     const sourceLength = model.getValue().length;
-    const decorations = activeTab.statementExecutions.map((execution, index) => {
+    const decorations: monaco.editor.IModelDeltaDecoration[] = activeTab.statementExecutions.map((execution, index) => {
       const startOffset = Math.min(Math.max(execution.start, 0), sourceLength);
       const endOffset = Math.min(Math.max(execution.end, startOffset + 1), sourceLength);
       const startPosition = model.getPositionAt(startOffset);
@@ -215,11 +250,26 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
       };
     });
 
-    statementDecorationsRef.current = editorInstance.deltaDecorations(statementDecorationsRef.current, decorations);
+    const activeBlocks: monaco.editor.IModelDeltaDecoration[] = activeStatementRanges.map((range) => {
+      const startOffset = Math.min(Math.max(range.start, 0), sourceLength);
+      const endOffset = Math.min(Math.max(range.end, startOffset + 1), sourceLength);
+      const startPosition = model.getPositionAt(startOffset);
+      const endPosition = model.getPositionAt(Math.max(startOffset, endOffset - 1));
+      return {
+        range: new monaco.Range(startPosition.lineNumber, 1, endPosition.lineNumber, model.getLineMaxColumn(endPosition.lineNumber)),
+        options: {
+          blockClassName: 'query-statement-active-block',
+          blockPadding: [2, 8, 2, 8],
+          stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+        },
+      };
+    });
+
+    statementDecorationsRef.current = editorInstance.deltaDecorations(statementDecorationsRef.current, [...decorations, ...activeBlocks]);
     return () => {
       statementDecorationsRef.current = editorInstance.deltaDecorations(statementDecorationsRef.current, []);
     };
-  }, [editorInstance, activeTab.query, activeTab.statementExecutions]);
+  }, [editorInstance, activeTab.query, activeTab.statementExecutions, activeStatementRanges]);
 
   // A database context request comes from the schema explorer. It changes the
   // editor context without replacing or executing the current SQL.
@@ -320,7 +370,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
             updated.elapsedTimeMs = tab.startTime ? Date.now() - tab.startTime : 0;
             updated.queryId = null;
             updated.lastExec = {
-              sql: tab.query,
+              sql: tab.lastExecutedSql ?? tab.query,
               durationMs: updated.elapsedTimeMs,
               rowCount: updated.columns.length > 0 ? updated.rows.length : null,
               rowsAffected: updated.columns.length > 0 ? null : chunk.rowsAffected ?? null,
@@ -334,7 +384,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
             }
 
             void logQueryHistory({
-                queryText: tab.query,
+                queryText: tab.lastExecutedSql ?? tab.query,
                 durationMs: updated.elapsedTimeMs,
                 success: true,
                 errorMessage: null,
@@ -347,7 +397,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
             updated.error = chunk.message ?? null;
             updated.elapsedTimeMs = tab.startTime ? Date.now() - tab.startTime : 0;
             updated.queryId = null;
-            updated.lastExec = { sql: tab.query, durationMs: updated.elapsedTimeMs, error: chunk.message };
+            updated.lastExec = { sql: tab.lastExecutedSql ?? tab.query, durationMs: updated.elapsedTimeMs, error: chunk.message };
             const runningIndex = updated.statementExecutions.findIndex((execution) => execution.state === 'running');
             if (runningIndex >= 0) {
               updated.statementExecutions = updated.statementExecutions.map((execution, index) =>
@@ -356,7 +406,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
             }
 
             void logQueryHistory({
-                queryText: tab.query,
+                queryText: tab.lastExecutedSql ?? tab.query,
                 durationMs: updated.elapsedTimeMs,
                 success: false,
                 errorMessage: chunk.message,
@@ -604,6 +654,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     sqlOverride?: string;
     acknowledged?: boolean;
     databaseOverride?: string;
+    statementRangesOverride?: SqlStatementRange[];
   }) => {
     if (activeTab.loading) return;
 
@@ -616,7 +667,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
 
     // A script of several statements runs sequentially with one result set each
     // (DataGrip-style). A single statement keeps the existing streaming path.
-    const statementRanges = splitStatementRanges(sql);
+    const statementRanges = override?.statementRangesOverride ?? splitStatementRanges(sql);
     const statements = statementRanges.map((range) => range.statement);
     if (statements.length > 1) {
       setEditView(null);
@@ -674,6 +725,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
               truncated: false,
               resultSets: [],
               activeResultIndex: 0,
+              lastExecutedSql: sql,
               statementExecutions: statementRanges.map((range) => ({ ...range, state: 'running' as const })),
             }
           : t
@@ -744,10 +796,20 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
 
   // Keep refs to the latest handlers so Monaco keybindings (registered once on
   // mount) always run the current closures, not stale ones.
-  const runQueryRef = useRef<() => void>(() => {});
-  runQueryRef.current = () => {
-    if (activeTab.loading || !activeTab.query.trim()) return;
-    void executeQuery();
+  const runCurrentStatementRef = useRef<() => void>(() => {});
+  runCurrentStatementRef.current = () => {
+    if (activeTab.loading || !activeTab.query.trim() || !editorInstance) return;
+    const model = editorInstance.getModel();
+    const position = editorInstance.getPosition();
+    if (!model || !position) return;
+    const selection = editorInstance.getSelection();
+    const target = resolveSqlExecutionTarget(model.getValue(), {
+      cursorOffset: model.getOffsetAt(position),
+      selectionStart: selection ? model.getOffsetAt(selection.getStartPosition()) : undefined,
+      selectionEnd: selection ? model.getOffsetAt(selection.getEndPosition()) : undefined,
+    });
+    if (!target) return;
+    void executeQuery({ sqlOverride: target.sql, statementRangesOverride: target.ranges });
   };
   const formatRef = useRef<() => void>(() => {});
   formatRef.current = formatQuery;
@@ -907,7 +969,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
               if (e.keyCode === KeyCode.Enter && (e.ctrlKey || e.metaKey)) {
                 e.preventDefault();
                 e.stopPropagation();
-                runQueryRef.current();
+                runCurrentStatementRef.current();
                 return;
               }
               // Cmd/Ctrl+Alt+L reformats the SQL (DataGrip-style).
