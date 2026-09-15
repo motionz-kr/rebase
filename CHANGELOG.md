@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.25.1](https://github.com/motionz-kr/rebase/compare/v0.25.0...v0.25.1) (2026-09-15)
+
+
+### Bug Fixes
+
+* **query:** run the statement at the cursor ([#168](https://github.com/motionz-kr/rebase/issues/168)) ([9f81434](https://github.com/motionz-kr/rebase/commit/9f81434fc1df18af05374041cd86d3ed2aad528b))
+* **query:** scope Cmd+Enter to cursor statement ([1754983](https://github.com/motionz-kr/rebase/commit/175498385c14ec6061a3b296f37065ec45f3bb70))
+
 ## [0.25.0](https://github.com/motionz-kr/rebase/compare/v0.24.3...v0.25.0) (2026-09-15)
 
 
