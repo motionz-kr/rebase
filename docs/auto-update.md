@@ -44,6 +44,15 @@ Config: `release-please-config.json` + `.release-please-manifest.json`
   failure must not remove the macOS zip or `latest-mac.yml` from the release.
 - Manual fallback: `workflow_dispatch` on the Release workflow re-runs
   release-please (it only creates a release if there are releasable commits).
+- Partial rebuild: from Actions → Release → Run workflow, provide an existing
+  `vX.Y.Z` release tag and choose `mac`, `win`, or `both`. Only the selected
+  platform job runs, and it checks out that exact tag. The workflow verifies
+  that the GitHub Release already exists before packaging, then replaces that
+  platform's assets/update metadata. Leave the tag empty to run only the
+  release-please check; it will not start a build.
+- The macOS job retains a pre-publish package pass because it smoke-tests the
+  packaged app before signing/notarization. Windows has no corresponding
+  smoke-test, so its publish pass builds the Windows installers only once.
 
 ## Platform behavior
 

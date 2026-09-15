@@ -6,11 +6,27 @@ name: Release
 # the SAME run triggers the macOS + Windows build that attaches the installers
 # and update metadata (latest*.yml). Doing both in one workflow avoids the
 # GITHUB_TOKEN "no recursive workflow trigger" limitation.
+# workflow_dispatch also supports rebuilding selected platform(s) for an
+# existing release without publishing a new version.
 on:
   push:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing vX.Y.Z release tag to rebuild (leave empty to only check release-please)
+        required: false
+        type: string
+      platform:
+        description: Platform(s) to rebuild when an existing release tag is provided
+        required: false
+        default: both
+        type: choice
+        options:
+          - both
+          - mac
+          - win
 
 permissions:
   contents: write
@@ -30,7 +46,11 @@ jobs:
 
   build:
     needs: release-please
-    if: needs.release-please.outputs.release_created == 'true'
+    if: >-
+      needs.release-please.outputs.release_created == 'true' ||
+      (github.event_name == 'workflow_dispatch' &&
+      inputs.release_tag != '' &&
+      (inputs.platform == 'both' || inputs.platform == matrix.platform))
     strategy:
       fail-fast: false
       matrix:
@@ -45,9 +65,22 @@ jobs:
             goarch: amd64
     runs-on: ${{ matrix.os }}
     steps:
+      - name: Validate manual release target
+        if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        shell: bash
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Release tag must use the vX.Y.Z format"
+            exit 1
+          fi
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
+
       - uses: actions/checkout@v6
         with:
-          ref: ${{ needs.release-please.outputs.tag_name }}
+          ref: ${{ needs.release-please.outputs.tag_name || inputs.release_tag }}
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v6
@@ -86,10 +119,14 @@ jobs:
           pnpm --filter desktop build
 
       - name: Package (build only, no publish)
+        if: matrix.platform == 'mac'
         working-directory: apps/desktop
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         shell: bash
+        # This preflight exists to smoke-test the packaged macOS app before
+        # signing/notarization. Windows has no matching smoke-test, so its
+        # publish step is the only packaging pass.
         # Build the macOS zip independently from the DMG. GitHub's macOS
         # runners intermittently fail DMG creation with "hdiutil: ... Device
         # not configured". A DMG failure must not prevent the zip and updater
@@ -98,11 +135,9 @@ jobs:
           set -o pipefail
 
           cleanup_mac_volumes() {
-            if [ "${{ matrix.platform }}" = "mac" ]; then
-              for v in $(ls /Volumes 2>/dev/null | grep -i '^Rebase' || true); do
-                hdiutil detach "/Volumes/$v" -force 2>/dev/null || true
-              done
-            fi
+            for v in $(ls /Volumes 2>/dev/null | grep -i '^Rebase' || true); do
+              hdiutil detach "/Volumes/$v" -force 2>/dev/null || true
+            done
           }
 
           retry_builder() {
@@ -120,16 +155,12 @@ jobs:
             done
           }
 
-          if [ "${{ matrix.platform }}" = "mac" ]; then
-            # DMG is best-effort; the zip is the required macOS distribution
-            # artifact and is also the updater's preferred package.
-            if ! retry_builder "mac DMG package" pnpm exec electron-builder --mac dmg --publish never; then
-              echo "::warning::macOS DMG packaging failed; continuing with zip-only release"
-            fi
-            retry_builder "mac zip package" pnpm exec electron-builder --mac zip --publish never
-          else
-            retry_builder "windows package" pnpm exec electron-builder --win --publish never
+          # DMG is best-effort; the zip is the required macOS distribution
+          # artifact and is also the updater's preferred package.
+          if ! retry_builder "mac DMG package" pnpm exec electron-builder --mac dmg --publish never; then
+            echo "::warning::macOS DMG packaging failed; continuing with zip-only release"
           fi
+          retry_builder "mac zip package" pnpm exec electron-builder --mac zip --publish never
 
       # Smoke-test the packaged app: launch it and fail if the main process
       # can't load a bundled module. This catches dependency-bundling regressions
