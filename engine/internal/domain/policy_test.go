@@ -54,3 +54,22 @@ func TestClassifyQuery(t *testing.T) {
 		})
 	}
 }
+
+func TestIsManagedTransactionControl(t *testing.T) {
+	cases := []struct {
+		query string
+		want  bool
+	}{
+		{"BEGIN", true},
+		{"/* manual */ START TRANSACTION", true},
+		{"COMMIT WORK", true},
+		{"ROLLBACK TO SAVEPOINT checkpoint", true},
+		{"SELECT 'COMMIT'", false},
+		{"UPDATE jobs SET state='done' WHERE id=1", false},
+	}
+	for _, tc := range cases {
+		if got := IsManagedTransactionControl(tc.query); got != tc.want {
+			t.Errorf("IsManagedTransactionControl(%q) = %v, want %v", tc.query, got, tc.want)
+		}
+	}
+}

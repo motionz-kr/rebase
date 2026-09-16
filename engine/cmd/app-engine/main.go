@@ -323,6 +323,7 @@ func main() {
 	queryHandler := internalHttp.NewQueryHandler(*token, connectionService)
 	mux.Handle("/query/execute", queryHandler.ExecuteQuery())
 	mux.Handle("/query/execute-batch", queryHandler.ExecuteBatch())
+	mux.Handle("/query/session", queryHandler.QuerySession())
 	mux.Handle("/query/cancel", queryHandler.CancelQuery())
 	mux.Handle("/query/analyze", queryHandler.AnalyzeQuery())
 

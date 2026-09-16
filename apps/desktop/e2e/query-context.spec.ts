@@ -51,10 +51,43 @@ test.describe('SQLite schema query context', () => {
     await dbRow.click();
     const tableRow = win.locator('.tree-row:has(.tree-label:text-is("query_context_e2e"))');
     await expect(tableRow).toBeVisible({ timeout: 10_000 });
+
+    // Completion in a later statement must use only that statement's context,
+    // not the table referenced before the semicolon.
+    await typeQuery(win, 'SELECT * FROM query_context_e2e; SELECT ');
+    await win.keyboard.type('qu');
+    const completion = win.locator('.sql-ac');
+    await expect(completion).toBeVisible({ timeout: 10_000 });
+    await expect(completion.locator('.sql-ac-label').filter({ hasText: /^query_context_e2e$/ })).toBeVisible();
+
     await tableRow.click({ button: 'right' });
     await win.locator('.ctx-menu .ctx-item').filter({ hasText: '최근 500개 조회' }).click();
     await expect(win.locator('.editor-conn-db')).toHaveText(databaseName);
     await expect(win.locator('.conn-panel:not([style*="none"]) .grid-body .grid-row')).toHaveCount(2, { timeout: 15_000 });
+
+    // Table-view filters run in the database: exercise text matching and a
+    // numeric range rather than filtering only the currently loaded rows.
+    const filterBar = win.locator('.conn-panel:not([style*="none"]) .tdv-filterbar');
+    await expect(filterBar).toBeVisible();
+    await filterBar.getByRole('combobox', { name: 'Filter column' }).selectOption('label');
+    await filterBar.getByRole('combobox', { name: 'Filter operator' }).selectOption('contains');
+    await filterBar.getByRole('textbox', { name: 'Filter value' }).fill('one');
+    await filterBar.getByRole('button', { name: '필터 추가' }).click();
+    await expect(win.locator('.tdv .grid-body .grid-row')).toHaveCount(1);
+    await expect(win.locator('.tdv .grid-cell[title="one"]')).toBeVisible();
+
+    await filterBar.locator('.filter-chip .fc-x').click();
+    await expect(win.locator('.tdv .grid-body .grid-row')).toHaveCount(2);
+    await filterBar.getByRole('combobox', { name: 'Filter column' }).selectOption('id');
+    await expect(filterBar.getByRole('combobox', { name: 'Filter operator' })).toHaveValue('equals');
+    await filterBar.getByRole('combobox', { name: 'Filter operator' }).selectOption('greater-than');
+    await filterBar.getByRole('textbox', { name: 'Filter value' }).fill('1');
+    await filterBar.getByRole('button', { name: '필터 추가' }).click();
+    await expect(win.locator('.tdv .grid-body .grid-row')).toHaveCount(1);
+    await expect(win.locator('.tdv .grid-cell[title="2"]')).toBeVisible();
+
+    await filterBar.getByRole('button', { name: '모두 지우기' }).click();
+    await expect(win.locator('.tdv .grid-body .grid-row')).toHaveCount(2);
 
     await typeQuery(win, 'SELECT 1 AS first;\nSELECT 2 AS second;');
     await win.locator('.editor-toolbar .btn-primary').click();
@@ -95,5 +128,34 @@ test.describe('SQLite schema query context', () => {
     expect(secondLineBox).not.toBeNull();
     expect(successGlyphBox).not.toBeNull();
     expect(Math.abs((successGlyphBox?.y ?? 0) - (secondLineBox?.y ?? 0))).toBeLessThan(3);
+
+    // After a failed statement in a script, Cmd/Ctrl+Enter on that statement
+    // must retry only that block. It must not replay the earlier successful
+    // statement or the later skipped statement.
+    await typeQuery(win, 'SELECT 1 AS first;\nSELECT COUNT(*) AS missing_count FROM missing_retry_table;\nSELECT 3 AS third;');
+    await win.locator('.editor-toolbar .btn-primary').click();
+    await expect(win.locator('.result-strip .result-chip')).toHaveCount(2, { timeout: 15_000 });
+    const retryLines = editor.locator('.view-lines .view-line');
+    await retryLines.nth(1).click({ position: { x: 70, y: 8 } });
+    await expect(win.locator('.monaco-editor .query-statement-active-block')).toHaveCount(1);
+    await win.keyboard.press('ControlOrMeta+Enter');
+    await expect(win.locator('.result-strip')).toHaveCount(0, { timeout: 15_000 });
+    await expect(win.locator('.exec-sql')).toHaveText('SELECT COUNT(*) AS missing_count FROM missing_retry_table');
+
+    // Query history can be searched by SQL text and narrowed by execution
+    // outcome; filtering never executes or edits a history entry.
+    await win.locator('.conn-panel:not([style*="none"]) .query-library-action').click();
+    await win.locator('.library-tab', { hasText: 'History' }).click();
+    const historySearch = win.getByRole('searchbox', { name: 'Search query history' });
+    const historyStatus = win.getByRole('combobox', { name: 'Filter query history by status' });
+    await historySearch.fill('SELECT 2 AS second');
+    await expect(win.locator('.library-modal .hist-card').first()).toContainText('SELECT 2 AS second');
+    await historyStatus.selectOption('failed');
+    await expect(win.locator('.library-modal .history-empty')).toHaveText('No executions match these filters.');
+
+    await historySearch.fill('missing_query_context_table');
+    await expect(win.locator('.library-modal .hist-card.fail').first()).toContainText('missing_query_context_table');
+    await historyStatus.selectOption('success');
+    await expect(win.locator('.library-modal .history-empty')).toHaveText('No executions match these filters.');
   });
 });

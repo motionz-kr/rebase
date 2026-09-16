@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { Search } from 'lucide-react';
 import { fallbackQueryTitle } from '../lib/queryTitle';
+import { filterQueryHistory, type QueryHistoryStatusFilter } from '../lib/queryHistory';
 
 interface QueryHistoryEntry {
   id: string;
@@ -23,6 +25,8 @@ interface QueryHistoryProps {
 export const QueryHistory: React.FC<QueryHistoryProps> = ({ profileId, onSelectQuery, refreshTrigger }) => {
   const [history, setHistory] = useState<QueryHistoryEntry[]>([]);
   const [loading, setLoading] = useState(false);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<QueryHistoryStatusFilter>('all');
 
   const loadHistory = async () => {
     setLoading(true);
@@ -44,19 +48,45 @@ export const QueryHistory: React.FC<QueryHistoryProps> = ({ profileId, onSelectQ
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profileId, refreshTrigger]);
 
+  const displayedHistory = filterQueryHistory(history, search, statusFilter);
+
   return (
     <div className="list-panel">
       <div className="panel-head">
         <div>
           <h3>History</h3>
-          <p>{history.length} recent executions</p>
+          <p>{displayedHistory.length} of {history.length} recent executions</p>
         </div>
+      </div>
+
+      <div className="history-controls">
+        <label className="history-search">
+          <Search size={14} aria-hidden="true" />
+          <input
+            className="input"
+            type="search"
+            aria-label="Search query history"
+            placeholder="Search title or SQL"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </label>
+        <select
+          className="input history-status-filter"
+          aria-label="Filter query history by status"
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value as QueryHistoryStatusFilter)}
+        >
+          <option value="all">All results</option>
+          <option value="success">Successful</option>
+          <option value="failed">Failed</option>
+        </select>
       </div>
 
       {loading ? (
         <div className="muted">Loading…</div>
-      ) : history.length > 0 ? (
-        history.map((entry) => (
+      ) : displayedHistory.length > 0 ? (
+        displayedHistory.map((entry) => (
           <div
             key={entry.id}
             className={`hist-card ${entry.success ? 'ok' : 'fail'}`}
@@ -75,7 +105,9 @@ export const QueryHistory: React.FC<QueryHistoryProps> = ({ profileId, onSelectQ
           </div>
         ))
       ) : (
-        <div className="muted">No query history yet.</div>
+        <div className="muted history-empty">
+          {history.length === 0 ? 'No query history yet.' : 'No executions match these filters.'}
+        </div>
       )}
     </div>
   );

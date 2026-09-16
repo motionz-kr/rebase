@@ -974,6 +974,7 @@ function App() {
                         ) : (
                           <SchemaExplorer
                             profileId={p.id!}
+                            profiles={profiles}
                             driver={p.driver as 'mysql' | 'postgres' | 'redis' | 'sqlite' | 'sqlserver'}
                             hiddenStore={hiddenStore}
                             onDisconnect={() => disconnect(p.id!)}

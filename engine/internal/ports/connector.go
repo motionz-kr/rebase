@@ -18,10 +18,11 @@ type TableInfo struct {
 }
 
 type ColumnInfo struct {
-	Name       string `json:"name"`
-	Type       string `json:"type"`
-	Nullable   bool   `json:"nullable"`
-	PrimaryKey bool   `json:"primaryKey"`
+	Name         string `json:"name"`
+	Type         string `json:"type"`
+	Nullable     bool   `json:"nullable"`
+	PrimaryKey   bool   `json:"primaryKey"`
+	DefaultValue string `json:"defaultValue,omitempty"`
 }
 
 type TableDescription struct {
@@ -48,6 +49,7 @@ type ForeignKey struct {
 type SchemaGraphTable struct {
 	Name    string       `json:"name"`
 	Columns []ColumnInfo `json:"columns"`
+	Indexes []Index      `json:"indexes,omitempty"`
 }
 
 type SchemaGraphFK struct {
@@ -68,6 +70,8 @@ type Index struct {
 	Columns []string `json:"columns"`
 	Unique  bool     `json:"unique"`
 	Primary bool     `json:"primary"`
+	Partial bool     `json:"partial,omitempty"`
+	Prefix  bool     `json:"prefix,omitempty"`
 }
 
 type SQLConnector interface {
@@ -85,6 +89,16 @@ type SQLConnector interface {
 	ExecuteQueryStream(ctx context.Context, p domain.ConnectionProfile, password string, query string, readOnly bool, onSessionStart func(sessionID int64), onHeader func(columns []string) error, onRow func(row []any) error) (int64, error)
 	ExecuteBatch(ctx context.Context, p domain.ConnectionProfile, password string, statements []string) (rowsAffected int64, failedIndex int, err error)
 	CancelSession(ctx context.Context, p domain.ConnectionProfile, password string, sessionID int64) error
+}
+
+// QuerySessionConnector extends SQL query execution with a dedicated,
+// owner-bound connection for manual per-console transactions.
+type QuerySessionConnector interface {
+	OpenQuerySession(ctx context.Context, p domain.ConnectionProfile, password, ownerID, database string, readOnly bool) (string, error)
+	ExecuteQuerySessionStream(ctx context.Context, p domain.ConnectionProfile, password, ownerID, database, sessionID, query string, readOnly bool, onSessionStart func(sessionID int64), onHeader func(columns []string) error, onRow func(row []any) error) (int64, error)
+	CommitQuerySession(ctx context.Context, ownerID, sessionID string) error
+	RollbackQuerySession(ctx context.Context, ownerID, sessionID string) error
+	CloseQuerySession(ownerID, sessionID string) error
 }
 
 type RedisKeyspaceInfo struct {

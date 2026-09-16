@@ -72,6 +72,21 @@ func ClassifyQuery(query string) QueryClass {
 	}
 }
 
+// IsManagedTransactionControl reports SQL transaction commands that conflict
+// with a transaction owned by the query-console session controls.
+func IsManagedTransactionControl(query string) bool {
+	trimmed := strings.TrimSpace(stripSQLComments(query))
+	if trimmed == "" {
+		return false
+	}
+	switch firstWord(strings.ToUpper(trimmed)) {
+	case "BEGIN", "START", "COMMIT", "ROLLBACK", "END":
+		return true
+	default:
+		return false
+	}
+}
+
 func containsWriteVerb(upper string) bool {
 	for _, v := range []string{"INSERT", "UPDATE", "DELETE", "MERGE", "DROP", "ALTER", "TRUNCATE", "CREATE", "GRANT", "REVOKE"} {
 		if strings.Contains(upper, v) {

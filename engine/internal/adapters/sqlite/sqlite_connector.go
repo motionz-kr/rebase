@@ -8,7 +8,10 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/smlee/database-local-engine/engine/internal/adapters"
+	"github.com/smlee/database-local-engine/engine/internal/adapters/sqlsession"
 	"github.com/smlee/database-local-engine/engine/internal/domain"
 	"github.com/smlee/database-local-engine/engine/internal/ports"
 	_ "modernc.org/sqlite"
@@ -17,13 +20,14 @@ import (
 // SQLiteConnector implements ports.SQLConnector over a local SQLite file.
 // The file path is carried in profile.Database; profile.ReadOnly opens mode=ro.
 type SQLiteConnector struct {
-	mu       sync.Mutex
-	sessions map[int64]context.CancelFunc
-	nextID   int64
+	mu            sync.Mutex
+	sessions      map[int64]context.CancelFunc
+	nextID        int64
+	querySessions *sqlsession.Manager
 }
 
 func NewSQLiteConnector() *SQLiteConnector {
-	return &SQLiteConnector{sessions: map[int64]context.CancelFunc{}}
+	return &SQLiteConnector{sessions: map[int64]context.CancelFunc{}, querySessions: sqlsession.NewManager(15 * time.Minute)}
 }
 
 // open returns a *sql.DB for the profile's file. readOnly (from the caller) is
@@ -126,7 +130,7 @@ func (c *SQLiteConnector) DescribeTable(ctx context.Context, p domain.Connection
 // tableColumns reads PRAGMA table_info for one table.
 func tableColumns(ctx context.Context, db *sql.DB, table string) ([]ports.ColumnInfo, error) {
 	rows, err := db.QueryContext(ctx,
-		`SELECT name, type, "notnull", pk FROM pragma_table_info(?)`, table)
+		`SELECT name, type, "notnull", pk, dflt_value FROM pragma_table_info(?)`, table)
 	if err != nil {
 		return nil, err
 	}
@@ -135,10 +139,13 @@ func tableColumns(ctx context.Context, db *sql.DB, table string) ([]ports.Column
 	for rows.Next() {
 		var name, typ string
 		var notnull, pk int
-		if err := rows.Scan(&name, &typ, &notnull, &pk); err != nil {
+		var defaultValue sql.NullString
+		if err := rows.Scan(&name, &typ, &notnull, &pk, &defaultValue); err != nil {
 			return nil, err
 		}
-		cols = append(cols, ports.ColumnInfo{Name: name, Type: typ, Nullable: notnull == 0, PrimaryKey: pk > 0})
+		cols = append(cols, ports.ColumnInfo{
+			Name: name, Type: typ, Nullable: notnull == 0, PrimaryKey: pk > 0, DefaultValue: defaultValue.String,
+		})
 	}
 	return cols, rows.Err()
 }
@@ -222,8 +229,12 @@ func (c *SQLiteConnector) ListIndexes(ctx context.Context, p domain.ConnectionPr
 		return nil, err
 	}
 	defer db.Close()
+	return c.tableIndexes(ctx, db, table)
+}
+
+func (c *SQLiteConnector) tableIndexes(ctx context.Context, db *sql.DB, table string) ([]ports.Index, error) {
 	rows, err := db.QueryContext(ctx,
-		`SELECT name, "unique", origin FROM pragma_index_list(?)`, table)
+		`SELECT name, "unique", origin, partial FROM pragma_index_list(?)`, table)
 	if err != nil {
 		return nil, c.normalizeError(err)
 	}
@@ -232,15 +243,16 @@ func (c *SQLiteConnector) ListIndexes(ctx context.Context, p domain.ConnectionPr
 		name    string
 		unique  bool
 		primary bool
+		partial bool
 	}
 	var metas []idxMeta
 	for rows.Next() {
 		var name, origin string
-		var uniq int
-		if err := rows.Scan(&name, &uniq, &origin); err != nil {
+		var uniq, partial int
+		if err := rows.Scan(&name, &uniq, &origin, &partial); err != nil {
 			return nil, c.normalizeError(err)
 		}
-		metas = append(metas, idxMeta{name: name, unique: uniq == 1, primary: origin == "pk"})
+		metas = append(metas, idxMeta{name: name, unique: uniq == 1, primary: origin == "pk", partial: partial == 1})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, c.normalizeError(err)
@@ -261,7 +273,7 @@ func (c *SQLiteConnector) ListIndexes(ctx context.Context, p domain.ConnectionPr
 			cols = append(cols, cn)
 		}
 		colRows.Close()
-		list = append(list, ports.Index{Name: m.name, Columns: cols, Unique: m.unique, Primary: m.primary})
+		list = append(list, ports.Index{Name: m.name, Columns: cols, Unique: m.unique, Primary: m.primary, Partial: m.partial})
 	}
 	return list, nil
 }
@@ -282,7 +294,11 @@ func (c *SQLiteConnector) GetSchemaGraph(ctx context.Context, p domain.Connectio
 		if err != nil {
 			return ports.SchemaGraph{}, c.normalizeError(err)
 		}
-		g.Tables = append(g.Tables, ports.SchemaGraphTable{Name: t, Columns: cols})
+		indexes, err := c.tableIndexes(ctx, db, t)
+		if err != nil {
+			return ports.SchemaGraph{}, c.normalizeError(err)
+		}
+		g.Tables = append(g.Tables, ports.SchemaGraphTable{Name: t, Columns: cols, Indexes: indexes})
 		fks, err := tableForeignKeys(ctx, db, t)
 		if err != nil {
 			return ports.SchemaGraph{}, c.normalizeError(err)
@@ -381,6 +397,54 @@ func (c *SQLiteConnector) ExecuteQueryStream(
 		rowsAffected++
 	}
 	return rowsAffected, c.normalizeError(rows.Err())
+}
+
+func (c *SQLiteConnector) OpenQuerySession(ctx context.Context, p domain.ConnectionProfile, _ string, ownerID, database string, readOnly bool) (string, error) {
+	db, err := c.open(p, readOnly)
+	if err != nil {
+		return "", err
+	}
+	return c.querySessions.Open(ctx, ownerID, database, db, readOnly || p.ReadOnly, false)
+}
+
+func (c *SQLiteConnector) ExecuteQuerySessionStream(
+	ctx context.Context,
+	_ domain.ConnectionProfile,
+	_ string,
+	ownerID, database, sessionID, query string,
+	readOnly bool,
+	onSessionStart func(sessionID int64),
+	onHeader func(columns []string) error,
+	onRow func(row []any) error,
+) (int64, error) {
+	lease, err := c.querySessions.Begin(ctx, ownerID, database, sessionID, readOnly)
+	if err != nil {
+		return 0, c.normalizeError(err)
+	}
+	defer lease.Close()
+
+	qctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	id := c.register(cancel)
+	defer c.deregister(id)
+	if onSessionStart != nil {
+		onSessionStart(id)
+	}
+
+	rowsAffected, err := adapters.ExecuteSessionQuery(qctx, lease.Queryer, query, onHeader, onRow)
+	return rowsAffected, c.normalizeError(err)
+}
+
+func (c *SQLiteConnector) CommitQuerySession(ctx context.Context, ownerID, sessionID string) error {
+	return c.normalizeError(c.querySessions.Commit(ctx, ownerID, sessionID))
+}
+
+func (c *SQLiteConnector) RollbackQuerySession(ctx context.Context, ownerID, sessionID string) error {
+	return c.normalizeError(c.querySessions.Rollback(ctx, ownerID, sessionID))
+}
+
+func (c *SQLiteConnector) CloseQuerySession(ownerID, sessionID string) error {
+	return c.normalizeError(c.querySessions.Close(ownerID, sessionID))
 }
 
 func (c *SQLiteConnector) CancelSession(ctx context.Context, p domain.ConnectionProfile, password string, sessionID int64) error {

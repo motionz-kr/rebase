@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { buildWhere, buildSelectPage } from './tableQuery';
+import {
+  buildWhere,
+  buildSelectPage,
+  defaultFilterOperator,
+  filterOperatorsForType,
+  type FilterOperator,
+} from './tableQuery';
 
 describe('buildWhere', () => {
   it('returns empty string when no active filters', () => {
@@ -30,6 +36,53 @@ describe('buildWhere', () => {
     expect(buildWhere('mysql', [{ col: 'x', value: 'a!b' }])).toBe(
       "WHERE `x` LIKE '%a!!b%' ESCAPE '!'"
     );
+  });
+
+  it('builds equality and inequality operators with quoted values', () => {
+    expect(buildWhere('postgres', [
+      { col: 'name', operator: 'equals', value: "O'Neil" },
+      { col: 'status', operator: 'not-equals', value: 'archived' },
+    ])).toBe(`WHERE "name" = 'O''Neil' AND "status" <> 'archived'`);
+  });
+
+  it('builds starts-with and ends-with patterns with escaped wildcards', () => {
+    expect(buildWhere('mysql', [
+      { col: 'code', operator: 'starts-with', value: 'a_%' },
+      { col: 'code', operator: 'ends-with', value: 'x!' },
+    ])).toBe("WHERE `code` LIKE 'a!_!%%' ESCAPE '!' AND `code` LIKE '%x!!' ESCAPE '!'");
+  });
+
+  it('builds numeric/date comparisons and NULL checks without a value', () => {
+    expect(buildWhere('sqlite', [
+      { col: 'age', operator: 'greater-or-equal', value: '18' },
+      { col: 'deleted_at', operator: 'is-null', value: '' },
+      { col: 'created_at', operator: 'less-than', value: '2026-01-01' },
+    ])).toBe(`WHERE "age" >= '18' AND "deleted_at" IS NULL AND "created_at" < '2026-01-01'`);
+  });
+
+  it('keeps NULL checks active even though they have no value', () => {
+    expect(buildWhere('mysql', [{ col: 'active', operator: 'is-not-null', value: '' }])).toBe(
+      'WHERE `active` IS NOT NULL'
+    );
+  });
+});
+
+describe('filterOperatorsForType', () => {
+  it('offers text matching operators for text columns', () => {
+    expect(filterOperatorsForType('varchar(255)')).toEqual([
+      'contains', 'equals', 'not-equals', 'starts-with', 'ends-with', 'is-null', 'is-not-null',
+    ] satisfies FilterOperator[]);
+  });
+
+  it('offers numeric and range operators for number and date columns', () => {
+    expect(filterOperatorsForType('decimal(10,2)')).toContain('greater-than');
+    expect(filterOperatorsForType('timestamp without time zone')).toContain('less-or-equal');
+    expect(filterOperatorsForType('boolean')).not.toContain('contains');
+  });
+
+  it('defaults text columns to contains and scalar columns to equals', () => {
+    expect(defaultFilterOperator('text')).toBe('contains');
+    expect(defaultFilterOperator('integer')).toBe('equals');
   });
 });
 

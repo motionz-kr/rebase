@@ -28,6 +28,108 @@ export interface TableRef {
   alias?: string;
 }
 
+type SqlScanState = 'normal' | 'single-quote' | 'double-quote' | 'backtick' | 'bracket' | 'dollar-quote' | 'line-comment' | 'block-comment';
+
+interface SqlScanResult {
+  currentStatementStart: number;
+  state: SqlScanState;
+  masked: string;
+}
+
+function blankPreservingNewlines(chars: string[], index: number) {
+  if (chars[index] !== '\n' && chars[index] !== '\r') chars[index] = ' ';
+}
+
+// Tracks statement boundaries and masks literal/comment text so keywords in
+// values or comments cannot leak into completion context. Quoted identifiers
+// remain intact for the table/alias parser.
+function scanSql(sql: string): SqlScanResult {
+  const chars = sql.split('');
+  let state: SqlScanState = 'normal';
+  let currentStatementStart = 0;
+  let dollarQuoteEnd: string | null = null;
+
+  for (let i = 0; i < sql.length; i++) {
+    const ch = sql[i];
+    const next = sql[i + 1];
+
+    if (state === 'normal') {
+      if (ch === "'") {
+        state = 'single-quote';
+        blankPreservingNewlines(chars, i);
+      } else if (ch === '"') {
+        state = 'double-quote';
+      } else if (ch === '`') {
+        state = 'backtick';
+      } else if (ch === '[') {
+        state = 'bracket';
+      } else if (ch === '$') {
+        const delimiter = /^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/.exec(sql.slice(i))?.[0];
+        if (delimiter) {
+          state = 'dollar-quote';
+          dollarQuoteEnd = delimiter;
+          for (let offset = 0; offset < delimiter.length; offset++) blankPreservingNewlines(chars, i + offset);
+          i += delimiter.length - 1;
+        }
+      } else if ((ch === '-' && next === '-') || ch === '#') {
+        state = 'line-comment';
+        blankPreservingNewlines(chars, i);
+        if (ch === '-') blankPreservingNewlines(chars, i + 1);
+      } else if (ch === '/' && next === '*') {
+        state = 'block-comment';
+        blankPreservingNewlines(chars, i);
+        blankPreservingNewlines(chars, i + 1);
+      } else if (ch === ';') {
+        currentStatementStart = i + 1;
+      }
+      continue;
+    }
+
+    if (state === 'single-quote') {
+      blankPreservingNewlines(chars, i);
+      if (ch === '\\' && i + 1 < sql.length) {
+        blankPreservingNewlines(chars, i + 1);
+        i++;
+      } else if (ch === "'" && next === "'") {
+        blankPreservingNewlines(chars, i + 1);
+        i++;
+      } else if (ch === "'") {
+        state = 'normal';
+      }
+    } else if (state === 'double-quote') {
+      if (ch === '"' && next === '"') i++;
+      else if (ch === '"') state = 'normal';
+    } else if (state === 'backtick') {
+      if (ch === '`' && next === '`') i++;
+      else if (ch === '`') state = 'normal';
+    } else if (state === 'bracket') {
+      if (ch === ']' && next === ']') i++;
+      else if (ch === ']') state = 'normal';
+    } else if (state === 'dollar-quote') {
+      if (dollarQuoteEnd && sql.startsWith(dollarQuoteEnd, i)) {
+        for (let offset = 0; offset < dollarQuoteEnd.length; offset++) blankPreservingNewlines(chars, i + offset);
+        i += dollarQuoteEnd.length - 1;
+        dollarQuoteEnd = null;
+        state = 'normal';
+      } else {
+        blankPreservingNewlines(chars, i);
+      }
+    } else if (state === 'line-comment') {
+      blankPreservingNewlines(chars, i);
+      if (ch === '\n' || ch === '\r') state = 'normal';
+    } else if (state === 'block-comment') {
+      blankPreservingNewlines(chars, i);
+      if (ch === '*' && next === '/') {
+        blankPreservingNewlines(chars, i + 1);
+        i++;
+        state = 'normal';
+      }
+    }
+  }
+
+  return { currentStatementStart, state, masked: chars.join('') };
+}
+
 const KEYWORDS = [
   'SELECT', 'FROM', 'WHERE', 'JOIN', 'INNER JOIN', 'LEFT JOIN', 'RIGHT JOIN', 'ON', 'AND', 'OR',
   'GROUP BY', 'ORDER BY', 'HAVING', 'LIMIT', 'OFFSET', 'INSERT INTO', 'VALUES', 'UPDATE', 'SET',
@@ -128,14 +230,18 @@ export function filterByPrefix(suggestions: SqlSuggestion[], prefix: string): Sq
 }
 
 export function shouldShowAutocomplete(textBeforeCursor: string): boolean {
+  const scan = scanSql(textBeforeCursor);
+  if (scan.state === 'single-quote' || scan.state === 'dollar-quote' || scan.state === 'line-comment' || scan.state === 'block-comment') return false;
   return currentWord(textBeforeCursor).length > 0 || !!dotPrefix(textBeforeCursor);
 }
 
 export function getSuggestions(schema: SchemaInfo, textBeforeCursor: string): SqlSuggestion[] {
-  const refs = parseTableRefs(textBeforeCursor);
+  const scan = scanSql(textBeforeCursor);
+  const context = scan.masked.slice(scan.currentStatementStart);
+  const refs = parseTableRefs(context);
 
   // 1. Dot completion: `alias.` or `table.` → only that table's columns.
-  const dot = dotPrefix(textBeforeCursor);
+  const dot = dotPrefix(context);
   if (dot) {
     const ref =
       refs.find((r) => r.alias?.toLowerCase() === dot.toLowerCase()) ||
@@ -145,7 +251,7 @@ export function getSuggestions(schema: SchemaInfo, textBeforeCursor: string): Sq
     return table ? table.columns.map((c) => columnSuggestion(table.name, c)) : [];
   }
 
-  const clause = currentClause(textBeforeCursor);
+  const clause = currentClause(context);
 
   // 2. FROM / JOIN → table names.
   if (clause === 'from' || clause === 'join') {

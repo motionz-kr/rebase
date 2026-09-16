@@ -10,14 +10,15 @@ import (
 
 	mysqlDriver "github.com/go-sql-driver/mysql"
 	"github.com/smlee/database-local-engine/engine/internal/adapters"
+	"github.com/smlee/database-local-engine/engine/internal/adapters/sqlsession"
 	"github.com/smlee/database-local-engine/engine/internal/domain"
 	"github.com/smlee/database-local-engine/engine/internal/ports"
 )
 
-type MySQLConnector struct{}
+type MySQLConnector struct{ querySessions *sqlsession.Manager }
 
 func NewMySQLConnector() *MySQLConnector {
-	return &MySQLConnector{}
+	return &MySQLConnector{querySessions: sqlsession.NewManager(15 * time.Minute)}
 }
 
 func (c *MySQLConnector) TestConnection(ctx context.Context, p domain.ConnectionProfile, password string) error {
@@ -360,6 +361,56 @@ func (c *MySQLConnector) ExecuteQueryStream(
 	return rowsAffected, c.normalizeError(rows.Err())
 }
 
+func (c *MySQLConnector) OpenQuerySession(ctx context.Context, p domain.ConnectionProfile, password, ownerID, database string, readOnly bool) (string, error) {
+	if database != "" {
+		p.Database = database
+	}
+	db, err := c.connectForQuery(p, password)
+	if err != nil {
+		return "", err
+	}
+	return c.querySessions.Open(ctx, ownerID, p.Database, db, readOnly || p.ReadOnly, true)
+}
+
+func (c *MySQLConnector) ExecuteQuerySessionStream(
+	ctx context.Context,
+	_ domain.ConnectionProfile,
+	_ string,
+	ownerID, database, sessionID, query string,
+	readOnly bool,
+	onSessionStart func(sessionID int64),
+	onHeader func(columns []string) error,
+	onRow func(row []any) error,
+) (int64, error) {
+	lease, err := c.querySessions.Begin(ctx, ownerID, database, sessionID, readOnly)
+	if err != nil {
+		return 0, c.normalizeError(err)
+	}
+	defer lease.Close()
+
+	var threadID int64
+	if err := lease.Queryer.QueryRowContext(ctx, "SELECT CONNECTION_ID()").Scan(&threadID); err != nil {
+		return 0, c.normalizeError(err)
+	}
+	if onSessionStart != nil {
+		onSessionStart(threadID)
+	}
+	rowsAffected, err := adapters.ExecuteSessionQuery(ctx, lease.Queryer, query, onHeader, onRow)
+	return rowsAffected, c.normalizeError(err)
+}
+
+func (c *MySQLConnector) CommitQuerySession(ctx context.Context, ownerID, sessionID string) error {
+	return c.normalizeError(c.querySessions.Commit(ctx, ownerID, sessionID))
+}
+
+func (c *MySQLConnector) RollbackQuerySession(ctx context.Context, ownerID, sessionID string) error {
+	return c.normalizeError(c.querySessions.Rollback(ctx, ownerID, sessionID))
+}
+
+func (c *MySQLConnector) CloseQuerySession(ownerID, sessionID string) error {
+	return c.normalizeError(c.querySessions.Close(ownerID, sessionID))
+}
+
 func (c *MySQLConnector) CancelSession(ctx context.Context, p domain.ConnectionProfile, password string, sessionID int64) error {
 	db, err := c.connect(p, password, "")
 	if err != nil {
@@ -370,8 +421,6 @@ func (c *MySQLConnector) CancelSession(ctx context.Context, p domain.ConnectionP
 	_, err = db.ExecContext(ctx, fmt.Sprintf("KILL QUERY %d", sessionID))
 	return c.normalizeError(err)
 }
-
-
 
 // ExecuteBatch runs all statements inside a single transaction. On the first
 // failure it rolls back and returns the 0-based index of the failed statement;
@@ -415,7 +464,7 @@ func (c *MySQLConnector) GetSchemaGraph(ctx context.Context, p domain.Connection
 	defer db.Close()
 
 	colRows, err := db.QueryContext(ctx, `
-		SELECT table_name, column_name, data_type, is_nullable, column_key
+		SELECT table_name, column_name, column_type, is_nullable, column_key, column_default
 		FROM information_schema.columns
 		WHERE table_schema = ?
 		ORDER BY table_name, ordinal_position
@@ -429,7 +478,8 @@ func (c *MySQLConnector) GetSchemaGraph(ctx context.Context, p domain.Connection
 	byTable := map[string]*ports.SchemaGraphTable{}
 	for colRows.Next() {
 		var tbl, col, typ, nullable, key string
-		if err := colRows.Scan(&tbl, &col, &typ, &nullable, &key); err != nil {
+		var defaultValue sql.NullString
+		if err := colRows.Scan(&tbl, &col, &typ, &nullable, &key, &defaultValue); err != nil {
 			return ports.SchemaGraph{}, c.normalizeError(err)
 		}
 		t, ok := byTable[tbl]
@@ -438,7 +488,9 @@ func (c *MySQLConnector) GetSchemaGraph(ctx context.Context, p domain.Connection
 			byTable[tbl] = t
 			order = append(order, tbl)
 		}
-		t.Columns = append(t.Columns, ports.ColumnInfo{Name: col, Type: typ, Nullable: nullable == "YES", PrimaryKey: key == "PRI"})
+		t.Columns = append(t.Columns, ports.ColumnInfo{
+			Name: col, Type: typ, Nullable: nullable == "YES", PrimaryKey: key == "PRI", DefaultValue: defaultValue.String,
+		})
 	}
 	if err := colRows.Err(); err != nil {
 		return ports.SchemaGraph{}, c.normalizeError(err)
@@ -463,6 +515,45 @@ func (c *MySQLConnector) GetSchemaGraph(ctx context.Context, p domain.Connection
 		fks = append(fks, fk)
 	}
 	if err := fkRows.Err(); err != nil {
+		return ports.SchemaGraph{}, c.normalizeError(err)
+	}
+
+	indexRows, err := db.QueryContext(ctx, `
+		SELECT table_name, index_name, column_name, non_unique, sub_part
+		FROM information_schema.statistics
+		WHERE table_schema = ?
+		ORDER BY table_name, index_name, seq_in_index
+	`, database)
+	if err != nil {
+		return ports.SchemaGraph{}, c.normalizeError(err)
+	}
+	defer indexRows.Close()
+	var currentTable, currentIndex string
+	for indexRows.Next() {
+		var tableName, indexName string
+		var columnName sql.NullString
+		var prefixLength sql.NullInt64
+		var nonUnique int
+		if err := indexRows.Scan(&tableName, &indexName, &columnName, &nonUnique, &prefixLength); err != nil {
+			return ports.SchemaGraph{}, c.normalizeError(err)
+		}
+		table := byTable[tableName]
+		if table == nil {
+			continue
+		}
+		if tableName != currentTable || indexName != currentIndex {
+			table.Indexes = append(table.Indexes, ports.Index{Name: indexName, Unique: nonUnique == 0, Primary: indexName == "PRIMARY"})
+			currentTable, currentIndex = tableName, indexName
+		}
+		if prefixLength.Valid {
+			table.Indexes[len(table.Indexes)-1].Prefix = true
+		}
+		if columnName.Valid && columnName.String != "" {
+			last := &table.Indexes[len(table.Indexes)-1]
+			last.Columns = append(last.Columns, columnName.String)
+		}
+	}
+	if err := indexRows.Err(); err != nil {
 		return ports.SchemaGraph{}, c.normalizeError(err)
 	}
 
@@ -571,4 +662,5 @@ func (c *MySQLConnector) normalizeError(err error) error {
 
 	return err
 }
+
 type MySQLAdapter = MySQLConnector
