@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/llm"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/mcpclient"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/mongo"
@@ -58,7 +59,7 @@ func buildMCPConfig(exePath, profileID string) string {
 		"mcpServers": map[string]any{
 			"rebase": map[string]any{
 				"command": exePath,
-				"args":    []string{"-mcp", profileID, "-token", "mcp", "-handshake", os.DevNull},
+				"args":    []string{"-mcp", profileID, "-token", "mcp"},
 			},
 		},
 	}
@@ -79,8 +80,9 @@ type AgentHandler struct {
 	oauthMu      sync.Mutex
 	pendingOAuth map[string]llm.PKCEParams // provider -> in-flight PKCE attempt
 
-	mcpRepo *sqlite.SQLiteMcpServerRepository
-	secrets ports.SecretStore
+	mcpRepo  *sqlite.SQLiteMcpServerRepository
+	secrets  ports.SecretStore
+	activity ports.MCPActivityRepository
 }
 
 func NewAgentHandler(token string, service *application.ConnectionService) *AgentHandler {
@@ -99,9 +101,27 @@ func NewAgentHandler(token string, service *application.ConnectionService) *Agen
 
 // SetMCP wires the external-MCP-server registry + secret store so the agent run
 // can attach external tools. Optional — if unset, no external tools are added.
-func (h *AgentHandler) SetMCP(repo *sqlite.SQLiteMcpServerRepository, secrets ports.SecretStore) {
+func (h *AgentHandler) SetMCP(repo *sqlite.SQLiteMcpServerRepository, secrets ports.SecretStore, activity ports.MCPActivityRepository) {
 	h.mcpRepo = repo
 	h.secrets = secrets
+	h.activity = activity
+}
+
+func (h *AgentHandler) recordMCPActivity(ctx context.Context, serverID, event, status, message string, started time.Time) {
+	if h.activity == nil {
+		return
+	}
+	_ = h.activity.Append(ctx, &domain.MCPActivityEvent{
+		ID:          uuid.NewString(),
+		WorkspaceID: "default",
+		ServerID:    serverID,
+		Direction:   "outbound",
+		Event:       event,
+		Status:      status,
+		Error:       domain.SafeMCPError(message),
+		DurationMs:  time.Since(started).Milliseconds(),
+		CreatedAt:   time.Now().UTC(),
+	})
 }
 
 func (h *AgentHandler) checkToken(r *http.Request) bool {
@@ -123,8 +143,9 @@ func (h *AgentHandler) getConnector(driver string) (ports.SQLConnector, error) {
 	}
 }
 
-// SetMCPConnection toggles per-connection MCP exposure + data-exposure.
-// POST /mcp/connection {profileId, enabled, dataExposure}
+// SetMCPConnection toggles per-connection MCP exposure + data-exposure and,
+// when supplied, the engine-enforced database/schema/table scope.
+// POST /mcp/connection {profileId, enabled, dataExposure, scope?}
 func (h *AgentHandler) SetMCPConnection() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !h.checkToken(r) {
@@ -132,9 +153,10 @@ func (h *AgentHandler) SetMCPConnection() http.Handler {
 			return
 		}
 		var b struct {
-			ProfileID    string `json:"profileId"`
-			Enabled      bool   `json:"enabled"`
-			DataExposure string `json:"dataExposure"`
+			ProfileID    string                 `json:"profileId"`
+			Enabled      bool                   `json:"enabled"`
+			DataExposure string                 `json:"dataExposure"`
+			Scope        *domain.MCPAccessScope `json:"scope"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 			http.Error(w, "invalid request body", http.StatusBadRequest)
@@ -143,6 +165,12 @@ func (h *AgentHandler) SetMCPConnection() http.Handler {
 		if err := h.service.SetMCPConnectionSettings(r.Context(), b.ProfileID, b.Enabled, b.DataExposure); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
+		}
+		if b.Scope != nil {
+			if err := h.service.SetMCPAccessScope(r.Context(), b.ProfileID, *b.Scope); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
@@ -257,13 +285,13 @@ func (h *AgentHandler) Run() http.Handler {
 			return
 		}
 		var body struct {
-			ProfileID    string             `json:"profileId"`
-			Messages     []ports.LLMMessage `json:"messages"`
-			Provider     string             `json:"provider"`
-			APIKey       string             `json:"apiKey"`
-			Model        string             `json:"model"`
-			DataExposure string             `json:"dataExposure"`
-			ResponseLanguage string          `json:"responseLanguage"`
+			ProfileID        string             `json:"profileId"`
+			Messages         []ports.LLMMessage `json:"messages"`
+			Provider         string             `json:"provider"`
+			APIKey           string             `json:"apiKey"`
+			Model            string             `json:"model"`
+			DataExposure     string             `json:"dataExposure"`
+			ResponseLanguage string             `json:"responseLanguage"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, "invalid request body", http.StatusBadRequest)
@@ -327,6 +355,7 @@ func (h *AgentHandler) Run() http.Handler {
 		if h.mcpRepo != nil {
 			servers, _ := h.mcpRepo.List(r.Context(), "default")
 			dial := func(ctx context.Context, s domain.McpServer) (agent.McpCaller, error) {
+				started := time.Now()
 				if s.TransportKind() == "http" {
 					headers := map[string]string{}
 					if h.secrets != nil {
@@ -336,8 +365,10 @@ func (h *AgentHandler) Run() http.Handler {
 					}
 					c, err := mcpclient.DialHTTP(ctx, s.URL, headers)
 					if err != nil {
+						h.recordMCPActivity(ctx, s.ID, "connect", "error", err.Error(), started)
 						return nil, err
 					}
+					h.recordMCPActivity(ctx, s.ID, "connect", "success", "", started)
 					return c, nil
 				}
 				env := map[string]string{}
@@ -348,8 +379,10 @@ func (h *AgentHandler) Run() http.Handler {
 				}
 				c, err := mcpclient.DialStdio(ctx, s.Command, s.ArgsList(), env)
 				if err != nil {
+					h.recordMCPActivity(ctx, s.ID, "connect", "error", err.Error(), started)
 					return nil, err
 				}
+				h.recordMCPActivity(ctx, s.ID, "connect", "success", "", started)
 				return c, nil
 			}
 			detach, _ := agent.AttachMCPServers(r.Context(), registry, servers, dial)

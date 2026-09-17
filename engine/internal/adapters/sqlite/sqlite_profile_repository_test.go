@@ -37,6 +37,9 @@ func newProfileRepo(t *testing.T) *SQLiteProfileRepository {
 					tls_mode TEXT NOT NULL,
 					mcp_enabled INTEGER NOT NULL DEFAULT 0,
 					mcp_data_exposure TEXT NOT NULL DEFAULT 'metadata',
+					mcp_allowed_databases TEXT NOT NULL DEFAULT '',
+					mcp_allowed_schemas TEXT NOT NULL DEFAULT '',
+					mcp_allowed_tables TEXT NOT NULL DEFAULT '',
 					read_only INTEGER NOT NULL DEFAULT 0,
 					connection_uri TEXT NOT NULL DEFAULT '',
 					safe_mode INTEGER NOT NULL DEFAULT 0,
@@ -110,6 +113,31 @@ func TestProfileRepository_SafeModeRoundTrips(t *testing.T) {
 	}
 }
 
+func TestProfileRepository_MCPAccessScopeRoundTrips(t *testing.T) {
+	repo := newProfileRepo(t)
+	ctx := context.Background()
+	p := &domain.ConnectionProfile{
+		ID: "scope1", Name: "scoped", Driver: "postgres", Host: "h", Port: 5432,
+		Database: "app_db", Username: "u", SecretRef: "s", TLSMode: "none",
+	}
+	p.SetMCPAccessScope(domain.MCPAccessScope{
+		AllowedDatabases: []string{"app_db"},
+		AllowedSchemas:   []string{"public"},
+		AllowedTables:    []string{"users", "public.orders"},
+	})
+	if err := repo.Create(ctx, p); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	got, err := repo.GetByID(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	scope := got.MCPAccessScope()
+	if len(scope.AllowedTables) != 2 || scope.AllowedTables[1] != "public.orders" {
+		t.Fatalf("scope did not round-trip: %+v", scope)
+	}
+}
+
 func TestProfileRepository_DomainBindingsRoundTrips(t *testing.T) {
 	repo := newProfileRepo(t)
 	ctx := context.Background()
@@ -117,7 +145,7 @@ func TestProfileRepository_DomainBindingsRoundTrips(t *testing.T) {
 		ID: "db1", Name: "x", Driver: "mysql", Host: "h", Port: 3306, Database: "d",
 		Username: "u", SecretRef: "s", TLSMode: "none",
 		DomainBindings: `{"tenant":"hospitalId","soft_delete":"deletedAt"}`,
-		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+		CreatedAt:      time.Now(), UpdatedAt: time.Now(),
 	}
 	if err := repo.Create(ctx, p); err != nil {
 		t.Fatalf("create: %v", err)

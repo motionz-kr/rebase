@@ -8,7 +8,7 @@ describe('mcpConfig', () => {
   it('builds a stdio entry with engine path + profile args', () => {
     const e = buildMcpEntry('/Apps/Rebase/bin/app-engine', 'abc');
     expect(e.command).toBe('/Apps/Rebase/bin/app-engine');
-    expect(e.args).toEqual(['-mcp', 'abc', '-token', 'mcp', '-handshake', '/dev/null']);
+    expect(e.args).toEqual(['-mcp', 'abc', '-token', 'mcp']);
   });
   it('builds a JSON snippet under mcpServers', () => {
     const snip = JSON.parse(buildJsonSnippet('/e', 'abc'));

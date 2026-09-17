@@ -106,6 +106,9 @@ export interface ConnectionProfile {
   domainNotes?: string;
   mcpEnabled?: boolean;
   mcpDataExposure?: string;
+  mcpAllowedDatabases?: string;
+  mcpAllowedSchemas?: string;
+  mcpAllowedTables?: string;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -203,6 +206,26 @@ export interface McpServerInput {
   headers?: Record<string, string>;
 }
 
+export interface McpAccessScope {
+  allowedDatabases: string[];
+  allowedSchemas: string[];
+  allowedTables: string[];
+}
+
+export interface McpActivityEvent {
+  id: string;
+  workspaceId: string;
+  profileId: string;
+  serverId: string;
+  direction: string;
+  event: string;
+  tool: string;
+  status: string;
+  error?: string;
+  durationMs: number;
+  createdAt: string;
+}
+
 export interface AnalyzeResult {
   level: 'safe' | 'warn' | 'medium' | 'high';
   verb: string;
@@ -263,7 +286,7 @@ declare global {
       >;
       agentCliLogin: (tool: string) => Promise<ResultWrapper<{ success: boolean }>>;
       mcpEnginePath: () => Promise<string>;
-      mcpSetSettings: (profileId: string, enabled: boolean, dataExposure: string) => Promise<ResultWrapper<unknown>>;
+      mcpSetSettings: (profileId: string, enabled: boolean, dataExposure: string, scope?: McpAccessScope) => Promise<ResultWrapper<unknown>>;
       mcpDetectClients: () => Promise<Array<{ id: string; label: string; present: boolean }>>;
       mcpAutoconnect: (clientId: string, profileId: string) => Promise<ResultWrapper<{ path?: string; backup?: string }>>;
       mcpServersList: (workspaceId: string) => Promise<ResultWrapper<McpServer[]>>;
@@ -271,6 +294,7 @@ declare global {
       mcpServersDelete: (id: string) => Promise<ResultWrapper<{ ok: boolean }>>;
       mcpServersTest: (payload: { transport?: string; url?: string; command?: string; args?: string[]; env?: Record<string, string>; headers?: Record<string, string> }) => Promise<ResultWrapper<{ tools?: { name: string; description: string }[]; error?: string }>>;
       mcpServersCall: (payload: { serverId: string; tool: string; toolArgs: Record<string, unknown> }) => Promise<ResultWrapper<{ result?: unknown; error?: string }>>;
+      mcpActivityList: (filter?: { workspaceId?: string; profileId?: string; serverId?: string; limit?: number }) => Promise<ResultWrapper<McpActivityEvent[]>>;
       updateCheck: () => Promise<void>;
       updateDownload: () => Promise<void>;
       updateInstall: () => Promise<void>;

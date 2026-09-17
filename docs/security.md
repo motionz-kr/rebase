@@ -115,9 +115,9 @@ Redis는 keyspace 전체 탐색과 삭제가 위험할 수 있다.
 
 ## MCP Security
 
-MCP는 장기 확장 기능이다. MCP가 추가되어도 DB credential에 직접 접근하면 안 된다.
+MCP server/client 기능은 DB credential에 직접 접근하지 않는다.
 
-권장 흐름:
+현재 흐름:
 
 ```text
 MCP Request
@@ -130,14 +130,18 @@ MCP Request
 MCP 원칙:
 
 - MCP server는 DB password를 직접 보관하지 않는다.
-- MCP 요청은 workspace permission을 통과한다.
-- MCP 기본 모드는 read-only다.
-- destructive query는 기본 차단한다.
-- 팀 workspace에서는 audit log를 남긴다.
+- MCP 요청은 연결 프로필의 MCP 활성화 여부와 엔진 policy를 통과한다.
+- MCP 기본 데이터 노출 모드는 `metadata`다.
+- MCP의 write 경로는 실행하지 않고 `propose_write`로 SQL만 제안한다.
+- 활성화된 경우 database/schema/table exact allowlist가 엔진에서 강제된다.
+- allowlist가 활성화된 상태에서 파싱할 수 없는 `FROM`/`JOIN` 참조는 거부한다.
+- MCP 활동 기록에는 방향, 이벤트, 도구명, 상태, 시간, 안전한 오류 요약만 남긴다.
+- password, token, header, environment variable, raw SQL은 MCP 활동 기록에 저장하지 않는다.
 
 ## Audit Log
 
-MVP에서는 local query history로 시작한다. Team 기능이 추가되면 audit log를 별도 모델로 분리한다.
+MCP 활동은 local SQLite의 `mcp_activity_events`에 저장한다. Team 기능이 추가되면
+workspace/user 권한과 audit log를 별도 모델로 분리한다.
 
 기록 후보:
 

@@ -58,7 +58,7 @@ func main() {
 	if *token == "" {
 		log.Fatal("token flag is required")
 	}
-	if *handshakePath == "" {
+	if *handshakePath == "" && *mcpProfile == "" {
 		log.Fatal("handshake flag is required")
 	}
 
@@ -260,6 +260,38 @@ func main() {
 			`,
 			Checksum: "query-history-name-v1",
 		},
+		{
+			Version: 13,
+			Name:    "add_mcp_access_scope",
+			SQL: `
+				ALTER TABLE connection_profiles ADD COLUMN mcp_allowed_databases TEXT NOT NULL DEFAULT '';
+				ALTER TABLE connection_profiles ADD COLUMN mcp_allowed_schemas TEXT NOT NULL DEFAULT '';
+				ALTER TABLE connection_profiles ADD COLUMN mcp_allowed_tables TEXT NOT NULL DEFAULT '';
+			`,
+			Checksum: "profile-mcp-access-scope-v1",
+		},
+		{
+			Version: 14,
+			Name:    "create_mcp_activity_events",
+			SQL: `
+				CREATE TABLE IF NOT EXISTS mcp_activity_events (
+					id TEXT PRIMARY KEY,
+					workspace_id TEXT NOT NULL,
+					profile_id TEXT NOT NULL DEFAULT '',
+					server_id TEXT NOT NULL DEFAULT '',
+					direction TEXT NOT NULL,
+					event TEXT NOT NULL,
+					tool TEXT NOT NULL DEFAULT '',
+					status TEXT NOT NULL,
+					error_message TEXT NOT NULL DEFAULT '',
+					duration_ms INTEGER NOT NULL DEFAULT 0,
+					created_at DATETIME NOT NULL
+				);
+				CREATE INDEX IF NOT EXISTS idx_mcp_activity_profile_time ON mcp_activity_events(profile_id, created_at DESC);
+				CREATE INDEX IF NOT EXISTS idx_mcp_activity_server_time ON mcp_activity_events(server_id, created_at DESC);
+			`,
+			Checksum: "mcp-activity-events-v1",
+		},
 	}
 	if err := migrationRunner.Run(migrations); err != nil {
 		log.Fatalf("failed to run migrations: %v", err)
@@ -269,11 +301,12 @@ func main() {
 	profileRepo := sqlite.NewSQLiteProfileRepository(db)
 	secretStore := keychain.NewKeyringStore("AntigravityDBDesktop")
 	connectionService := application.NewConnectionService(profileRepo, secretStore)
+	mcpActivityRepo := sqlite.NewSQLiteMCPActivityRepository(db)
 
 	// MCP mode: serve the DB tool registry over stdio (for a local CLI like
 	// `claude --mcp-config`) instead of the HTTP API, then exit.
 	if *mcpProfile != "" {
-		runMCPServer(connectionService, *mcpProfile)
+		runMCPServer(connectionService, mcpActivityRepo, *mcpProfile)
 		return
 	}
 
@@ -340,8 +373,8 @@ func main() {
 
 	agentHandler := internalHttp.NewAgentHandler(*token, connectionService)
 	mcpServerRepo := sqlite.NewSQLiteMcpServerRepository(db)
-	agentHandler.SetMCP(mcpServerRepo, secretStore)
-	mcpServerHandler := internalHttp.NewMcpServerHandler(*token, mcpServerRepo, secretStore)
+	agentHandler.SetMCP(mcpServerRepo, secretStore, mcpActivityRepo)
+	mcpServerHandler := internalHttp.NewMcpServerHandler(*token, mcpServerRepo, secretStore, mcpActivityRepo)
 	mux.Handle("/agent/run", agentHandler.Run())
 	mux.Handle("/agent/complete", agentHandler.Complete())
 	mux.Handle("/agent/key", agentHandler.Key())
@@ -350,6 +383,7 @@ func main() {
 	mux.Handle("/mcp/servers", mcpServerHandler.Servers())
 	mux.Handle("/mcp/servers/test", mcpServerHandler.Test())
 	mux.Handle("/mcp/servers/call", mcpServerHandler.Call())
+	mux.Handle("/mcp/activity", mcpServerHandler.Activity())
 
 	workspaceHandler := internalHttp.NewWorkspaceHandler(*token, workspaceService)
 	mux.Handle("/workspaces", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -465,7 +499,7 @@ func main() {
 
 // runMCPServer serves the agent's DB tool registry over stdio as an MCP server
 // for the given profile, then returns when stdin closes.
-func runMCPServer(svc *application.ConnectionService, profileID string) {
+func runMCPServer(svc *application.ConnectionService, activity ports.MCPActivityRepository, profileID string) {
 	ctx := context.Background()
 	profile, password, err := svc.GetProfile(ctx, profileID)
 	if err != nil {
@@ -493,6 +527,7 @@ func runMCPServer(svc *application.ConnectionService, profileID string) {
 		exposure = "metadata"
 	}
 	srv := mcp.NewServer(registry)
+	srv.SetActivity(activity, "default", profileID)
 	srv.SetPolicy(agent.Policy{DataExposure: exposure}, []string{password, profile.SecretRef})
 	if err := srv.Serve(ctx, os.Stdin, os.Stdout); err != nil {
 		log.Fatalf("mcp: server error: %v", err)

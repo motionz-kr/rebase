@@ -59,8 +59,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   agentCliStatus: (tool: string) => ipcRenderer.invoke('agent-cli-status', tool),
   agentCliLogin: (tool: string) => ipcRenderer.invoke('agent-cli-login', tool),
   mcpEnginePath: () => ipcRenderer.invoke('mcp-engine-path'),
-  mcpSetSettings: (profileId: string, enabled: boolean, dataExposure: string) =>
-    ipcRenderer.invoke('mcp-set-settings', profileId, enabled, dataExposure),
+  mcpSetSettings: (profileId: string, enabled: boolean, dataExposure: string, scope?: unknown) =>
+    ipcRenderer.invoke('mcp-set-settings', profileId, enabled, dataExposure, scope),
   mcpDetectClients: () => ipcRenderer.invoke('mcp-detect-clients'),
   mcpAutoconnect: (clientId: string, profileId: string) => ipcRenderer.invoke('mcp-autoconnect', clientId, profileId),
   mcpServersList: (workspaceId: string) => ipcRenderer.invoke('mcp-servers-list', workspaceId),
@@ -68,6 +68,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   mcpServersDelete: (id: string) => ipcRenderer.invoke('mcp-servers-delete', id),
   mcpServersTest: (payload: unknown) => ipcRenderer.invoke('mcp-servers-test', payload),
   mcpServersCall: (payload: unknown) => ipcRenderer.invoke('mcp-servers-call', payload),
+  mcpActivityList: (filter?: unknown) => ipcRenderer.invoke('mcp-activity-list', filter),
   updateCheck: () => ipcRenderer.invoke('update-check'),
   updateDownload: () => ipcRenderer.invoke('update-download'),
   updateInstall: () => ipcRenderer.invoke('update-install'),

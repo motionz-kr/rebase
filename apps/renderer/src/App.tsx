@@ -64,6 +64,9 @@ export interface ConnectionProfile {
   domainNotes?: string;
   mcpEnabled?: boolean;
   mcpDataExposure?: string;
+  mcpAllowedDatabases?: string;
+  mcpAllowedSchemas?: string;
+  mcpAllowedTables?: string;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -861,6 +864,19 @@ function App() {
                         connName={formName}
                         initialEnabled={profiles.find((p) => p.id === editingId)?.mcpEnabled ?? false}
                         initialExposure={profiles.find((p) => p.id === editingId)?.mcpDataExposure ?? 'metadata'}
+                        initialAllowedDatabases={profiles.find((p) => p.id === editingId)?.mcpAllowedDatabases}
+                        initialAllowedSchemas={profiles.find((p) => p.id === editingId)?.mcpAllowedSchemas}
+                        initialAllowedTables={profiles.find((p) => p.id === editingId)?.mcpAllowedTables}
+                        onSaved={({ enabled, exposure, scope }) => {
+                          setProfiles((current) => current.map((profile) => profile.id === editingId ? {
+                            ...profile,
+                            mcpEnabled: enabled,
+                            mcpDataExposure: exposure,
+                            mcpAllowedDatabases: scope.allowedDatabases.length ? JSON.stringify(scope.allowedDatabases) : '',
+                            mcpAllowedSchemas: scope.allowedSchemas.length ? JSON.stringify(scope.allowedSchemas) : '',
+                            mcpAllowedTables: scope.allowedTables.length ? JSON.stringify(scope.allowedTables) : '',
+                          } : profile));
+                        }}
                       />
                       <McpServersPanel />
                     </>

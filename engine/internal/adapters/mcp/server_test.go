@@ -14,6 +14,16 @@ import (
 // fakeSQL satisfies the (unexported) sqlReader the registry needs.
 type fakeSQL struct{}
 
+type fakeActivity struct{ events []domain.MCPActivityEvent }
+
+func (f *fakeActivity) Append(_ context.Context, event *domain.MCPActivityEvent) error {
+	f.events = append(f.events, *event)
+	return nil
+}
+func (f *fakeActivity) List(context.Context, domain.MCPActivityFilter) ([]domain.MCPActivityEvent, error) {
+	return f.events, nil
+}
+
 func (fakeSQL) ListTables(context.Context, domain.ConnectionProfile, string, string) ([]ports.TableInfo, error) {
 	return []ports.TableInfo{{Name: "users"}, {Name: "orders"}}, nil
 }
@@ -105,6 +115,23 @@ func TestToolsCallDispatches(t *testing.T) {
 	first, _ := content[0].(map[string]any)
 	if text, _ := first["text"].(string); !strings.Contains(text, "users") {
 		t.Errorf("list_tables via MCP should return users: %v", result)
+	}
+}
+
+func TestServerRecordsSessionAndToolActivity(t *testing.T) {
+	activity := &fakeActivity{}
+	s := newServer()
+	s.SetActivity(activity, "default", "profile-1")
+	_ = req(t, s, `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`)
+	_ = req(t, s, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_tables","arguments":{}}}`)
+	if len(activity.events) != 2 {
+		t.Fatalf("activity events = %+v", activity.events)
+	}
+	if activity.events[0].Event != "session_started" || activity.events[1].Tool != "list_tables" {
+		t.Fatalf("unexpected activity events: %+v", activity.events)
+	}
+	if activity.events[1].ProfileID != "profile-1" || activity.events[1].Status != "success" {
+		t.Fatalf("activity metadata missing: %+v", activity.events[1])
 	}
 }
 

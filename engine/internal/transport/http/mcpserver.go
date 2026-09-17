@@ -6,8 +6,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/mcpclient"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/sqlite"
 	"github.com/smlee/database-local-engine/engine/internal/domain"
@@ -22,13 +24,33 @@ func newID() string {
 }
 
 type McpServerHandler struct {
-	token   string
-	repo    *sqlite.SQLiteMcpServerRepository
-	secrets ports.SecretStore
+	token    string
+	repo     *sqlite.SQLiteMcpServerRepository
+	secrets  ports.SecretStore
+	activity ports.MCPActivityRepository
 }
 
-func NewMcpServerHandler(token string, repo *sqlite.SQLiteMcpServerRepository, secrets ports.SecretStore) *McpServerHandler {
-	return &McpServerHandler{token: token, repo: repo, secrets: secrets}
+func NewMcpServerHandler(token string, repo *sqlite.SQLiteMcpServerRepository, secrets ports.SecretStore, activity ports.MCPActivityRepository) *McpServerHandler {
+	return &McpServerHandler{token: token, repo: repo, secrets: secrets, activity: activity}
+}
+
+func (h *McpServerHandler) recordActivity(ctx context.Context, profileID, serverID, event, tool, status, message string, started time.Time) {
+	if h.activity == nil {
+		return
+	}
+	_ = h.activity.Append(ctx, &domain.MCPActivityEvent{
+		ID:          uuid.NewString(),
+		WorkspaceID: "default",
+		ProfileID:   profileID,
+		ServerID:    serverID,
+		Direction:   "outbound",
+		Event:       event,
+		Tool:        tool,
+		Status:      status,
+		Error:       domain.SafeMCPError(message),
+		DurationMs:  time.Since(started).Milliseconds(),
+		CreatedAt:   time.Now().UTC(),
+	})
 }
 
 func (h *McpServerHandler) checkToken(r *http.Request) bool {
@@ -238,6 +260,7 @@ func (h *McpServerHandler) Test() http.Handler {
 
 		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 		defer cancel()
+		started := time.Now()
 
 		var client *mcpclient.Client
 		var derr error
@@ -247,6 +270,7 @@ func (h *McpServerHandler) Test() http.Handler {
 			client, derr = mcpclient.DialStdio(ctx, body.Command, body.Args, body.Env)
 		}
 		if derr != nil {
+			h.recordActivity(r.Context(), "", "", "test", "", "error", derr.Error(), started)
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": derr.Error()})
 			return
 		}
@@ -254,6 +278,7 @@ func (h *McpServerHandler) Test() http.Handler {
 
 		tools, err := client.ListTools(ctx)
 		if err != nil {
+			h.recordActivity(r.Context(), "", "", "test", "", "error", err.Error(), started)
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
@@ -266,6 +291,7 @@ func (h *McpServerHandler) Test() http.Handler {
 		for i, t := range tools {
 			result[i] = toolInfo{Name: t.Name, Description: t.Description}
 		}
+		h.recordActivity(r.Context(), "", "", "test", "", "success", "", started)
 		_ = json.NewEncoder(w).Encode(map[string]any{"tools": result})
 	})
 }
@@ -303,12 +329,15 @@ func (h *McpServerHandler) Call() http.Handler {
 			}
 		}
 		if found == nil {
+			h.recordActivity(r.Context(), "", body.ServerID, "tool_call", body.Tool, "error", "server not found", time.Now())
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": "server not found: " + body.ServerID})
 			return
 		}
 
+		started := time.Now()
 		client, err := h.dialServer(r.Context(), *found)
 		if err != nil {
+			h.recordActivity(r.Context(), "", found.ID, "tool_call", body.Tool, "error", err.Error(), started)
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
@@ -316,9 +345,43 @@ func (h *McpServerHandler) Call() http.Handler {
 
 		result, err := client.Call(r.Context(), body.Tool, body.ToolArgs)
 		if err != nil {
+			h.recordActivity(r.Context(), "", found.ID, "tool_call", body.Tool, "error", err.Error(), started)
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
+		h.recordActivity(r.Context(), "", found.ID, "tool_call", body.Tool, "success", "", started)
 		_ = json.NewEncoder(w).Encode(map[string]any{"result": result})
+	})
+}
+
+// Activity lists persisted MCP lifecycle and tool events without returning
+// secrets or raw SQL.
+func (h *McpServerHandler) Activity() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !h.checkToken(r) {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if h.activity == nil {
+			http.Error(w, "MCP activity is unavailable", http.StatusNotImplemented)
+			return
+		}
+		workspaceID := r.URL.Query().Get("workspaceId")
+		if workspaceID == "" {
+			workspaceID = "default"
+		}
+		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+		events, err := h.activity.List(r.Context(), domain.MCPActivityFilter{
+			WorkspaceID: workspaceID,
+			ProfileID:   r.URL.Query().Get("profileId"),
+			ServerID:    r.URL.Query().Get("serverId"),
+			Limit:       limit,
+		})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(events)
 	})
 }

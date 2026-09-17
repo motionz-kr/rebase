@@ -88,7 +88,7 @@ func buildCodexArgs(enginePath, profileID, model string) []string {
 	args := []string{
 		"exec", "--json", "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox",
 		"-c", fmt.Sprintf("mcp_servers.rebase.command=%q", enginePath),
-		"-c", fmt.Sprintf(`mcp_servers.rebase.args=["-mcp","%s","-token","mcp","-handshake","/dev/null"]`, profileID),
+		"-c", fmt.Sprintf(`mcp_servers.rebase.args=["-mcp","%s","-token","mcp"]`, profileID),
 	}
 	if model != "" {
 		args = append(args, "-m", model)

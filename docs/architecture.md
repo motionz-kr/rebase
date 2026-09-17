@@ -242,7 +242,7 @@ Adapters는 ports의 실제 구현이다.
 - SQLite repository
 - OS keychain secret store
 - future cloud sync adapter
-- future MCP adapter
+- MCP stdio adapter and external MCP client adapter
 
 Adapter는 외부 SDK와 driver를 import할 수 있다. 이 import는 adapter 바깥으로 새지 않아야 한다.
 
@@ -331,15 +331,27 @@ Cloud Sync Adapter
 
 Cloud 기능이 DB connector를 직접 호출하면 안 된다.
 
-## Future MCP Architecture
+## MCP Architecture
 
-MCP 기능은 application service 위에 얹는다.
+MCP 기능은 application service와 기존 SQL tool registry 위에 얹는다.
 
 ```text
-MCP Adapter
-  -> PolicyService
-  -> QueryService
-  -> SQLConnector / RedisConnector
+External MCP client
+  -> local engine HTTP MCP management API
+  -> MCP client adapter (stdio / Streamable HTTP)
+
+External AI client
+  -> MCP stdio adapter
+  -> SQL tool registry
+  -> MCP scope + data-exposure policy
+  -> SQLConnector
+
+MCP activity repository
+  <- session / test / tool-call lifecycle metadata
 ```
 
-MCP는 DB credential을 직접 소유하지 않는다. MCP 요청은 앱의 permission, read-only, destructive query policy를 반드시 통과해야 한다.
+MCP는 DB credential을 직접 소유하지 않는다. credential은 기존 keychain 경계를
+유지하고, MCP 요청은 profile MCP 활성화, database/schema/table scope,
+read-only/destructive query policy를 통과해야 한다. Scope와 활동 기록은
+profile metadata 및 local SQLite activity repository에 저장하며 raw SQL이나
+secret은 기록하지 않는다.

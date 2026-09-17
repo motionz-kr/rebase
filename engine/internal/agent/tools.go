@@ -67,7 +67,11 @@ type queryResult struct {
 // diagnostic runs a read-only diagnostic query, degrading to an availability
 // note when the source (perf schema / extension) is missing rather than erroring.
 func diagnostic(ctx context.Context, conn sqlReader, p domain.ConnectionProfile, password, sql string) any {
-	res, err := runReadQuery(ctx, conn, p, password, sql)
+	return diagnosticInDatabase(ctx, conn, p, password, p.Database, sql)
+}
+
+func diagnosticInDatabase(ctx context.Context, conn sqlReader, p domain.ConnectionProfile, password, database, sql string) any {
+	res, err := runReadQueryInDatabase(ctx, conn, p, password, database, sql)
 	if err != nil {
 		return map[string]any{"available": false, "reason": err.Error()}
 	}
@@ -76,8 +80,14 @@ func diagnostic(ctx context.Context, conn sqlReader, p domain.ConnectionProfile,
 
 // runReadQuery executes a read-only query and collects up to readQueryLimit rows.
 func runReadQuery(ctx context.Context, conn sqlReader, p domain.ConnectionProfile, password, sql string) (queryResult, error) {
+	return runReadQueryInDatabase(ctx, conn, p, password, p.Database, sql)
+}
+
+func runReadQueryInDatabase(ctx context.Context, conn sqlReader, p domain.ConnectionProfile, password, database, sql string) (queryResult, error) {
 	res := queryResult{Rows: [][]any{}}
-	_, err := conn.ExecuteQueryStream(ctx, p, password, sql, true,
+	queryProfile := p
+	queryProfile.Database = database
+	_, err := conn.ExecuteQueryStream(ctx, queryProfile, password, sql, true,
 		func(int64) {},
 		func(cols []string) error { res.Columns = cols; return nil },
 		func(row []any) error {
@@ -174,15 +184,56 @@ func storageSummaryQueries(driver string, limit int64) (string, string) {
 // NewSQLRegistry builds the read-only tool set bound to one connection profile.
 func NewSQLRegistry(conn sqlReader, p domain.ConnectionProfile, password, database string) *Registry {
 	r := &Registry{tools: map[string]Tool{}}
+	scope := p.MCPAccessScope()
+	targetDatabase := func(args map[string]any) string {
+		if selected := strings.TrimSpace(strArg(args, "database")); selected != "" {
+			return selected
+		}
+		return database
+	}
+	authorizeDatabaseFor := func(target string) error {
+		if !scope.AllowsDatabase(target) {
+			return fmt.Errorf("MCP database access denied: %s", target)
+		}
+		return nil
+	}
+	authorizeTable := func(target, table string) error {
+		if err := authorizeDatabaseFor(target); err != nil {
+			return err
+		}
+		return ValidateMCPTableRef(p.Driver, target, scope, table)
+	}
+	authorizeQuery := func(target, query string) error {
+		if err := authorizeDatabaseFor(target); err != nil {
+			return err
+		}
+		return ValidateMCPQueryScope(p.Driver, target, scope, query)
+	}
+	denyUnscopedDiagnostics := func(target string) error {
+		if len(scope.AllowedSchemas) > 0 || len(scope.AllowedTables) > 0 {
+			return fmt.Errorf("MCP diagnostic tool is unavailable when schema/table scope is configured")
+		}
+		return authorizeDatabaseFor(target)
+	}
+	databaseArgSchema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"database": map[string]any{"type": "string", "description": "Optional allowed database; defaults to the connection database."},
+		},
+	}
 
 	r.add(Tool{
 		Spec: ports.ToolSpec{
 			Name:        "list_tables",
 			Description: "List table names in the current database.",
-			Schema:      map[string]any{"type": "object", "properties": map[string]any{}},
+			Schema:      databaseArgSchema,
 		},
 		Run: func(ctx context.Context, args map[string]any) (any, error) {
-			tables, err := conn.ListTables(ctx, p, password, database)
+			target := targetDatabase(args)
+			if err := authorizeDatabaseFor(target); err != nil {
+				return nil, err
+			}
+			tables, err := conn.ListTables(ctx, p, password, target)
 			if err != nil {
 				return nil, err
 			}
@@ -190,7 +241,7 @@ func NewSQLRegistry(conn sqlReader, p domain.ConnectionProfile, password, databa
 			for i, t := range tables {
 				names[i] = t.Name
 			}
-			return names, nil
+			return FilterMCPTableNames(p.Driver, target, scope, names), nil
 		},
 	})
 
@@ -199,13 +250,20 @@ func NewSQLRegistry(conn sqlReader, p domain.ConnectionProfile, password, databa
 			Name:        "describe_table",
 			Description: "Return the columns (name, type, nullable, primaryKey) of a table.",
 			Schema: map[string]any{
-				"type":       "object",
-				"properties": map[string]any{"table": map[string]any{"type": "string"}},
-				"required":   []string{"table"},
+				"type": "object",
+				"properties": map[string]any{
+					"table":    map[string]any{"type": "string"},
+					"database": map[string]any{"type": "string", "description": "Optional allowed database; defaults to the connection database."},
+				},
+				"required": []string{"table"},
 			},
 		},
 		Run: func(ctx context.Context, args map[string]any) (any, error) {
-			desc, err := conn.DescribeTable(ctx, p, password, database, strArg(args, "table"))
+			target := targetDatabase(args)
+			if err := authorizeTable(target, strArg(args, "table")); err != nil {
+				return nil, err
+			}
+			desc, err := conn.DescribeTable(ctx, p, password, target, strArg(args, "table"))
 			if err != nil {
 				return nil, err
 			}
@@ -214,36 +272,54 @@ func NewSQLRegistry(conn sqlReader, p domain.ConnectionProfile, password, databa
 	})
 
 	tableArgSchema := map[string]any{
-		"type":       "object",
-		"properties": map[string]any{"table": map[string]any{"type": "string"}},
-		"required":   []string{"table"},
+		"type": "object",
+		"properties": map[string]any{
+			"table":    map[string]any{"type": "string"},
+			"database": map[string]any{"type": "string", "description": "Optional allowed database; defaults to the connection database."},
+		},
+		"required": []string{"table"},
 	}
 
 	r.add(Tool{
 		Spec: ports.ToolSpec{Name: "get_table_ddl", Description: "Return the CREATE TABLE statement (DDL) for a table.", Schema: tableArgSchema},
 		Run: func(ctx context.Context, args map[string]any) (any, error) {
-			return conn.GetTableDDL(ctx, p, password, database, strArg(args, "table"))
+			target := targetDatabase(args)
+			if err := authorizeTable(target, strArg(args, "table")); err != nil {
+				return nil, err
+			}
+			return conn.GetTableDDL(ctx, p, password, target, strArg(args, "table"))
 		},
 	})
 
 	r.add(Tool{
 		Spec: ports.ToolSpec{Name: "list_indexes", Description: "List the indexes (name, columns, unique, primary) of a table.", Schema: tableArgSchema},
 		Run: func(ctx context.Context, args map[string]any) (any, error) {
-			return conn.ListIndexes(ctx, p, password, database, strArg(args, "table"))
+			target := targetDatabase(args)
+			if err := authorizeTable(target, strArg(args, "table")); err != nil {
+				return nil, err
+			}
+			return conn.ListIndexes(ctx, p, password, target, strArg(args, "table"))
 		},
 	})
 
 	r.add(Tool{
 		Spec: ports.ToolSpec{Name: "list_foreign_keys", Description: "List the foreign keys (column, referenced table/column) of a table.", Schema: tableArgSchema},
 		Run: func(ctx context.Context, args map[string]any) (any, error) {
-			return conn.ListForeignKeys(ctx, p, password, database, strArg(args, "table"))
+			target := targetDatabase(args)
+			if err := authorizeTable(target, strArg(args, "table")); err != nil {
+				return nil, err
+			}
+			return conn.ListForeignKeys(ctx, p, password, target, strArg(args, "table"))
 		},
 	})
 
 	sqlArgSchema := map[string]any{
-		"type":       "object",
-		"properties": map[string]any{"sql": map[string]any{"type": "string"}},
-		"required":   []string{"sql"},
+		"type": "object",
+		"properties": map[string]any{
+			"sql":      map[string]any{"type": "string"},
+			"database": map[string]any{"type": "string", "description": "Optional allowed database; defaults to the connection database."},
+		},
+		"required": []string{"sql"},
 	}
 
 	r.add(Tool{
@@ -253,7 +329,11 @@ func NewSQLRegistry(conn sqlReader, p domain.ConnectionProfile, password, databa
 			Schema:      sqlArgSchema,
 		},
 		Run: func(ctx context.Context, args map[string]any) (any, error) {
-			return runReadQuery(ctx, conn, p, password, strArg(args, "sql"))
+			target := targetDatabase(args)
+			if err := authorizeQuery(target, strArg(args, "sql")); err != nil {
+				return nil, err
+			}
+			return runReadQueryInDatabase(ctx, conn, p, password, target, strArg(args, "sql"))
 		},
 	})
 
@@ -262,19 +342,26 @@ func NewSQLRegistry(conn sqlReader, p domain.ConnectionProfile, password, databa
 			Name: "database_storage_summary",
 			Description: "Read database-visible storage usage: current database total bytes and largest tables. " +
 				"Does not report OS/cloud free disk space; use the returned diskFreeAvailable flag to explain that limitation.",
-			Schema: map[string]any{"type": "object", "properties": map[string]any{"limit": map[string]any{"type": "integer"}}},
+			Schema: map[string]any{"type": "object", "properties": map[string]any{
+				"database": map[string]any{"type": "string", "description": "Optional allowed database; defaults to the connection database."},
+				"limit":    map[string]any{"type": "integer"},
+			}},
 		},
 		Run: func(ctx context.Context, args map[string]any) (any, error) {
+			target := targetDatabase(args)
+			if err := denyUnscopedDiagnostics(target); err != nil {
+				return nil, err
+			}
 			limit := intArg(args, "limit", 10)
 			if limit > 50 {
 				limit = 50
 			}
 			totalSQL, topTablesSQL := storageSummaryQueries(p.Driver, limit)
-			total, err := runReadQuery(ctx, conn, p, password, totalSQL)
+			total, err := runReadQueryInDatabase(ctx, conn, p, password, target, totalSQL)
 			if err != nil {
 				return nil, err
 			}
-			topTables, err := runReadQuery(ctx, conn, p, password, topTablesSQL)
+			topTables, err := runReadQueryInDatabase(ctx, conn, p, password, target, topTablesSQL)
 			if err != nil {
 				return nil, err
 			}
@@ -294,7 +381,11 @@ func NewSQLRegistry(conn sqlReader, p domain.ConnectionProfile, password, databa
 			Schema:      sqlArgSchema,
 		},
 		Run: func(ctx context.Context, args map[string]any) (any, error) {
-			return runReadQuery(ctx, conn, p, password, "EXPLAIN "+strArg(args, "sql"))
+			target := targetDatabase(args)
+			if err := authorizeQuery(target, strArg(args, "sql")); err != nil {
+				return nil, err
+			}
+			return runReadQueryInDatabase(ctx, conn, p, password, target, "EXPLAIN "+strArg(args, "sql"))
 		},
 	})
 
@@ -303,20 +394,27 @@ func NewSQLRegistry(conn sqlReader, p domain.ConnectionProfile, password, databa
 			Name:        "find_column",
 			Description: "Find every table that has a column whose name contains the given text (reverse lookup).",
 			Schema: map[string]any{
-				"type":       "object",
-				"properties": map[string]any{"name": map[string]any{"type": "string"}},
-				"required":   []string{"name"},
+				"type": "object",
+				"properties": map[string]any{
+					"name":     map[string]any{"type": "string"},
+					"database": map[string]any{"type": "string", "description": "Optional allowed database; defaults to the connection database."},
+				},
+				"required": []string{"name"},
 			},
 		},
 		Run: func(ctx context.Context, args map[string]any) (any, error) {
-			cols, err := conn.ListColumns(ctx, p, password, database)
+			target := targetDatabase(args)
+			if err := authorizeDatabaseFor(target); err != nil {
+				return nil, err
+			}
+			cols, err := conn.ListColumns(ctx, p, password, target)
 			if err != nil {
 				return nil, err
 			}
 			needle := strings.ToLower(strArg(args, "name"))
 			out := make([]ports.ColumnRef, 0)
 			for _, c := range cols {
-				if strings.Contains(strings.ToLower(c.Column), needle) {
+				if strings.Contains(strings.ToLower(c.Column), needle) && scope.AllowsTable(mcpDefaultSchema(p.Driver, target), c.Table) {
 					out = append(out, c)
 				}
 			}
@@ -332,7 +430,11 @@ func NewSQLRegistry(conn sqlReader, p domain.ConnectionProfile, password, databa
 		},
 		Run: func(ctx context.Context, args map[string]any) (any, error) {
 			table := strArg(args, "table")
-			desc, err := conn.DescribeTable(ctx, p, password, database, table)
+			target := targetDatabase(args)
+			if err := authorizeTable(target, table); err != nil {
+				return nil, err
+			}
+			desc, err := conn.DescribeTable(ctx, p, password, target, table)
 			if err != nil {
 				return nil, err
 			}
@@ -345,7 +447,7 @@ func NewSQLRegistry(conn sqlReader, p domain.ConnectionProfile, password, databa
 				sel = append(sel, fmt.Sprintf("COUNT(%s) AS c%d", quoteIdent(p.Driver, c.Name), i))
 			}
 			sql := "SELECT " + strings.Join(sel, ", ") + " FROM " + quoteIdent(p.Driver, table)
-			res, err := runReadQuery(ctx, conn, p, password, sql)
+			res, err := runReadQueryInDatabase(ctx, conn, p, password, target, sql)
 			if err != nil {
 				return nil, err
 			}
@@ -375,6 +477,10 @@ func NewSQLRegistry(conn sqlReader, p domain.ConnectionProfile, password, databa
 		},
 		Run: func(ctx context.Context, args map[string]any) (any, error) {
 			table := strArg(args, "table")
+			target := targetDatabase(args)
+			if err := authorizeTable(target, table); err != nil {
+				return nil, err
+			}
 			lit := "'" + strings.ReplaceAll(table, "'", "''") + "'"
 			var sql string
 			if p.Driver == "postgres" {
@@ -389,7 +495,7 @@ func NewSQLRegistry(conn sqlReader, p domain.ConnectionProfile, password, databa
 				sql = "SELECT table_rows AS rows, data_length + index_length AS bytes " +
 					"FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = " + lit
 			}
-			res, err := runReadQuery(ctx, conn, p, password, sql)
+			res, err := runReadQueryInDatabase(ctx, conn, p, password, target, sql)
 			if err != nil {
 				return nil, err
 			}
@@ -408,7 +514,12 @@ func NewSQLRegistry(conn sqlReader, p domain.ConnectionProfile, password, databa
 			Schema:      tableArgSchema,
 		},
 		Run: func(ctx context.Context, args map[string]any) (any, error) {
-			idxs, err := conn.ListIndexes(ctx, p, password, database, strArg(args, "table"))
+			target := targetDatabase(args)
+			table := strArg(args, "table")
+			if err := authorizeTable(target, table); err != nil {
+				return nil, err
+			}
+			idxs, err := conn.ListIndexes(ctx, p, password, target, table)
 			if err != nil {
 				return nil, err
 			}
@@ -431,7 +542,10 @@ func NewSQLRegistry(conn sqlReader, p domain.ConnectionProfile, password, databa
 		},
 	})
 
-	limitSchema := map[string]any{"type": "object", "properties": map[string]any{"limit": map[string]any{"type": "integer"}}}
+	limitSchema := map[string]any{"type": "object", "properties": map[string]any{
+		"database": map[string]any{"type": "string", "description": "Optional allowed database; defaults to the connection database."},
+		"limit":    map[string]any{"type": "integer"},
+	}}
 
 	r.add(Tool{
 		Spec: ports.ToolSpec{
@@ -440,6 +554,10 @@ func NewSQLRegistry(conn sqlReader, p domain.ConnectionProfile, password, databa
 			Schema:      limitSchema,
 		},
 		Run: func(ctx context.Context, args map[string]any) (any, error) {
+			target := targetDatabase(args)
+			if err := denyUnscopedDiagnostics(target); err != nil {
+				return nil, err
+			}
 			limit := 20
 			if l, ok := args["limit"].(float64); ok && l > 0 {
 				limit = int(l)
@@ -450,7 +568,7 @@ func NewSQLRegistry(conn sqlReader, p domain.ConnectionProfile, password, databa
 			} else {
 				sql = fmt.Sprintf("SELECT digest_text, count_star AS calls, round(avg_timer_wait/1000000000, 2) AS avg_ms FROM performance_schema.events_statements_summary_by_digest WHERE schema_name = DATABASE() ORDER BY avg_timer_wait DESC LIMIT %d", limit)
 			}
-			return diagnostic(ctx, conn, p, password, sql), nil
+			return diagnosticInDatabase(ctx, conn, p, password, target, sql), nil
 		},
 	})
 
@@ -458,16 +576,20 @@ func NewSQLRegistry(conn sqlReader, p domain.ConnectionProfile, password, databa
 		Spec: ports.ToolSpec{
 			Name:        "find_unused_indexes",
 			Description: "Indexes with no recorded reads. Needs performance_schema (MySQL) / pg_stat_user_indexes (Postgres); reports if unavailable.",
-			Schema:      map[string]any{"type": "object", "properties": map[string]any{}},
+			Schema:      databaseArgSchema,
 		},
 		Run: func(ctx context.Context, args map[string]any) (any, error) {
+			target := targetDatabase(args)
+			if err := denyUnscopedDiagnostics(target); err != nil {
+				return nil, err
+			}
 			var sql string
 			if p.Driver == "postgres" {
 				sql = "SELECT relname AS table_name, indexrelname AS index_name FROM pg_stat_user_indexes WHERE idx_scan = 0 ORDER BY relname"
 			} else {
 				sql = "SELECT object_name AS table_name, index_name FROM performance_schema.table_io_waits_summary_by_index_usage WHERE object_schema = DATABASE() AND index_name IS NOT NULL AND index_name <> 'PRIMARY' AND count_star = 0 ORDER BY object_name"
 			}
-			return diagnostic(ctx, conn, p, password, sql), nil
+			return diagnosticInDatabase(ctx, conn, p, password, target, sql), nil
 		},
 	})
 
@@ -480,6 +602,10 @@ func NewSQLRegistry(conn sqlReader, p domain.ConnectionProfile, password, databa
 		},
 		Run: func(_ context.Context, args map[string]any) (any, error) {
 			sql := strArg(args, "sql")
+			target := targetDatabase(args)
+			if err := authorizeQuery(target, sql); err != nil {
+				return nil, err
+			}
 			c := ClassifyStatement(sql)
 			return map[string]any{
 				"proposed": true,

@@ -41,10 +41,13 @@ type ConnectionProfile struct {
 	// "mongodb+srv://..."). When set it takes precedence over host/port.
 	ConnectionURI string `json:"connectionUri"`
 	// MCP exposure for external AI clients (off by default).
-	McpEnabled      bool      `json:"mcpEnabled"`
-	McpDataExposure string    `json:"mcpDataExposure"` // metadata|on_request|unrestricted (default metadata)
-	CreatedAt       time.Time `json:"createdAt"`
-	UpdatedAt       time.Time `json:"updatedAt"`
+	McpEnabled          bool      `json:"mcpEnabled"`
+	McpDataExposure     string    `json:"mcpDataExposure"`     // metadata|on_request|unrestricted (default metadata)
+	McpAllowedDatabases string    `json:"mcpAllowedDatabases"` // JSON string[]; empty = legacy unrestricted
+	McpAllowedSchemas   string    `json:"mcpAllowedSchemas"`   // JSON string[]; empty = legacy unrestricted
+	McpAllowedTables    string    `json:"mcpAllowedTables"`    // JSON string[]; empty = legacy unrestricted
+	CreatedAt           time.Time `json:"createdAt"`
+	UpdatedAt           time.Time `json:"updatedAt"`
 }
 
 // DomainBindingMap parses DomainBindings JSON into a role→column map. Invalid or
