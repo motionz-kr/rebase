@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.27.0](https://github.com/motionz-kr/rebase/compare/v0.26.0...v0.27.0) (2026-09-17)
+
+
+### Features
+
+* govern MCP access and activity ([631050a](https://github.com/motionz-kr/rebase/commit/631050a3fe7e2c1242eb0c837d97dd41f8d9d505))
+* govern MCP access and activity ([995c301](https://github.com/motionz-kr/rebase/commit/995c3017e9fded8250c2e869cc2bbb1c9664777f))
+
+
+### Bug Fixes
+
+* ignore system catalogs in SQL diagnostics ([6ec9bb4](https://github.com/motionz-kr/rebase/commit/6ec9bb4f9366471d93f2f9359d359eb249634b47))
+* ignore system catalogs in SQL diagnostics ([1aec08c](https://github.com/motionz-kr/rebase/commit/1aec08cd4843bece4826f5083f85f3c68d9a1789))
+* remove redundant diagnostics escape ([4d22122](https://github.com/motionz-kr/rebase/commit/4d22122c30f4d4f0e6a61935764fe9974f70d7b9))
+* satisfy MCP panel lint checks ([34049c4](https://github.com/motionz-kr/rebase/commit/34049c487901c46938f9e4adae62ef58e970319d))
+
 ## [0.26.0](https://github.com/motionz-kr/rebase/compare/v0.25.1...v0.26.0) (2026-09-17)
 
 
