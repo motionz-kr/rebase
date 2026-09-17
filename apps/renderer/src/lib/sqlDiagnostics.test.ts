@@ -32,4 +32,17 @@ describe('getSqlDiagnostics', () => {
     const diagnostics = getSqlDiagnostics("SELECT 'FROM missing_users', \"FROM missing_users\", /* FROM missing_users */ name FROM users;", schema);
     expect(diagnostics).toEqual([]);
   });
+
+  it('does not report common database system catalogs as missing tables', () => {
+    const catalogQueries = [
+      'SELECT SCHEMA_NAME FROM information_schema.schemata;',
+      'SELECT datname FROM pg_catalog.pg_database;',
+      'SELECT name FROM sys.databases;',
+      "SELECT name FROM sqlite_master WHERE type='table';",
+    ];
+
+    for (const sql of catalogQueries) {
+      expect(getSqlDiagnostics(sql, schema), sql).toEqual([]);
+    }
+  });
 });
