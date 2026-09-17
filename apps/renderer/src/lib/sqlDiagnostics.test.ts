@@ -16,6 +16,18 @@ describe('getSqlDiagnostics', () => {
     expect(sql.slice(diagnostic.start, diagnostic.end)).toBe('missing_users');
   });
 
+  it('still reports unknown tables in DML table positions', () => {
+    const queries = [
+      'INSERT INTO missing_users (id) VALUES (1);',
+      'UPDATE missing_users SET name = \'updated\';',
+      'DELETE FROM missing_users;',
+    ];
+
+    for (const sql of queries) {
+      expect(getSqlDiagnostics(sql, schema).some((item) => item.message.includes('missing_users')), sql).toBe(true);
+    }
+  });
+
   it('reports an unknown qualified column while accepting known columns', () => {
     const diagnostics = getSqlDiagnostics('SELECT u.id, u.email FROM users AS u;', schema);
     expect(diagnostics).toHaveLength(1);
@@ -44,5 +56,40 @@ describe('getSqlDiagnostics', () => {
     for (const sql of catalogQueries) {
       expect(getSqlDiagnostics(sql, schema), sql).toEqual([]);
     }
+  });
+
+  it('does not report CURRENT_TIMESTAMP as a missing table reference', () => {
+    const sqlQueries = [
+      'SELECT * FROM CURRENT_TIMESTAMP;',
+      'SELECT * FROM CURRENT_DATE;',
+      'SELECT * FROM CURRENT_TIME;',
+      'SELECT * FROM LOCALTIMESTAMP;',
+      'SELECT * FROM LOCALTIME;',
+    ];
+
+    for (const sql of sqlQueries) expect(getSqlDiagnostics(sql, schema), sql).toEqual([]);
+  });
+
+  it('does not report SQL expressions, generated targets, or clause keywords as tables', () => {
+    const sqlQueries = [
+      "SELECT $$ FROM missing_users; $$ AS body FROM users;",
+      "SELECT * FROM json_each('{}') AS item;",
+      'SELECT * FROM json_each AS item;',
+      'SELECT * FROM generate_series AS item;',
+      "SELECT * FROM LATERAL json_each('{}') AS item;",
+      'SELECT * FROM ONLY users;',
+      'SELECT * FROM VALUES (1);',
+      "INSERT INTO users (id, name) VALUES (1, 'one') ON CONFLICT(id) DO UPDATE SET name = excluded.name;",
+      "INSERT INTO users (id, name) VALUES (1, 'one') ON DUPLICATE KEY UPDATE name = VALUES(name);",
+      'SELECT id INTO generated_users FROM users;',
+      'WITH first_users AS (SELECT id FROM users), second_users AS (SELECT id FROM first_users) SELECT id FROM second_users;',
+    ];
+
+    const failures = sqlQueries.flatMap((sql) => {
+      const diagnostics = getSqlDiagnostics(sql, schema);
+      return diagnostics.length > 0 ? [{ sql, diagnostics }] : [];
+    });
+
+    expect(failures).toEqual([]);
   });
 });
