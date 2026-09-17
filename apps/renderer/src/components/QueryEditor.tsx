@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import MonacoEditor, { loader } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
-import { Play, Square, Save, Plus, X, Lock, Pencil, AlertTriangle, ShieldAlert, AlignLeft, ListTree, BookOpen } from 'lucide-react';
+import { Play, Square, Save, Plus, X, Lock, Pencil, AlertTriangle, ShieldAlert, AlignLeft, ListTree, BookOpen, Check, RotateCcw, Database } from 'lucide-react';
 import { ResultGrid } from './ResultGrid';
+import { ExplainPlanView } from './ExplainPlanView';
 import { SqlAutocomplete } from './SqlAutocomplete';
 import { RiskConfirmDialog } from './RiskConfirmDialog';
 import { formatSql } from '../lib/formatSql';
-import { splitStatements } from '../lib/splitStatements';
+import { splitStatementRanges, type SqlStatementRange } from '../lib/splitStatements';
+import { resolveSqlExecutionTarget } from '../lib/sqlExecutionTarget';
 import { classifyStatement } from '../lib/sqlDanger';
 import { analyzeEditableQuery, type EditableQuery } from '../lib/editableQuery';
 import { TableDataView } from './TableDataView';
@@ -17,6 +19,11 @@ import type { AnalyzeResult } from '../global';
 import { clampEditorHeight, EDITOR_DEFAULT, loadNum, saveNum } from '../lib/uiPrefs';
 import { useTheme } from '../lib/theme-context';
 import { generateQueryTitle } from '../lib/queryTitle';
+import type { SqlQueryRequest } from '../lib/queryRequest';
+import { formatQueryTabLabel } from '../lib/queryTabLabel';
+import { buildExplainSql } from '../lib/explainPlan';
+import { getTransactionControls, getTransactionStatusLabel, type QueryTransactionMode, type QueryTransactionState } from '../lib/queryTransaction';
+import { getSqlDiagnostics, type SqlDiagnostic } from '../lib/sqlDiagnostics';
 
 loader.config({ monaco });
 
@@ -39,9 +46,19 @@ interface ResultSet {
   rowLimit: number;
 }
 
+type StatementExecutionState = 'pending' | 'running' | 'success' | 'error' | 'skipped';
+
+interface StatementExecution {
+  start: number;
+  end: number;
+  state: StatementExecutionState;
+  message?: string;
+}
+
 interface QueryTab {
   id: string;
   name: string;
+  database: string;
   query: string;
   columns: string[];
   rows: unknown[][];
@@ -49,6 +66,7 @@ interface QueryTab {
   error: string | null;
   rowsAffected: number | null;
   queryId: string | null;
+  lastExecutedSql: string | null;
   startTime: number | null;
   elapsedTimeMs: number | null;
   policyPrompt: PolicyPrompt | null;
@@ -57,8 +75,13 @@ interface QueryTab {
   // Multi-statement results (empty for single-statement runs).
   resultSets: ResultSet[];
   activeResultIndex: number;
+  statementExecutions: StatementExecution[];
   // Compact summary of the last execution (for the status bar).
   lastExec: ExecInfo | null;
+  transactionMode: QueryTransactionMode;
+  transactionState: QueryTransactionState;
+  transactionSessionId: string | null;
+  transactionNotice: string | null;
 }
 
 interface QueryEditorProps {
@@ -69,9 +92,9 @@ interface QueryEditorProps {
   safeMode?: boolean;
   onQueryExecuted?: () => void;
   loadTriggerQuery?: string;
-  // A request to load a SQL into the active tab AND run it immediately (one-click
-  // actions like "recent rows"). The nonce makes repeat requests of the same SQL fire.
-  runQueryRequest?: { sql: string; nonce: number };
+  // A request to change the active database context; optionally load a SQL into
+  // the active tab and run it immediately. The nonce makes repeat requests fire.
+  queryRequest?: SqlQueryRequest;
   schemaVersion?: number;
   agentTitlesEnabled?: boolean;
   onOpenLibrary?: () => void;
@@ -79,9 +102,18 @@ interface QueryEditorProps {
 
 const DRIVER_LABEL: Record<string, string> = { mysql: 'MY', postgres: 'PG', redis: 'RS', sqlite: 'SQ', sqlserver: 'MS' };
 
-const newTab = (id: string, name: string, query: string): QueryTab => ({
+const statementExecutionLabel = (execution: StatementExecution): string => {
+  if (execution.state === 'running') return '실행 중';
+  if (execution.state === 'success') return '실행 완료';
+  if (execution.state === 'error') return execution.message ? `실행 실패: ${execution.message}` : '실행 실패';
+  if (execution.state === 'skipped') return execution.message ?? '실행되지 않음';
+  return '실행 대기';
+};
+
+const newTab = (id: string, name: string, database: string, query: string): QueryTab => ({
   id,
   name,
+  database,
   query,
   columns: [],
   rows: [],
@@ -89,6 +121,7 @@ const newTab = (id: string, name: string, query: string): QueryTab => ({
   error: null,
   rowsAffected: null,
   queryId: null,
+  lastExecutedSql: null,
   startTime: null,
   elapsedTimeMs: null,
   policyPrompt: null,
@@ -96,14 +129,24 @@ const newTab = (id: string, name: string, query: string): QueryTab => ({
   rowLimit: 0,
   resultSets: [],
   activeResultIndex: 0,
+  statementExecutions: [],
   lastExec: null,
+  transactionMode: 'auto',
+  transactionState: 'idle',
+  transactionSessionId: null,
+  transactionNotice: null,
 });
 
-export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, database, connectionName, safeMode = false, onQueryExecuted, loadTriggerQuery, runQueryRequest, schemaVersion, agentTitlesEnabled = false, onOpenLibrary }) => {
+export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, database, connectionName, safeMode = false, onQueryExecuted, loadTriggerQuery, queryRequest, schemaVersion, agentTitlesEnabled = false, onOpenLibrary }) => {
+  const requestedDatabase = queryRequest?.database;
+  const requestedNonce = queryRequest?.nonce;
+  const requestedSql = queryRequest?.sql;
+  const requestedExecute = queryRequest?.execute;
   const [tabs, setTabs] = useState<QueryTab[]>([
     newTab(
       'tab-1',
       'Query 1',
+      database,
       driver === 'mysql'
         ? 'SELECT SCHEMA_NAME FROM information_schema.schemata;'
         : driver === 'sqlite'
@@ -115,6 +158,11 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
   ]);
   const [activeTabId, setActiveTabId] = useState('tab-1');
   const { resolved } = useTheme();
+  const activeTab = tabs.find((t) => t.id === activeTabId) || tabs[0];
+  const activeDatabase = activeTab.database;
+  const explainSql = buildExplainSql(driver, activeTab.query);
+  const isExplainResult = /^\s*EXPLAIN\b/i.test(activeTab.lastExecutedSql ?? '');
+  const activeTabIdRef = useRef(activeTabId);
   // When the run query is a plain single-table SELECT *, the result is shown in
   // an editable table view (add/edit/delete) instead of the read-only grid.
   const [editView, setEditView] = useState<EditableQuery | null>(null);
@@ -130,20 +178,269 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
   const [riskResult, setRiskResult] = useState<AnalyzeResult | null>(null);
   const pendingRunRef = useRef<null | (() => void)>(null);
 
+  const previousProfileDatabaseRef = useRef(database);
+  useEffect(() => {
+    if (previousProfileDatabaseRef.current === database) return;
+    previousProfileDatabaseRef.current = database;
+    setTabs((prev) => prev.map((t) => ({ ...t, database })));
+  }, [database]);
+
+  useEffect(() => {
+    activeTabIdRef.current = activeTabId;
+  }, [activeTabId]);
+
   useEffect(() => {
     if (loadTriggerQuery) {
-      setTabs((prev) => prev.map((t) => (t.id === activeTabId ? { ...t, query: loadTriggerQuery } : t)));
+      const targetTabId = activeTabIdRef.current;
+      setTabs((prev) => prev.map((t) => (t.id === targetTabId ? { ...t, query: loadTriggerQuery, statementExecutions: [] } : t)));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadTriggerQuery]);
 
   const tabsRef = useRef<QueryTab[]>(tabs);
+  const transactionSessionsRef = useRef<Record<string, string>>({});
   useEffect(() => {
     tabsRef.current = tabs;
   }, [tabs]);
 
+  const updateTabTransaction = (tabId: string, patch: Partial<Pick<QueryTab, 'transactionMode' | 'transactionState' | 'transactionSessionId'>>) => {
+    tabsRef.current = tabsRef.current.map((tab) => tab.id === tabId ? { ...tab, ...patch } : tab);
+    setTabs((prev) => prev.map((tab) => tab.id === tabId ? { ...tab, ...patch } : tab));
+  };
+
+  const ensureTransactionSession = async (tabId: string, targetDatabase: string, allowWrite: boolean): Promise<string> => {
+    const fromRef = transactionSessionsRef.current[tabId];
+    const fromTab = tabsRef.current.find((tab) => tab.id === tabId)?.transactionSessionId;
+    const existing = fromRef ?? fromTab;
+    if (existing) return existing;
+
+    updateTabTransaction(tabId, { transactionState: 'opening' });
+    const result = await window.electronAPI.querySession('open', profileId, targetDatabase, '', !allowWrite);
+    const sessionId = result.success ? result.data?.sessionId : undefined;
+    if (!sessionId) {
+      updateTabTransaction(tabId, { transactionState: 'idle', transactionSessionId: null });
+      throw new Error(result.error || '수동 트랜잭션 세션을 열지 못했습니다.');
+    }
+    transactionSessionsRef.current[tabId] = sessionId;
+    updateTabTransaction(tabId, { transactionState: 'idle', transactionSessionId: sessionId });
+    return sessionId;
+  };
+
+  const closeTransactionSession = async (tabId: string): Promise<void> => {
+    const tab = tabsRef.current.find((item) => item.id === tabId);
+    const sessionId = transactionSessionsRef.current[tabId] ?? tab?.transactionSessionId;
+    if (!sessionId) return;
+    const result = await window.electronAPI.querySession('close', profileId, '', sessionId);
+    if (!result.success) throw new Error(result.error || '트랜잭션 세션을 닫지 못했습니다.');
+    delete transactionSessionsRef.current[tabId];
+    updateTabTransaction(tabId, { transactionSessionId: null, transactionState: 'idle' });
+  };
+
+  const changeWriteMode = async (nextWriteMode: boolean): Promise<boolean> => {
+    if (nextWriteMode === writeMode) return true;
+    const hasUncommittedTransaction = tabsRef.current.some((tab) =>
+      tab.transactionMode === 'manual' && ['opening', 'active', 'failed'].includes(tab.transactionState)
+    );
+    if (hasUncommittedTransaction) {
+      alert('Manual 트랜잭션을 먼저 Commit 또는 Rollback 해주세요.');
+      return false;
+    }
+    try {
+      // A session is bound to its read/write permission when it is opened.
+      // Close idle sessions so the next query uses the newly selected mode.
+      await Promise.all(tabsRef.current
+        .filter((tab) => tab.transactionMode === 'manual' && tab.transactionSessionId)
+        .map((tab) => closeTransactionSession(tab.id)));
+      setWriteMode(nextWriteMode);
+      return true;
+    } catch (error) {
+      alert(error instanceof Error ? error.message : '트랜잭션 세션을 닫지 못했습니다.');
+      return false;
+    }
+  };
+
+  const setTransactionMode = async (tabId: string, mode: QueryTransactionMode) => {
+    const target = tabsRef.current.find((tab) => tab.id === tabId);
+    if (!target || target.transactionMode === mode) return;
+    if (mode === 'auto' && ['opening', 'active', 'failed'].includes(target.transactionState)) {
+      const confirmed = window.confirm('Auto-commit으로 전환하면 미커밋 변경 사항을 Rollback 합니다. 계속할까요?');
+      if (!confirmed) return;
+    }
+    try {
+      if (target.transactionSessionId) await closeTransactionSession(tabId);
+      setTabs((prev) => prev.map((tab) => tab.id === tabId
+        ? { ...tab, transactionMode: mode, transactionState: 'idle', transactionSessionId: null, transactionNotice: null }
+        : tab));
+    } catch (error) {
+      alert(error instanceof Error ? error.message : '트랜잭션 세션을 닫지 못했습니다.');
+    }
+  };
+
+  const finishTransaction = async (action: 'commit' | 'rollback') => {
+    const sessionId = transactionSessionsRef.current[activeTab.id] ?? activeTab.transactionSessionId;
+    if (!sessionId) return;
+    const result = await window.electronAPI.querySession(action, profileId, '', sessionId);
+    if (!result.success || result.data?.success === false) {
+      const message = result.error || '트랜잭션 작업에 실패했습니다.';
+      setTabs((prev) => prev.map((tab) => tab.id === activeTab.id
+        ? { ...tab, transactionState: 'failed', transactionNotice: message, error: message }
+        : tab));
+      return;
+    }
+    setTabs((prev) => prev.map((tab) => tab.id === activeTab.id
+      ? { ...tab, transactionState: 'idle', transactionNotice: action === 'commit' ? 'Committed' : 'Rolled back', error: null }
+      : tab));
+  };
+
+  useEffect(() => {
+    const ownerProfileId = profileId;
+    return () => {
+      const openSessions = Object.entries(transactionSessionsRef.current);
+      transactionSessionsRef.current = {};
+      for (const [, sessionId] of openSessions) {
+        void window.electronAPI.querySession('close', ownerProfileId, '', sessionId);
+      }
+    };
+  }, [profileId]);
+
   // The Monaco editor + monaco namespace, exposed for the custom autocomplete.
   const [editorInstance, setEditorInstance] = useState<monaco.editor.IStandaloneCodeEditor | null>(null);
+  const [schema, setSchema] = useState<SchemaInfo>({ tables: [] });
+  const [sqlDiagnostics, setSqlDiagnostics] = useState<SqlDiagnostic[]>([]);
+  const statementDecorationsRef = useRef<string[]>([]);
+  const [activeStatementRanges, setActiveStatementRanges] = useState<SqlStatementRange[]>([]);
+
+  // Keep the cursor's statement range live as the caret/selection moves. This
+  // is independent of execution state: an idle statement is still outlined.
+  useEffect(() => {
+    if (!editorInstance) return;
+    const updateActiveStatement = () => {
+      const model = editorInstance.getModel();
+      const position = editorInstance.getPosition();
+      const selection = editorInstance.getSelection();
+      if (!model || !position) {
+        setActiveStatementRanges([]);
+        return;
+      }
+      const target = resolveSqlExecutionTarget(model.getValue(), {
+        cursorOffset: model.getOffsetAt(position),
+        selectionStart: selection ? model.getOffsetAt(selection.getStartPosition()) : undefined,
+        selectionEnd: selection ? model.getOffsetAt(selection.getEndPosition()) : undefined,
+      });
+      setActiveStatementRanges(target?.ranges ?? []);
+    };
+
+    updateActiveStatement();
+    const cursorListener = editorInstance.onDidChangeCursorPosition(updateActiveStatement);
+    const selectionListener = editorInstance.onDidChangeCursorSelection(updateActiveStatement);
+    const contentListener = editorInstance.onDidChangeModelContent(updateActiveStatement);
+    return () => {
+      cursorListener.dispose();
+      selectionListener.dispose();
+      contentListener.dispose();
+    };
+  }, [editorInstance, activeTab.id]);
+
+  // Show one DataGrip-like marker per SQL statement. The glyph sits in the
+  // editor gutter, while the whole statement gets a subtle state tint and a
+  // hover explanation.
+  useEffect(() => {
+    if (!editorInstance) return;
+    const model = editorInstance.getModel();
+    if (!model) return;
+
+    const sourceLength = model.getValue().length;
+    const decorations: monaco.editor.IModelDeltaDecoration[] = activeTab.statementExecutions.map((execution, index) => {
+      const startOffset = Math.min(Math.max(execution.start, 0), sourceLength);
+      const endOffset = Math.min(Math.max(execution.end, startOffset + 1), sourceLength);
+      const startPosition = model.getPositionAt(startOffset);
+      const endPosition = model.getPositionAt(Math.max(startOffset, endOffset - 1));
+      const label = statementExecutionLabel(execution);
+      return {
+        range: new monaco.Range(startPosition.lineNumber, 1, endPosition.lineNumber, 1),
+        options: {
+          isWholeLine: true,
+          className: `query-statement-line query-statement-line-${execution.state}`,
+          linesDecorationsClassName: `query-statement-bar query-statement-bar-${execution.state}`,
+          glyphMarginClassName: `query-statement-glyph query-statement-glyph-${execution.state}`,
+          hoverMessage: { value: `SQL ${index + 1}: ${label}` },
+        },
+      };
+    });
+
+    const activeBlocks: monaco.editor.IModelDeltaDecoration[] = activeStatementRanges.map((range) => {
+      const startOffset = Math.min(Math.max(range.start, 0), sourceLength);
+      const endOffset = Math.min(Math.max(range.end, startOffset + 1), sourceLength);
+      const startPosition = model.getPositionAt(startOffset);
+      const endPosition = model.getPositionAt(Math.max(startOffset, endOffset - 1));
+      return {
+        range: new monaco.Range(startPosition.lineNumber, 1, endPosition.lineNumber, model.getLineMaxColumn(endPosition.lineNumber)),
+        options: {
+          blockClassName: 'query-statement-active-block',
+          blockPadding: [2, 8, 2, 8],
+          stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+        },
+      };
+    });
+
+    statementDecorationsRef.current = editorInstance.deltaDecorations(statementDecorationsRef.current, [...decorations, ...activeBlocks]);
+    return () => {
+      statementDecorationsRef.current = editorInstance.deltaDecorations(statementDecorationsRef.current, []);
+    };
+  }, [editorInstance, activeTab.query, activeTab.statementExecutions, activeStatementRanges]);
+
+  const runtimeDiagnostics: SqlDiagnostic[] = activeTab.statementExecutions
+    .filter((execution) => execution.state === 'error')
+    .map((execution) => ({
+      start: execution.start,
+      end: Math.max(execution.end, execution.start + 1),
+      severity: 'error' as const,
+      message: execution.message ? `실행 실패: ${execution.message}` : '실행 실패',
+    }));
+  const allDiagnostics = [...sqlDiagnostics, ...runtimeDiagnostics];
+
+  useEffect(() => {
+    if (!editorInstance) return;
+    const model = editorInstance.getModel();
+    if (!model) return;
+    const diagnostics = getSqlDiagnostics(activeTab.query, schema);
+    setSqlDiagnostics(diagnostics);
+    const markers = [...diagnostics, ...runtimeDiagnostics].map((diagnostic) => {
+      const start = model.getPositionAt(Math.max(0, Math.min(diagnostic.start, model.getValueLength())));
+      const end = model.getPositionAt(Math.max(diagnostic.start + 1, Math.min(diagnostic.end, model.getValueLength())));
+      return {
+        startLineNumber: start.lineNumber,
+        startColumn: start.column,
+        endLineNumber: end.lineNumber,
+        endColumn: Math.max(end.column, start.column + 1),
+        message: diagnostic.message,
+        severity: diagnostic.severity === 'error' ? monaco.MarkerSeverity.Error : monaco.MarkerSeverity.Warning,
+      };
+    });
+    monaco.editor.setModelMarkers(model, 'rebase-sql-diagnostics', markers);
+    return () => monaco.editor.setModelMarkers(model, 'rebase-sql-diagnostics', []);
+    // runtimeDiagnostics is derived from the active tab and intentionally part
+    // of the dependency list so server errors become squiggles immediately.
+  }, [editorInstance, activeTab.id, activeTab.query, activeTab.statementExecutions, schema]);
+
+  const focusDiagnostic = (diagnostic: SqlDiagnostic) => {
+    if (!editorInstance) return;
+    const model = editorInstance.getModel();
+    if (!model) return;
+    const position = model.getPositionAt(Math.max(0, Math.min(diagnostic.start, model.getValueLength())));
+    editorInstance.setPosition(position);
+    editorInstance.revealLineInCenter(position.lineNumber);
+    editorInstance.focus();
+  };
+
+  // A database context request comes from the schema explorer. It changes the
+  // editor context without replacing or executing the current SQL.
+  useEffect(() => {
+    if (!requestedDatabase) return;
+    const targetTabId = activeTabIdRef.current;
+    setTabs((prev) => prev.map((t) => (t.id === targetTabId ? { ...t, database: requestedDatabase, statementExecutions: [] } : t)));
+    setEditView(null);
+    editorInstance?.focus();
+  }, [requestedDatabase, requestedNonce, editorInstance]);
 
   // Drag-resizable SQL editor height (the splitter below it grows/shrinks the
   // results area inversely). Persisted across sessions.
@@ -167,7 +464,6 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
   };
 
   // Load this connection's schema (tables + columns) for autocompletion.
-  const [schema, setSchema] = useState<SchemaInfo>({ tables: [] });
   const logQueryHistory = useCallback(async (payload: {
     queryText: string;
     durationMs: number;
@@ -188,7 +484,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     let ignore = false;
     (async () => {
       try {
-        const res = await window.electronAPI.getSchemaCompletion(profileId, database);
+        const res = await window.electronAPI.getSchemaCompletion(profileId, activeDatabase);
         if (!ignore && res.success && res.data) {
           setSchema({ tables: res.data.tables });
         }
@@ -199,7 +495,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     return () => {
       ignore = true;
     };
-  }, [profileId, database, schemaVersion]);
+  }, [profileId, activeDatabase, schemaVersion]);
 
   useEffect(() => {
     const cleanup = window.electronAPI.onQueryStreamChunk((queryId, chunk) => {
@@ -214,12 +510,20 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
           if (chunk.type === 'meta') {
             updated.columns = chunk.columns ?? [];
             updated.rows = [];
+            if (updated.transactionMode === 'manual') updated.transactionState = 'active';
           } else if (chunk.type === 'row') {
             updated.rows = [...updated.rows, chunk.data ?? []];
           } else if (chunk.type === 'policy') {
             updated.loading = false;
             updated.queryId = null;
             updated.policyPrompt = { code: chunk.code ?? '', message: chunk.message ?? '', verb: chunk.verb ?? '' };
+            if (updated.transactionMode === 'manual' && updated.transactionState === 'opening') updated.transactionState = 'idle';
+            const runningIndex = updated.statementExecutions.findIndex((execution) => execution.state === 'running');
+            if (runningIndex >= 0) {
+              updated.statementExecutions = updated.statementExecutions.map((execution, index) =>
+                index === runningIndex ? { ...execution, state: 'skipped', message: '정책 확인 필요' } : execution
+              );
+            }
           } else if (chunk.type === 'done') {
             updated.loading = false;
             updated.rowsAffected = chunk.rowsAffected ?? null;
@@ -227,16 +531,23 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
             updated.rowLimit = chunk.rowLimit ?? 0;
             updated.elapsedTimeMs = tab.startTime ? Date.now() - tab.startTime : 0;
             updated.queryId = null;
+            if (updated.transactionMode === 'manual') updated.transactionState = 'active';
             updated.lastExec = {
-              sql: tab.query,
+              sql: tab.lastExecutedSql ?? tab.query,
               durationMs: updated.elapsedTimeMs,
               rowCount: updated.columns.length > 0 ? updated.rows.length : null,
               rowsAffected: updated.columns.length > 0 ? null : chunk.rowsAffected ?? null,
               error: null,
             };
+            const runningIndex = updated.statementExecutions.findIndex((execution) => execution.state === 'running');
+            if (runningIndex >= 0) {
+              updated.statementExecutions = updated.statementExecutions.map((execution, index) =>
+                index === runningIndex ? { ...execution, state: 'success', message: undefined } : execution
+              );
+            }
 
             void logQueryHistory({
-                queryText: tab.query,
+                queryText: tab.lastExecutedSql ?? tab.query,
                 durationMs: updated.elapsedTimeMs,
                 success: true,
                 errorMessage: null,
@@ -249,10 +560,17 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
             updated.error = chunk.message ?? null;
             updated.elapsedTimeMs = tab.startTime ? Date.now() - tab.startTime : 0;
             updated.queryId = null;
-            updated.lastExec = { sql: tab.query, durationMs: updated.elapsedTimeMs, error: chunk.message };
+            if (updated.transactionMode === 'manual') updated.transactionState = 'failed';
+            updated.lastExec = { sql: tab.lastExecutedSql ?? tab.query, durationMs: updated.elapsedTimeMs, error: chunk.message };
+            const runningIndex = updated.statementExecutions.findIndex((execution) => execution.state === 'running');
+            if (runningIndex >= 0) {
+              updated.statementExecutions = updated.statementExecutions.map((execution, index) =>
+                index === runningIndex ? { ...execution, state: 'error', message: chunk.message ?? undefined } : execution
+              );
+            }
 
             void logQueryHistory({
-                queryText: tab.query,
+                queryText: tab.lastExecutedSql ?? tab.query,
                 durationMs: updated.elapsedTimeMs,
                 success: false,
                 errorMessage: chunk.message,
@@ -270,11 +588,9 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     return cleanup;
   }, [logQueryHistory, onQueryExecuted]);
 
-  const activeTab = tabs.find((t) => t.id === activeTabId) || tabs[0];
-
   const handleQueryChange = (value: string | undefined) => {
     if (value === undefined) return;
-    setTabs((prev) => prev.map((t) => (t.id === activeTabId ? { ...t, query: value } : t)));
+    setTabs((prev) => prev.map((t) => (t.id === activeTabId ? { ...t, query: value, statementExecutions: [] } : t)));
   };
 
   // Multi-statement run state: the queryId of the statement currently streaming
@@ -287,7 +603,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
   // ignores it because the tab's queryId is never set to these ids.
   const runSingleStatementCollected = (
     stmt: string,
-    opts: { allowWrite: boolean; confirmDestructive: boolean; fetchAll: boolean }
+    opts: { database: string; allowWrite: boolean; confirmDestructive: boolean; fetchAll: boolean; sessionId?: string; tabId: string }
   ): Promise<{ result?: ResultSet; policy?: PolicyPrompt }> =>
     new Promise((resolve) => {
       const queryId = `query-${crypto.randomUUID()}`;
@@ -305,11 +621,16 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
         if (qid !== queryId) return;
         if (chunk.type === 'meta') {
           columns = chunk.columns ?? [];
+          if (transactionSessionsRef.current[opts.tabId]) updateTabTransaction(opts.tabId, { transactionState: 'active' });
         } else if (chunk.type === 'row') {
           rows.push(chunk.data ?? []);
         } else if (chunk.type === 'policy') {
+          if (transactionSessionsRef.current[opts.tabId] && tabsRef.current.find((tab) => tab.id === opts.tabId)?.transactionState === 'opening') {
+            updateTabTransaction(opts.tabId, { transactionState: 'idle' });
+          }
           finish({ policy: { code: chunk.code ?? '', message: chunk.message ?? '', verb: chunk.verb ?? '' } });
         } else if (chunk.type === 'done') {
+          if (transactionSessionsRef.current[opts.tabId]) updateTabTransaction(opts.tabId, { transactionState: 'active' });
           finish({
             result: {
               statement: stmt,
@@ -322,11 +643,15 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
             },
           });
         } else if (chunk.type === 'error') {
+          if (transactionSessionsRef.current[opts.tabId]) updateTabTransaction(opts.tabId, { transactionState: 'failed' });
           finish({
             result: { statement: stmt, columns, rows, rowsAffected: null, error: chunk.message ?? null, truncated: false, rowLimit: 0 },
           });
         }
       });
+      if (opts.sessionId && tabsRef.current.find((tab) => tab.id === opts.tabId)?.transactionState === 'idle') {
+        updateTabTransaction(opts.tabId, { transactionState: 'opening' });
+      }
       window.electronAPI
         .executeQueryStream(queryId, profileId, stmt, opts)
         .then((res) => {
@@ -346,17 +671,24 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
   // Run a script's statements sequentially, accumulating one result set each and
   // stopping on the first error or policy block.
   const runMultiStatements = async (
-    statements: string[],
-    opts: { allowWrite: boolean; confirmDestructive: boolean; fetchAll: boolean }
+    statementRanges: ReturnType<typeof splitStatementRanges>,
+    opts: { database: string; allowWrite: boolean; confirmDestructive: boolean; fetchAll: boolean }
   ) => {
+    const statements = statementRanges.map((range) => range.statement);
+    const runTabId = activeTabId;
+    const currentTab = tabsRef.current.find((tab) => tab.id === runTabId);
+    if (currentTab?.transactionMode === 'manual' && currentTab.transactionState === 'failed') return;
     const startTime = Date.now();
+    const manualMode = tabsRef.current.find((tab) => tab.id === runTabId)?.transactionMode === 'manual';
+    let sessionId: string | undefined;
     multiAbortRef.current = false;
     setTabs((prev) =>
       prev.map((t) =>
-        t.id === activeTabId
+        t.id === runTabId
           ? {
               ...t,
               loading: true,
+              transactionNotice: null,
               columns: [],
               rows: [],
               error: null,
@@ -368,17 +700,53 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
               truncated: false,
               resultSets: [],
               activeResultIndex: 0,
+              statementExecutions: statementRanges.map((range) => ({ ...range, state: 'pending' as const })),
             }
           : t
       )
     );
 
+    if (manualMode) {
+      try {
+        sessionId = await ensureTransactionSession(runTabId, opts.database, opts.allowWrite);
+      } catch (error) {
+        setTabs((prev) => prev.map((tab) => tab.id === runTabId
+          ? { ...tab, loading: false, error: error instanceof Error ? error.message : String(error) }
+          : tab));
+        return;
+      }
+    }
+
     const collected: ResultSet[] = [];
     let policy: PolicyPrompt | null = null;
-    for (const stmt of statements) {
-      const r = await runSingleStatementCollected(stmt, opts);
+    for (const [statementIndex, stmt] of statements.entries()) {
+      setTabs((prev) =>
+        prev.map((t) =>
+          t.id === runTabId
+            ? {
+                ...t,
+                statementExecutions: t.statementExecutions.map((execution, index) =>
+                  index === statementIndex ? { ...execution, state: 'running', message: undefined } : execution
+                ),
+              }
+            : t
+        )
+      );
+      const r = await runSingleStatementCollected(stmt, { ...opts, sessionId, tabId: runTabId });
       if (r.policy) {
         policy = r.policy;
+        setTabs((prev) =>
+          prev.map((t) =>
+            t.id === runTabId
+              ? {
+                  ...t,
+                  statementExecutions: t.statementExecutions.map((execution, index) =>
+                    index === statementIndex ? { ...execution, state: 'skipped', message: '정책 확인 필요' } : execution
+                  ),
+                }
+              : t
+          )
+        );
         break;
       }
       if (r.result) {
@@ -393,8 +761,39 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
           .then(() => onQueryExecuted?.())
           .catch(() => {});
         const snapshot = [...collected];
-        setTabs((prev) => prev.map((t) => (t.id === activeTabId ? { ...t, resultSets: snapshot } : t)));
+        setTabs((prev) =>
+          prev.map((t) =>
+            t.id === runTabId
+              ? {
+                  ...t,
+                  resultSets: snapshot,
+                  statementExecutions: t.statementExecutions.map((execution, index) =>
+                    index === statementIndex
+                      ? {
+                          ...execution,
+                          state: r.result?.error ? 'error' : 'success',
+                          message: r.result?.error ?? undefined,
+                        }
+                      : execution
+                  ),
+                }
+              : t
+          )
+        );
         if (r.result.error) break; // stop the script on the first failure
+      } else {
+        setTabs((prev) =>
+          prev.map((t) =>
+            t.id === runTabId
+              ? {
+                  ...t,
+                  statementExecutions: t.statementExecutions.map((execution, index) =>
+                    index === statementIndex ? { ...execution, state: 'error', message: '실행 결과를 받지 못했습니다.' } : execution
+                  ),
+                }
+              : t
+          )
+        );
       }
       if (multiAbortRef.current) break;
     }
@@ -412,8 +811,20 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     };
     setTabs((prev) =>
       prev.map((t) =>
-        t.id === activeTabId
-          ? { ...t, loading: false, elapsedTimeMs: elapsed, activeResultIndex: 0, policyPrompt: policy ?? t.policyPrompt, lastExec }
+        t.id === runTabId
+          ? {
+              ...t,
+              loading: false,
+              elapsedTimeMs: elapsed,
+              activeResultIndex: 0,
+              policyPrompt: policy ?? t.policyPrompt,
+              lastExec,
+              statementExecutions: t.statementExecutions.map((execution) =>
+                execution.state === 'pending' || execution.state === 'running'
+                  ? { ...execution, state: 'skipped', message: '실행되지 않음' }
+                  : execution
+              ),
+            }
           : t
       )
     );
@@ -431,6 +842,8 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     fetchAll?: boolean;
     sqlOverride?: string;
     acknowledged?: boolean;
+    databaseOverride?: string;
+    statementRangesOverride?: SqlStatementRange[];
   }) => {
     if (activeTab.loading) return;
 
@@ -439,31 +852,35 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     const fetchAll = override?.fetchAll ?? false;
     const acknowledged = override?.acknowledged ?? false;
     const sql = override?.sqlOverride ?? activeTab.query;
+    const queryDatabase = override?.databaseOverride ?? activeDatabase;
 
     // A script of several statements runs sequentially with one result set each
     // (DataGrip-style). A single statement keeps the existing streaming path.
-    const statements = splitStatements(sql);
+    const statementRanges = override?.statementRangesOverride ?? splitStatementRanges(sql);
+    const statements = statementRanges.map((range) => range.statement);
     if (statements.length > 1) {
       setEditView(null);
-      await runMultiStatements(statements, { allowWrite, confirmDestructive, fetchAll });
+      await runMultiStatements(statementRanges, { database: queryDatabase, allowWrite, confirmDestructive, fetchAll });
       return;
     }
 
     // A plain single-table SELECT * → show an editable table view of that table
     // instead of running a read-only result grid.
     const editable = analyzeEditableQuery(sql);
-    if (editable) {
+    if (editable && activeTab.transactionMode === 'auto') {
       setTabs((prev) => prev.map((t) => (t.id === activeTabId ? { ...t, query: sql, error: null, policyPrompt: null } : t)));
       setEditView(editable);
       return;
     }
     setEditView(null);
 
+    if (activeTab.transactionMode === 'manual' && activeTab.transactionState === 'failed') return;
+
     // Analyze gate: for risky single statements (DML/DDL), call analyzeQuery and
     // show the RiskConfirmDialog before streaming. If analysis fails, fall through.
     if (!acknowledged && isRiskyStatement(sql)) {
       try {
-        const analyzeRes = await window.electronAPI.analyzeQuery(profileId, sql, database);
+        const analyzeRes = await window.electronAPI.analyzeQuery(profileId, sql, queryDatabase);
         if (analyzeRes.success && analyzeRes.data) {
           // Capture the run continuation — will be called when user confirms.
           pendingRunRef.current = () => {
@@ -488,6 +905,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
           ? {
               ...t,
               loading: true,
+              transactionNotice: null,
               columns: [],
               rows: [],
               error: null,
@@ -499,13 +917,21 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
               truncated: false,
               resultSets: [],
               activeResultIndex: 0,
+              lastExecutedSql: sql,
+              statementExecutions: statementRanges.map((range) => ({ ...range, state: 'running' as const })),
             }
           : t
       )
     );
 
     try {
+      const sessionId = activeTab.transactionMode === 'manual'
+        ? await ensureTransactionSession(activeTab.id, queryDatabase, allowWrite)
+        : undefined;
+      if (sessionId) updateTabTransaction(activeTab.id, { transactionState: 'opening' });
       const res = await window.electronAPI.executeQueryStream(queryId, profileId, sql, {
+        database: queryDatabase,
+        sessionId,
         allowWrite,
         confirmDestructive,
         fetchAll,
@@ -514,14 +940,38 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
       if (!res.success) {
         setTabs((prev) =>
           prev.map((t) =>
-            t.id === activeTabId ? { ...t, loading: false, error: res.error || 'Failed to start query', queryId: null } : t
+            t.id === activeTabId
+              ? {
+                  ...t,
+                  loading: false,
+                  error: res.error || 'Failed to start query',
+                  queryId: null,
+                  transactionState: t.transactionMode === 'manual' ? 'idle' : t.transactionState,
+                  statementExecutions: t.statementExecutions.map((execution) =>
+                    execution.state === 'running' ? { ...execution, state: 'error', message: res.error || 'Failed to start query' } : execution
+                  ),
+                }
+              : t
           )
         );
       }
     } catch (e) {
       setTabs((prev) =>
         prev.map((t) =>
-          t.id === activeTabId ? { ...t, loading: false, error: e instanceof Error ? e.message : 'Execution request failed', queryId: null } : t
+          t.id === activeTabId
+            ? {
+                ...t,
+                loading: false,
+                error: e instanceof Error ? e.message : 'Execution request failed',
+                queryId: null,
+                transactionState: t.transactionMode === 'manual' ? 'idle' : t.transactionState,
+                statementExecutions: t.statementExecutions.map((execution) =>
+                  execution.state === 'running'
+                    ? { ...execution, state: 'error', message: e instanceof Error ? e.message : 'Execution request failed' }
+                    : execution
+                ),
+              }
+            : t
         )
       );
     }
@@ -529,12 +979,13 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
 
   // One-click "load this SQL and run it" requests (e.g. table → recent rows).
   useEffect(() => {
-    if (!runQueryRequest) return;
-    const sql = runQueryRequest.sql;
-    setTabs((prev) => prev.map((t) => (t.id === activeTabId ? { ...t, query: sql } : t)));
-    void executeQuery({ sqlOverride: sql });
+    if (!requestedExecute || !requestedSql || !requestedDatabase) return;
+    const sql = requestedSql;
+    const targetTabId = activeTabIdRef.current;
+    setTabs((prev) => prev.map((t) => (t.id === targetTabId ? { ...t, database: requestedDatabase, query: sql } : t)));
+    void executeQuery({ sqlOverride: sql, databaseOverride: requestedDatabase });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [runQueryRequest?.nonce]);
+  }, [requestedExecute, requestedSql, requestedDatabase, requestedNonce]);
 
   const formatQuery = () => {
     const formatted = formatSql(activeTab.query, driver);
@@ -544,10 +995,20 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
 
   // Keep refs to the latest handlers so Monaco keybindings (registered once on
   // mount) always run the current closures, not stale ones.
-  const runQueryRef = useRef<() => void>(() => {});
-  runQueryRef.current = () => {
-    if (activeTab.loading || !activeTab.query.trim()) return;
-    void executeQuery();
+  const runCurrentStatementRef = useRef<() => void>(() => {});
+  runCurrentStatementRef.current = () => {
+    if (activeTab.loading || !activeTab.query.trim() || !editorInstance) return;
+    const model = editorInstance.getModel();
+    const position = editorInstance.getPosition();
+    if (!model || !position) return;
+    const selection = editorInstance.getSelection();
+    const target = resolveSqlExecutionTarget(model.getValue(), {
+      cursorOffset: model.getOffsetAt(position),
+      selectionStart: selection ? model.getOffsetAt(selection.getStartPosition()) : undefined,
+      selectionEnd: selection ? model.getOffsetAt(selection.getEndPosition()) : undefined,
+    });
+    if (!target) return;
+    void executeQuery({ sqlOverride: target.sql, statementRangesOverride: target.ranges });
   };
   const formatRef = useRef<() => void>(() => {});
   formatRef.current = formatQuery;
@@ -573,16 +1034,25 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
 
   const createTab = () => {
     const id = `tab-${Date.now()}`;
-    setTabs((prev) => [...prev, newTab(id, `Query ${prev.length + 1}`, 'SELECT * FROM ')]);
+    setTabs((prev) => [...prev, newTab(id, `Query ${prev.length + 1}`, activeDatabase, 'SELECT * FROM ')]);
     setActiveTabId(id);
   };
 
-  const closeTab = (tabId: string, e: React.MouseEvent) => {
+  const closeTab = async (tabId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (tabs.length === 1) return;
     const target = tabs.find((t) => t.id === tabId);
+    if (target?.transactionMode === 'manual' && ['opening', 'active', 'failed'].includes(target.transactionState)) {
+      if (!window.confirm('이 탭을 닫으면 미커밋 변경 사항이 Rollback 됩니다. 계속할까요?')) return;
+    }
     if (target?.loading && target.queryId) {
-      window.electronAPI.cancelQuery(target.queryId);
+      await window.electronAPI.cancelQuery(target.queryId);
+    }
+    try {
+      await closeTransactionSession(tabId);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : '트랜잭션 세션을 닫지 못했습니다.');
+      return;
     }
     const filtered = tabs.filter((t) => t.id !== tabId);
     setTabs(filtered);
@@ -650,19 +1120,21 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     <div className="editor">
       {/* Tabs */}
       <div className="editor-tabs">
-        <div className="editor-conn" title={`${connectionName} · ${driver} · ${database}`}>
+        <div className="editor-conn" title={`${connectionName} · ${driver} · ${activeDatabase}`}>
           <span className={`driver-chip sm ${driver}`}>{DRIVER_LABEL[driver]}</span>
           <span className="editor-conn-name">{connectionName}</span>
-          {database && <span className="editor-conn-db">{database}</span>}
+          {activeDatabase && <span className="editor-conn-db">{activeDatabase}</span>}
         </div>
         <span className="editor-tabs-sep" />
         {tabs.map((tab) => (
           <div
             key={tab.id}
             className={`etab ${activeTabId === tab.id ? 'active' : ''}`}
+            aria-label={formatQueryTabLabel(tab.name, tab.database)}
             onClick={() => setActiveTabId(tab.id)}
           >
-            <span>{tab.name}</span>
+            <span className="etab-name">{tab.name}</span>
+            {tab.database && <span className="etab-db" title={`스키마: ${tab.database}`}>{tab.database}</span>}
             {tabs.length > 1 && (
               <button className="etab-close" onClick={(e) => closeTab(tab.id, e)}>
                 <X size={12} />
@@ -705,7 +1177,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
               if (e.keyCode === KeyCode.Enter && (e.ctrlKey || e.metaKey)) {
                 e.preventDefault();
                 e.stopPropagation();
-                runQueryRef.current();
+                runCurrentStatementRef.current();
                 return;
               }
               // Cmd/Ctrl+Alt+L reformats the SQL (DataGrip-style).
@@ -723,6 +1195,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
             automaticLayout: true,
             scrollBeyondLastLine: false,
             lineNumbers: 'on',
+            glyphMargin: true,
             padding: { top: 10 },
             renderLineHighlight: 'line',
             // Disable Monaco's built-in suggest widget — we render our own.
@@ -735,6 +1208,33 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
         />
         <SqlAutocomplete editor={editorInstance} monaco={monaco} schema={schema} />
       </div>
+
+      {allDiagnostics.length > 0 && (
+        <div className="query-diagnostics" data-testid="sql-diagnostics" role="region" aria-label="SQL diagnostics">
+          <div className="query-diagnostics-head">
+            <AlertTriangle size={13} />
+            <span>{allDiagnostics.length}개 진단 결과</span>
+            <span className="query-diagnostics-hint">항목을 클릭하면 해당 위치로 이동합니다</span>
+          </div>
+          <div className="query-diagnostics-list">
+            {allDiagnostics.map((diagnostic, index) => {
+              const model = editorInstance?.getModel();
+              const line = model ? model.getPositionAt(diagnostic.start).lineNumber : 0;
+              return (
+                <button
+                  key={`${diagnostic.start}-${diagnostic.end}-${index}`}
+                  className={`query-diagnostic query-diagnostic-${diagnostic.severity}`}
+                  onClick={() => focusDiagnostic(diagnostic)}
+                  title="클릭하여 문제 위치로 이동"
+                >
+                  <span className="query-diagnostic-line">{line > 0 ? `L${line}` : 'SQL'}</span>
+                  <span>{diagnostic.message}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Drag handle to resize the editor vs. the results area */}
       <div
@@ -752,15 +1252,15 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
               <Square size={13} /> Cancel
             </button>
           ) : (
-            <button className="btn btn-primary btn-sm" onClick={() => executeQuery()} disabled={!activeTab.query.trim()}>
+            <button className="btn btn-primary btn-sm" onClick={() => executeQuery()} disabled={!activeTab.query.trim() || (activeTab.transactionMode === 'manual' && activeTab.transactionState === 'failed')}>
               <Play size={13} /> Run
             </button>
           )}
           <button
             className="btn btn-secondary btn-sm"
-            onClick={() => executeQuery({ sqlOverride: `EXPLAIN ${activeTab.query}` })}
-            disabled={!activeTab.query.trim() || activeTab.loading}
-            title="Show query execution plan (EXPLAIN)"
+            onClick={() => { if (explainSql) void executeQuery({ sqlOverride: explainSql }); }}
+            disabled={!explainSql || activeTab.loading}
+            title={explainSql ? 'Show query execution plan (non-executing EXPLAIN)' : 'Visual EXPLAIN is supported for one statement on MySQL, PostgreSQL, and SQLite'}
           >
             <ListTree size={13} /> EXPLAIN
           </button>
@@ -784,13 +1284,54 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
           {activeTab.loading && <span className="spinner" />}
           {activeTab.elapsedTimeMs !== null && <span className="elapsed">{activeTab.elapsedTimeMs} ms</span>}
           <div className="mode-toggle">
-            <button className={`mode-opt ${!writeMode ? 'active' : ''}`} onClick={() => setWriteMode(false)}>
+            <button className={`mode-opt ${!writeMode ? 'active' : ''}`} onClick={() => void changeWriteMode(false)}>
               <Lock size={11} /> Read-only
             </button>
-            <button className={`mode-opt write ${writeMode ? 'active' : ''}`} onClick={() => setWriteMode(true)}>
+            <button className={`mode-opt write ${writeMode ? 'active' : ''}`} onClick={() => void changeWriteMode(true)}>
               <Pencil size={11} /> Write
             </button>
           </div>
+          {driver !== 'redis' && <div className="transaction-controls" aria-label="Query transaction controls">
+            <div className="mode-toggle transaction-mode-toggle">
+              <button
+                className={`mode-opt ${activeTab.transactionMode === 'auto' ? 'active' : ''}`}
+                data-testid="tx-mode-auto"
+                aria-pressed={activeTab.transactionMode === 'auto'}
+                onClick={() => void setTransactionMode(activeTab.id, 'auto')}
+                title="각 쿼리를 자동으로 커밋합니다"
+              >Auto</button>
+              <button
+                className={`mode-opt ${activeTab.transactionMode === 'manual' ? 'active' : ''}`}
+                data-testid="tx-mode-manual"
+                aria-pressed={activeTab.transactionMode === 'manual'}
+                onClick={() => void setTransactionMode(activeTab.id, 'manual')}
+                title="명시적으로 Commit 또는 Rollback 할 때까지 변경 사항을 보류합니다"
+              >Manual</button>
+            </div>
+            <span
+              className={`transaction-status transaction-status-${activeTab.transactionState}`}
+              data-testid="transaction-status"
+              role="status"
+              title={activeTab.transactionMode === 'manual' ? '이 쿼리 탭 전용 트랜잭션' : '각 쿼리 실행 후 자동 커밋'}
+            >
+              <Database size={12} /> {getTransactionStatusLabel(activeTab.transactionMode, activeTab.transactionState)}
+            </span>
+            <button
+              className="btn btn-secondary btn-sm transaction-action"
+              data-testid="tx-commit"
+              onClick={() => void finishTransaction('commit')}
+              disabled={!getTransactionControls(activeTab.transactionMode, activeTab.transactionState, activeTab.loading).commit}
+              title="현재 탭의 변경 사항을 커밋합니다"
+            ><Check size={13} /> Commit</button>
+            <button
+              className="btn btn-secondary btn-sm transaction-action"
+              data-testid="tx-rollback"
+              onClick={() => void finishTransaction('rollback')}
+              disabled={!getTransactionControls(activeTab.transactionMode, activeTab.transactionState, activeTab.loading).rollback}
+              title="현재 탭의 변경 사항을 되돌립니다"
+            ><RotateCcw size={13} /> Rollback</button>
+            {activeTab.transactionNotice && <span className="transaction-notice" role="status">{activeTab.transactionNotice}</span>}
+          </div>}
         </div>
       </div>
 
@@ -810,9 +1351,8 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
             {prompt.code === 'read_only_blocked' ? (
               <button
                 className="btn btn-secondary btn-sm"
-                onClick={() => {
-                  setWriteMode(true);
-                  executeQuery({ allowWrite: true });
+                onClick={async () => {
+                  if (await changeWriteMode(true)) await executeQuery({ allowWrite: true });
                 }}
               >
                 Enable write & run
@@ -833,7 +1373,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
             key={`edit.${editView.table}.${editView.orderBy?.col ?? ''}.${editView.orderBy?.dir ?? ''}.${editView.limit ?? ''}`}
             profileId={profileId}
             driver={driver as 'mysql' | 'postgres'}
-            database={database}
+            database={activeDatabase}
             table={editView.table}
             initialOrderBy={editView.orderBy ?? undefined}
             limit={editView.limit ?? undefined}
@@ -923,29 +1463,42 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
               )}
 
             {(activeTab.columns.length > 0 || activeTab.rows.length > 0) && (
-              <>
-                {activeTab.truncated && !activeTab.loading && (
-                  <div className="trunc-bar">
-                    <span>
-                      Showing first {activeTab.rows.length.toLocaleString()} rows (capped at{' '}
-                      {activeTab.rowLimit.toLocaleString()}).
-                    </span>
-                    <button
-                      className="btn btn-secondary btn-xs"
-                      onClick={() => executeQuery({ allowWrite: writeMode, fetchAll: true })}
-                    >
-                      Fetch all rows
-                    </button>
-                  </div>
-                )}
-                <ResultGrid columns={activeTab.columns} rows={activeTab.rows} />
-                {activeTab.columns.length > 0 && (
-                  <details className="narrator-wrap">
-                    <summary>업무 문장 생성</summary>
-                    <ResultNarrator profileId={profileId} sql={activeTab.query} columns={activeTab.columns} rows={activeTab.rows} />
-                  </details>
-                )}
-              </>
+              isExplainResult ? (
+                activeTab.loading ? (
+                  <div className="explain-plan-loading"><span className="spinner" /> Building execution plan…</div>
+                ) : (
+                  <ExplainPlanView
+                    key={`${activeTab.id}:${activeTab.lastExecutedSql}`}
+                    driver={driver}
+                    columns={activeTab.columns}
+                    rows={activeTab.rows}
+                  />
+                )
+              ) : (
+                <>
+                  {activeTab.truncated && !activeTab.loading && (
+                    <div className="trunc-bar">
+                      <span>
+                        Showing first {activeTab.rows.length.toLocaleString()} rows (capped at{' '}
+                        {activeTab.rowLimit.toLocaleString()}).
+                      </span>
+                      <button
+                        className="btn btn-secondary btn-xs"
+                        onClick={() => executeQuery({ allowWrite: writeMode, fetchAll: true })}
+                      >
+                        Fetch all rows
+                      </button>
+                    </div>
+                  )}
+                  <ResultGrid columns={activeTab.columns} rows={activeTab.rows} />
+                  {activeTab.columns.length > 0 && (
+                    <details className="narrator-wrap">
+                      <summary>업무 문장 생성</summary>
+                      <ResultNarrator profileId={profileId} sql={activeTab.query} columns={activeTab.columns} rows={activeTab.rows} />
+                    </details>
+                  )}
+                </>
+              )
             )}
           </>
         )}

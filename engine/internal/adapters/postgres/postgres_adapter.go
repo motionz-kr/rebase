@@ -6,17 +6,19 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"time"
 
 	pqDriver "github.com/lib/pq"
 	"github.com/smlee/database-local-engine/engine/internal/adapters"
+	"github.com/smlee/database-local-engine/engine/internal/adapters/sqlsession"
 	"github.com/smlee/database-local-engine/engine/internal/domain"
 	"github.com/smlee/database-local-engine/engine/internal/ports"
 )
 
-type PostgreSQLConnector struct{}
+type PostgreSQLConnector struct{ querySessions *sqlsession.Manager }
 
 func NewPostgreSQLConnector() *PostgreSQLConnector {
-	return &PostgreSQLConnector{}
+	return &PostgreSQLConnector{querySessions: sqlsession.NewManager(15 * time.Minute)}
 }
 
 func (c *PostgreSQLConnector) TestConnection(ctx context.Context, p domain.ConnectionProfile, password string) error {
@@ -342,6 +344,56 @@ func (c *PostgreSQLConnector) ExecuteQueryStream(
 	return rowsAffected, c.normalizeError(rows.Err())
 }
 
+func (c *PostgreSQLConnector) OpenQuerySession(ctx context.Context, p domain.ConnectionProfile, password, ownerID, database string, readOnly bool) (string, error) {
+	if database == "" {
+		database = p.Database
+	}
+	db, err := c.connect(p, password, database)
+	if err != nil {
+		return "", err
+	}
+	return c.querySessions.Open(ctx, ownerID, database, db, readOnly || p.ReadOnly, true)
+}
+
+func (c *PostgreSQLConnector) ExecuteQuerySessionStream(
+	ctx context.Context,
+	_ domain.ConnectionProfile,
+	_ string,
+	ownerID, database, sessionID, query string,
+	readOnly bool,
+	onSessionStart func(sessionID int64),
+	onHeader func(columns []string) error,
+	onRow func(row []any) error,
+) (int64, error) {
+	lease, err := c.querySessions.Begin(ctx, ownerID, database, sessionID, readOnly)
+	if err != nil {
+		return 0, c.normalizeError(err)
+	}
+	defer lease.Close()
+
+	var pid int64
+	if err := lease.Queryer.QueryRowContext(ctx, "SELECT pg_backend_pid()").Scan(&pid); err != nil {
+		return 0, c.normalizeError(err)
+	}
+	if onSessionStart != nil {
+		onSessionStart(pid)
+	}
+	rowsAffected, err := adapters.ExecuteSessionQuery(ctx, lease.Queryer, query, onHeader, onRow)
+	return rowsAffected, c.normalizeError(err)
+}
+
+func (c *PostgreSQLConnector) CommitQuerySession(ctx context.Context, ownerID, sessionID string) error {
+	return c.normalizeError(c.querySessions.Commit(ctx, ownerID, sessionID))
+}
+
+func (c *PostgreSQLConnector) RollbackQuerySession(ctx context.Context, ownerID, sessionID string) error {
+	return c.normalizeError(c.querySessions.Rollback(ctx, ownerID, sessionID))
+}
+
+func (c *PostgreSQLConnector) CloseQuerySession(ownerID, sessionID string) error {
+	return c.normalizeError(c.querySessions.Close(ownerID, sessionID))
+}
+
 func (c *PostgreSQLConnector) CancelSession(ctx context.Context, p domain.ConnectionProfile, password string, sessionID int64) error {
 	db, err := c.connect(p, password, "postgres")
 	if err != nil {
@@ -352,8 +404,6 @@ func (c *PostgreSQLConnector) CancelSession(ctx context.Context, p domain.Connec
 	_, err = db.ExecContext(ctx, "SELECT pg_cancel_backend($1)", sessionID)
 	return c.normalizeError(err)
 }
-
-
 
 // ExecuteBatch runs all statements inside a single transaction. On the first
 // failure it rolls back and returns the 0-based index of the failed statement;
@@ -436,9 +486,12 @@ func (c *PostgreSQLConnector) GetSchemaGraph(ctx context.Context, p domain.Conne
 	defer db.Close()
 
 	colRows, err := db.QueryContext(ctx, `
-		SELECT c.table_name, c.column_name, c.data_type, c.is_nullable,
-		       (pk.column_name IS NOT NULL) AS is_pk
+		SELECT c.table_name, c.column_name, format_type(a.atttypid, a.atttypmod), c.is_nullable,
+		       (pk.column_name IS NOT NULL) AS is_pk, COALESCE(c.column_default, '')
 		FROM information_schema.columns c
+		JOIN pg_namespace ns ON ns.nspname = c.table_schema
+		JOIN pg_class t ON t.relnamespace = ns.oid AND t.relname = c.table_name
+		JOIN pg_attribute a ON a.attrelid = t.oid AND a.attname = c.column_name AND a.attnum > 0 AND NOT a.attisdropped
 		LEFT JOIN (
 			SELECT kcu.table_name, kcu.column_name
 			FROM information_schema.table_constraints tc
@@ -458,8 +511,9 @@ func (c *PostgreSQLConnector) GetSchemaGraph(ctx context.Context, p domain.Conne
 	byTable := map[string]*ports.SchemaGraphTable{}
 	for colRows.Next() {
 		var tbl, col, typ, nullable string
+		var defaultValue string
 		var isPK bool
-		if err := colRows.Scan(&tbl, &col, &typ, &nullable, &isPK); err != nil {
+		if err := colRows.Scan(&tbl, &col, &typ, &nullable, &isPK, &defaultValue); err != nil {
 			return ports.SchemaGraph{}, c.normalizeError(err)
 		}
 		t, ok := byTable[tbl]
@@ -468,7 +522,9 @@ func (c *PostgreSQLConnector) GetSchemaGraph(ctx context.Context, p domain.Conne
 			byTable[tbl] = t
 			order = append(order, tbl)
 		}
-		t.Columns = append(t.Columns, ports.ColumnInfo{Name: col, Type: typ, Nullable: nullable == "YES", PrimaryKey: isPK})
+		t.Columns = append(t.Columns, ports.ColumnInfo{
+			Name: col, Type: typ, Nullable: nullable == "YES", PrimaryKey: isPK, DefaultValue: defaultValue,
+		})
 	}
 	if err := colRows.Err(); err != nil {
 		return ports.SchemaGraph{}, c.normalizeError(err)
@@ -497,6 +553,43 @@ func (c *PostgreSQLConnector) GetSchemaGraph(ctx context.Context, p domain.Conne
 		fks = append(fks, fk)
 	}
 	if err := fkRows.Err(); err != nil {
+		return ports.SchemaGraph{}, c.normalizeError(err)
+	}
+
+	indexRows, err := db.QueryContext(ctx, `
+		SELECT t.relname, i.relname AS index_name, ix.indisunique, ix.indisprimary, a.attname, ix.indpred IS NOT NULL
+		FROM pg_class t
+		JOIN pg_namespace ns ON ns.oid = t.relnamespace
+		JOIN pg_index ix ON ix.indrelid = t.oid
+		JOIN pg_class i ON i.oid = ix.indexrelid
+		JOIN LATERAL unnest(ix.indkey) WITH ORDINALITY AS k(attnum, ord) ON true
+		JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum
+		WHERE ns.nspname = 'public' AND ix.indisvalid
+		ORDER BY t.relname, index_name, k.ord
+	`)
+	if err != nil {
+		return ports.SchemaGraph{}, c.normalizeError(err)
+	}
+	defer indexRows.Close()
+	var currentTable, currentIndex string
+	for indexRows.Next() {
+		var tableName, indexName, columnName string
+		var unique, primary, partial bool
+		if err := indexRows.Scan(&tableName, &indexName, &unique, &primary, &columnName, &partial); err != nil {
+			return ports.SchemaGraph{}, c.normalizeError(err)
+		}
+		table := byTable[tableName]
+		if table == nil {
+			continue
+		}
+		if tableName != currentTable || indexName != currentIndex {
+			table.Indexes = append(table.Indexes, ports.Index{Name: indexName, Unique: unique, Primary: primary, Partial: partial})
+			currentTable, currentIndex = tableName, indexName
+		}
+		last := &table.Indexes[len(table.Indexes)-1]
+		last.Columns = append(last.Columns, columnName)
+	}
+	if err := indexRows.Err(); err != nil {
 		return ports.SchemaGraph{}, c.normalizeError(err)
 	}
 
@@ -614,4 +707,5 @@ func (c *PostgreSQLConnector) normalizeError(err error) error {
 
 	return err
 }
+
 type PostgreSQLAdapter = PostgreSQLConnector

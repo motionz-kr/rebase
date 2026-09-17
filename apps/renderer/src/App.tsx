@@ -42,6 +42,7 @@ import { DomainBindingsDialog } from './components/DomainBindingsDialog';
 import { SaveTemplateDialog } from './components/SaveTemplateDialog';
 import type { TemplateDef } from './lib/templateTypes';
 import { loadAgentSettings } from './lib/agentSettings';
+import { createSqlQueryRequest, type SqlQueryRequest } from './lib/queryRequest';
 import { connectionsReducer, initialConnectionsState } from './state/connections';
 import './App.css';
 
@@ -159,10 +160,11 @@ function App() {
     try { return JSON.parse(profile.domainBindings || '{}'); } catch { return {}; }
   };
   const [selectedQueryText, setSelectedQueryText] = useState<string>('');
-  // One-click "load + run this SQL" request, targeted at a connection's editor.
-  const [runReq, setRunReq] = useState<{ profileId: string; sql: string; nonce: number } | null>(null);
+  // SQL editor context request, targeted at a connection. It carries the
+  // selected database so schema actions cannot fall back to the profile DB.
+  const [queryRequest, setQueryRequest] = useState<SqlQueryRequest | null>(null);
   // "Load this command into the input" request for non-SQL editors (redis/mongo).
-  // Unlike runReq it does NOT auto-execute — the user presses run.
+  // Unlike queryRequest it does NOT auto-execute — the user presses run.
   const [loadReq, setLoadReq] = useState<{ profileId: string; text: string; nonce: number } | null>(null);
   const [historyTrigger, setHistoryTrigger] = useState(0);
   const [savedTrigger, setSavedTrigger] = useState(0);
@@ -474,6 +476,13 @@ function App() {
   const handleSelectLibraryQuery = (queryText: string) => {
     setLibraryView(null);
     handleSelectQuery(queryText);
+  };
+
+  const openSchemaQuery = (profileId: string, database: string) => {
+    setTemplateView((m) => ({ ...m, [profileId]: null }));
+    setErTab((prev) => ({ ...prev, [profileId]: null }));
+    setOpenTable((prev) => ({ ...prev, [profileId]: null }));
+    setQueryRequest(createSqlQueryRequest(profileId, database, '', false, Date.now()));
   };
 
   const openLibrary = (view: LibraryView = 'saved') => {
@@ -979,7 +988,31 @@ function App() {
                             onDisconnect={() => disconnect(p.id!)}
                           />
                         ) : (
-                          <SchemaExplorer profileId={p.id!} driver={p.driver as 'mysql' | 'postgres' | 'redis' | 'sqlite' | 'sqlserver'} hiddenStore={hiddenStore} onDisconnect={() => disconnect(p.id!)} onSchemaChanged={() => setSchemaVersion((n) => n + 1)} onOpenTableData={(db, table) => { setTemplateView((m) => ({ ...m, [p.id!]: null })); setErTab((prev) => ({ ...prev, [p.id!]: null })); setOpenTable((prev) => ({ ...prev, [p.id!]: { db, table } })); }} onOpenErDiagram={(db) => { setTemplateView((m) => ({ ...m, [p.id!]: null })); setOpenTable((prev) => ({ ...prev, [p.id!]: null })); setErTab((prev) => ({ ...prev, [p.id!]: { db } })); }} onRunQuery={(sql) => { setTemplateView((m) => ({ ...m, [p.id!]: null })); setErTab((prev) => ({ ...prev, [p.id!]: null })); setOpenTable((prev) => ({ ...prev, [p.id!]: null })); setRunReq({ profileId: p.id!, sql, nonce: Date.now() }); }} />
+                          <SchemaExplorer
+                            profileId={p.id!}
+                            profiles={profiles}
+                            driver={p.driver as 'mysql' | 'postgres' | 'redis' | 'sqlite' | 'sqlserver'}
+                            hiddenStore={hiddenStore}
+                            onDisconnect={() => disconnect(p.id!)}
+                            onSchemaChanged={() => setSchemaVersion((n) => n + 1)}
+                            onOpenQuery={(db) => openSchemaQuery(p.id!, db)}
+                            onOpenTableData={(db, table) => {
+                              setTemplateView((m) => ({ ...m, [p.id!]: null }));
+                              setErTab((prev) => ({ ...prev, [p.id!]: null }));
+                              setOpenTable((prev) => ({ ...prev, [p.id!]: { db, table } }));
+                            }}
+                            onOpenErDiagram={(db) => {
+                              setTemplateView((m) => ({ ...m, [p.id!]: null }));
+                              setOpenTable((prev) => ({ ...prev, [p.id!]: null }));
+                              setErTab((prev) => ({ ...prev, [p.id!]: { db } }));
+                            }}
+                            onRunQuery={({ database, sql }) => {
+                              setTemplateView((m) => ({ ...m, [p.id!]: null }));
+                              setErTab((prev) => ({ ...prev, [p.id!]: null }));
+                              setOpenTable((prev) => ({ ...prev, [p.id!]: null }));
+                              setQueryRequest(createSqlQueryRequest(p.id!, database, sql, true, Date.now()));
+                            }}
+                          />
                         )}
                       </div>
                     )}
@@ -1212,7 +1245,7 @@ function App() {
                       safeMode={profile.safeMode ?? false}
                       onQueryExecuted={() => setHistoryTrigger((n) => n + 1)}
                       loadTriggerQuery={focused ? selectedQueryText : ''}
-                      runQueryRequest={focused && runReq?.profileId === id ? { sql: runReq.sql, nonce: runReq.nonce } : undefined}
+                      queryRequest={focused && queryRequest?.profileId === id ? queryRequest : undefined}
                       schemaVersion={schemaVersion}
                       agentTitlesEnabled={showAgent}
                       onOpenLibrary={() => openLibrary()}

@@ -522,6 +522,8 @@ app.whenReady().then(() => {
       const port = engineManager.getPort()!;
       const postData = JSON.stringify({
         profileId,
+        database: options?.database ?? '',
+        sessionId: options?.sessionId ?? '',
         query,
         queryId,
         allowWrite: options?.allowWrite ?? false,
@@ -620,6 +622,19 @@ app.whenReady().then(() => {
       req.end();
 
       return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('query-session', async (_event, action, profileId, database, sessionId, readOnly) => {
+    try {
+      const data = await requestEngine({
+        method: 'POST',
+        path: '/query/session',
+        body: { action, profileId, database, sessionId, readOnly },
+      });
+      return { success: true, data };
     } catch (err: any) {
       return { success: false, error: err.message };
     }

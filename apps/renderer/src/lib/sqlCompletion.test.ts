@@ -142,6 +142,52 @@ describe('getSuggestions', () => {
     expect(sug?.detail).toContain('users');
     expect(sug?.detail).toContain('varchar');
   });
+
+  test('uses only the statement containing the cursor', () => {
+    const out = labels('SELECT * FROM users; SELECT ');
+    expect(out).toContain('SELECT');
+    expect(out).toContain('orders');
+    expect(out).not.toContain('email');
+    expect(out).not.toContain('total');
+  });
+
+  test('does not split at a semicolon inside a string literal', () => {
+    const out = labels("SELECT '; SELECT * FROM users' AS marker; SELECT ");
+    expect(out).toContain('users');
+    expect(out).toContain('orders');
+    expect(out).not.toContain('email');
+  });
+
+  test('does not split at a semicolon inside a PostgreSQL dollar-quoted string', () => {
+    const out = labels('SELECT $body$; SELECT * FROM users$body$ AS marker, ');
+    expect(out).toContain('SELECT');
+    expect(out).not.toContain('email');
+  });
+
+  test('does not split at a semicolon inside a block comment', () => {
+    const out = labels('SELECT * FROM users /* ; SELECT * FROM orders */ WHERE ');
+    expect(out).toContain('email');
+    expect(out).not.toContain('total');
+  });
+
+  test('ignores table references inside string literals', () => {
+    const out = labels("SELECT 'FROM orders o' AS note FROM users WHERE ");
+    expect(out).toContain('email');
+    expect(out).not.toContain('total');
+  });
+
+  test('ignores table references inside SQL comments', () => {
+    const out = labels('SELECT * FROM users -- JOIN orders o\nWHERE ');
+    expect(out).toContain('email');
+    expect(out).not.toContain('total');
+  });
+
+  test('does not open autocomplete inside a string or comment', () => {
+    expect(shouldShowAutocomplete("SELECT 'ord")).toBe(false);
+    expect(shouldShowAutocomplete('SELECT $body$ord')).toBe(false);
+    expect(shouldShowAutocomplete('SELECT * FROM users -- ord')).toBe(false);
+    expect(shouldShowAutocomplete('SELECT * FROM users /* ord')).toBe(false);
+  });
 });
 
 describe('shouldShowAutocomplete', () => {

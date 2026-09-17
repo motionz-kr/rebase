@@ -2,7 +2,16 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { X, RefreshCw, Download, AlertTriangle, ChevronLeft, ChevronRight, Search, Plus, Trash2, Save, Undo2, Pin, PinOff } from 'lucide-react';
 import type { ColumnInfo } from '../global';
 import type { Driver } from '../lib/ddlBuilder';
-import { buildSelectPage, type ColFilter, type OrderBy } from '../lib/tableQuery';
+import {
+  buildSelectPage,
+  defaultFilterOperator,
+  FILTER_OPERATOR_LABELS,
+  filterOperatorRequiresValue,
+  filterOperatorsForType,
+  type ColFilter,
+  type FilterOperator,
+  type OrderBy,
+} from '../lib/tableQuery';
 import { runSelect } from '../lib/runSelect';
 import { runBatch } from '../lib/runBatch';
 import { toCsv, toJson, toTsv } from '../lib/gridExport';
@@ -57,7 +66,6 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
   const [page, setPage] = useState(0);
   const [hasNext, setHasNext] = useState(false);
   const [orderBy, setOrderBy] = useState<OrderBy | null>(initialOrderBy ?? null);
-  const [filters, setFilters] = useState<Record<string, string>>(initialFilter ? { [initialFilter.col]: initialFilter.value } : {});
   const [appliedFilters, setAppliedFilters] = useState<ColFilter[]>(initialFilter ? [{ col: initialFilter.col, value: initialFilter.value }] : []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -239,25 +247,34 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
   // Filter builder (above the grid): pick a column + value to add a filter; active
   // filters show as removable chips. Each change re-applies (resets to page 0).
   const [filterCol, setFilterCol] = useState('');
+  const [filterOperator, setFilterOperator] = useState<FilterOperator>('contains');
   const [filterVal, setFilterVal] = useState('');
-  const applyFilterMap = (next: Record<string, string>) => {
-    if (hasPending) return;
-    setFilters(next);
-    setPage(0);
-    setAppliedFilters(Object.entries(next).filter(([, v]) => v.trim() !== '').map(([col, value]) => ({ col, value })));
-  };
+  const selectedFilterColumn = filterCol || columns[0] || '';
+  const selectedFilterType = colTypes[columns.indexOf(selectedFilterColumn)] ?? '';
+  const availableFilterOperators = filterOperatorsForType(selectedFilterType);
+  const activeFilterOperator = availableFilterOperators.includes(filterOperator)
+    ? filterOperator
+    : defaultFilterOperator(selectedFilterType);
+  const needsFilterValue = filterOperatorRequiresValue(activeFilterOperator);
   const addFilter = () => {
-    const col = filterCol || columns[0];
-    if (!col || !filterVal.trim()) return;
-    applyFilterMap({ ...filters, [col]: filterVal.trim() });
+    if (hasPending || !selectedFilterColumn || (needsFilterValue && !filterVal.trim())) return;
+    setPage(0);
+    setAppliedFilters((prev) => [
+      ...prev,
+      {
+        col: selectedFilterColumn,
+        operator: activeFilterOperator,
+        value: needsFilterValue ? filterVal.trim() : '',
+      },
+    ]);
     setFilterVal('');
   };
-  const removeFilter = (col: string) => {
-    const next = { ...filters };
-    delete next[col];
-    applyFilterMap(next);
+  const removeFilter = (index: number) => {
+    if (hasPending) return;
+    setPage(0);
+    setAppliedFilters((prev) => prev.filter((_, i) => i !== index));
   };
-  const activeFilters = Object.entries(filters).filter(([, v]) => v.trim() !== '');
+  const activeFilters = appliedFilters;
 
   // selection + copy
   const bounds = (s: Sel) => ({
@@ -503,26 +520,53 @@ export const TableDataView: React.FC<Props> = ({ profileId, driver, database, ta
       {/* Filter builder — lives above the table (not as an in-grid row). */}
       <div className="tdv-filterbar">
         <Search size={13} className="tdv-fb-icon" />
-        <select className="tdv-fb-col" value={filterCol || columns[0] || ''} onChange={(e) => setFilterCol(e.target.value)} disabled={hasPending || columns.length === 0}>
+        <select
+          className="tdv-fb-col"
+          aria-label="Filter column"
+          value={selectedFilterColumn}
+          onChange={(e) => {
+            const nextCol = e.target.value;
+            setFilterCol(nextCol);
+            setFilterOperator(defaultFilterOperator(colTypes[columns.indexOf(nextCol)] ?? ''));
+          }}
+          disabled={hasPending || columns.length === 0}
+        >
           {columns.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <select
+          className="tdv-fb-op"
+          aria-label="Filter operator"
+          value={activeFilterOperator}
+          onChange={(e) => setFilterOperator(e.target.value as FilterOperator)}
+          disabled={hasPending || availableFilterOperators.length === 0}
+        >
+          {availableFilterOperators.map((operator) => (
+            <option key={operator} value={operator}>{FILTER_OPERATOR_LABELS[operator]}</option>
+          ))}
         </select>
         <input
           className="input tdv-fb-val"
           placeholder="값으로 필터…"
+          aria-label="Filter value"
           value={filterVal}
-          disabled={hasPending}
+          disabled={hasPending || !needsFilterValue}
           onChange={(e) => setFilterVal(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') addFilter(); }}
         />
-        <button className="btn btn-secondary btn-xs" onClick={addFilter} disabled={hasPending || !filterVal.trim()}>필터 추가</button>
-        {activeFilters.map(([col, val]) => (
-          <span key={col} className="filter-chip">
-            <span className="fc-col">{col}</span> = <span className="fc-val">{val}</span>
-            <button className="fc-x" title="필터 제거" onClick={() => removeFilter(col)}>✕</button>
+        <button className="btn btn-secondary btn-xs" onClick={addFilter} disabled={hasPending || !selectedFilterColumn || (needsFilterValue && !filterVal.trim())}>필터 추가</button>
+        {activeFilters.map((filter, index) => {
+          const operator = filter.operator ?? 'contains';
+          return (
+          <span key={`${filter.col}-${index}`} className="filter-chip">
+            <span className="fc-col">{filter.col}</span>
+            <span className="fc-op">{FILTER_OPERATOR_LABELS[operator]}</span>
+            {filterOperatorRequiresValue(operator) && <span className="fc-val">{filter.value}</span>}
+            <button className="fc-x" title="필터 제거" onClick={() => removeFilter(index)}>✕</button>
           </span>
-        ))}
+          );
+        })}
         {activeFilters.length > 0 && (
-          <button className="btn btn-ghost btn-xs tdv-fb-clear" onClick={() => applyFilterMap({})} disabled={hasPending}>모두 지우기</button>
+          <button className="btn btn-ghost btn-xs tdv-fb-clear" onClick={() => { setPage(0); setAppliedFilters([]); }} disabled={hasPending}>모두 지우기</button>
         )}
       </div>
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { splitStatements } from './splitStatements';
+import { splitStatements, splitStatementRanges } from './splitStatements';
 
 describe('splitStatements', () => {
   it('returns single statement unchanged (no semicolon)', () => {
@@ -47,5 +47,25 @@ describe('splitStatements', () => {
   it('returns empty array for blank / comment-only input', () => {
     expect(splitStatements('   ;  ')).toEqual([]);
     expect(splitStatements('')).toEqual([]);
+  });
+});
+
+describe('splitStatementRanges', () => {
+  it('returns trimmed source offsets for each statement', () => {
+    const sql = '  SELECT 1;\n\n UPDATE users SET active = 1;';
+
+    expect(splitStatementRanges(sql)).toEqual([
+      { statement: 'SELECT 1', start: 2, end: 10 },
+      { statement: 'UPDATE users SET active = 1', start: 14, end: 41 },
+    ]);
+  });
+
+  it('keeps semicolons inside quoted text out of the ranges', () => {
+    const sql = "SELECT ';' AS value; SELECT 2";
+
+    expect(splitStatementRanges(sql)).toEqual([
+      { statement: "SELECT ';' AS value", start: 0, end: 19 },
+      { statement: 'SELECT 2', start: 21, end: 29 },
+    ]);
   });
 });

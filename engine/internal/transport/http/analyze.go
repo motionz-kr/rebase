@@ -84,7 +84,7 @@ func (h *QueryHandler) AnalyzeQuery() http.Handler {
 
 		connector, cerr := h.getConnector(profile.Driver)
 		if report.Parseable && cerr == nil && (report.Verb == "UPDATE" || report.Verb == "DELETE") {
-			h.enrichReport(r.Context(), connector, *profile, password, req.Database, report, &resp)
+			h.enrichReport(r.Context(), connector, profileForDatabase(*profile, req.Database), password, req.Database, report, &resp)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(resp)

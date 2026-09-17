@@ -1,16 +1,34 @@
+export interface SqlStatementRange {
+  statement: string;
+  /** UTF-16 source offset, inclusive. */
+  start: number;
+  /** UTF-16 source offset, exclusive. */
+  end: number;
+}
+
 // Split SQL into individual statements on top-level ';'. Quote/comment/dollar-quote
 // aware so semicolons inside literals, identifiers, comments, and PG dollar bodies
-// do not split. Returns trimmed, non-empty statements.
-export function splitStatements(sql: string): string[] {
-  const out: string[] = [];
+// do not split. Returns trimmed, non-empty statements with source offsets.
+export function splitStatementRanges(sql: string): SqlStatementRange[] {
+  const out: SqlStatementRange[] = [];
   let buf = '';
+  let statementStart = 0;
   let i = 0;
   const n = sql.length;
 
-  const push = () => {
+  const push = (statementEnd: number) => {
     const t = buf.trim();
-    if (t) out.push(t);
+    if (t) {
+      const leading = buf.length - buf.trimStart().length;
+      const trailing = buf.length - buf.trimEnd().length;
+      out.push({
+        statement: t,
+        start: statementStart + leading,
+        end: statementStart + buf.length - trailing,
+      });
+    }
     buf = '';
+    statementStart = statementEnd + 1;
   };
 
   while (i < n) {
@@ -86,7 +104,7 @@ export function splitStatements(sql: string): string[] {
     }
     // statement terminator
     if (ch === ';') {
-      push();
+      push(i);
       i++;
       continue;
     }
@@ -94,6 +112,10 @@ export function splitStatements(sql: string): string[] {
     buf += ch;
     i++;
   }
-  push();
+  push(n - 1);
   return out;
+}
+
+export function splitStatements(sql: string): string[] {
+  return splitStatementRanges(sql).map((range) => range.statement);
 }

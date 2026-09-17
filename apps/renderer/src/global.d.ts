@@ -42,10 +42,20 @@ export interface SchemaGraphColumn {
   type: string;
   nullable: boolean;
   primaryKey: boolean;
+  defaultValue?: string;
+}
+export interface SchemaGraphIndex {
+  name: string;
+  columns: string[];
+  unique: boolean;
+  primary: boolean;
+  partial?: boolean;
+  prefix?: boolean;
 }
 export interface SchemaGraphTable {
   name: string;
   columns: SchemaGraphColumn[];
+  indexes?: SchemaGraphIndex[];
 }
 export interface SchemaGraphFK {
   fromTable: string;
@@ -264,7 +274,8 @@ declare global {
       getViewDDL: (profileId: string, database: string, view: string) => Promise<ResultWrapper<{ ddl: string }>>;
       getSchemaCompletion: (profileId: string, database: string) => Promise<ResultWrapper<{ tables: { name: string; columns: { name: string; type: string }[] }[] }>>;
       getSchemaGraph: (profileId: string, database: string) => Promise<ResultWrapper<SchemaGraph>>;
-      executeQueryStream: (queryId: string, profileId: string, query: string, options?: { allowWrite?: boolean; confirmDestructive?: boolean; maxRows?: number; fetchAll?: boolean; acknowledged?: boolean }) => Promise<ResultWrapper<{ success: boolean }>>;
+      executeQueryStream: (queryId: string, profileId: string, query: string, options?: { database?: string; sessionId?: string; allowWrite?: boolean; confirmDestructive?: boolean; maxRows?: number; fetchAll?: boolean; acknowledged?: boolean }) => Promise<ResultWrapper<{ success: boolean }>>;
+      querySession: (action: 'open' | 'commit' | 'rollback' | 'close', profileId: string, database?: string, sessionId?: string, readOnly?: boolean) => Promise<ResultWrapper<{ success: boolean; sessionId?: string }>>;
       cancelQuery: (queryId: string) => Promise<ResultWrapper<{ success: boolean }>>;
       analyzeQuery: (profileId: string, query: string, database: string) => Promise<ResultWrapper<AnalyzeResult>>;
       executeBatch: (

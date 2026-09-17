@@ -41,7 +41,8 @@ func TestPostgresGetSchemaGraph(t *testing.T) {
 	}
 	exec("DROP TABLE IF EXISTS erg_orders")
 	exec("DROP TABLE IF EXISTS erg_users")
-	exec("CREATE TABLE erg_users (id INT PRIMARY KEY, name VARCHAR(50) NOT NULL)")
+	exec("CREATE TABLE erg_users (id INT PRIMARY KEY, name VARCHAR(50) NOT NULL DEFAULT 'guest')")
+	exec("CREATE INDEX idx_erg_users_name ON erg_users(name)")
 	exec("CREATE TABLE erg_orders (id INT PRIMARY KEY, user_id INT REFERENCES erg_users(id))")
 	defer func() {
 		exec("DROP TABLE IF EXISTS erg_orders")
@@ -64,6 +65,18 @@ func TestPostgresGetSchemaGraph(t *testing.T) {
 	nameCol := ergFindCol(users.Columns, "name")
 	if nameCol == nil || nameCol.Nullable {
 		t.Errorf("erg_users.name should be NOT NULL: %+v", users.Columns)
+	}
+	if nameCol == nil || nameCol.DefaultValue == "" {
+		t.Errorf("erg_users.name should retain its default: %+v", users.Columns)
+	}
+	var nameIndex *ports.Index
+	for i := range users.Indexes {
+		if users.Indexes[i].Name == "idx_erg_users_name" {
+			nameIndex = &users.Indexes[i]
+		}
+	}
+	if nameIndex == nil || len(nameIndex.Columns) != 1 || nameIndex.Columns[0] != "name" {
+		t.Errorf("expected idx_erg_users_name in schema graph, got %+v", users.Indexes)
 	}
 
 	var fk *ports.SchemaGraphFK

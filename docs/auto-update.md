@@ -21,6 +21,11 @@ Releases are driven by [release-please] from the conventional-commit history —
    `electron-builder --publish always` attaches the installers + update metadata
    (`latest.yml` / `latest-mac.yml`) to that Release.
 
+   To publish a new release for only one platform, include a
+   `Release-Platform: mac` or `Release-Platform: win` trailer in the Release PR's
+   merge commit message. Omit the trailer, or use `Release-Platform: both`, to
+   keep the default both-platform release.
+
 So "merge the Release PR" **is** the release action. Because the repo is
 **public**, the built-in `secrets.GITHUB_TOKEN` can create the release and
 publish assets — **no extra PAT/secret is required**.
@@ -44,6 +49,17 @@ Config: `release-please-config.json` + `.release-please-manifest.json`
   failure must not remove the macOS zip or `latest-mac.yml` from the release.
 - Manual fallback: `workflow_dispatch` on the Release workflow re-runs
   release-please (it only creates a release if there are releasable commits).
+  Its `platform` choice applies if that run creates a new release as well as to
+  existing-tag rebuilds.
+- Partial rebuild: from Actions → Release → Run workflow, provide an existing
+  `vX.Y.Z` release tag and choose `mac`, `win`, or `both`. Only the selected
+  platform job runs, and it checks out that exact tag. The workflow verifies
+  that the GitHub Release already exists before packaging, then replaces that
+  platform's assets/update metadata. Leave the tag empty to run only the
+  release-please check; it will not start a build.
+- The macOS job retains a pre-publish package pass because it smoke-tests the
+  packaged app before signing/notarization. Windows has no corresponding
+  smoke-test, so its publish pass builds the Windows installers only once.
 
 ## Platform behavior
 
