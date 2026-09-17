@@ -20,6 +20,33 @@ const identifier = '[A-Za-z_][A-Za-z0-9_$]*';
 const tableRefPattern = new RegExp('\\b(?:FROM|JOIN|UPDATE|INTO)\\s+((?:' + identifier + '\\.)*' + identifier + ')', 'gi');
 const qualifiedColumnPattern = new RegExp('\\b(' + identifier + ')\\s*\\.\\s*(' + identifier + ')\\b', 'g');
 
+// These objects are database-provided metadata, not tables that need to be
+// present in the active schema completion snapshot. Keep this list explicit so
+// a similarly named application table is still diagnosed normally.
+const SYSTEM_CATALOG_SCHEMAS = new Set([
+  'information_schema',
+  'pg_catalog',
+  'sys',
+  'mysql',
+  'performance_schema',
+]);
+const SYSTEM_CATALOG_TABLES = new Set([
+  'pg_database',
+  'pg_tables',
+  'pg_views',
+  'pg_namespace',
+  'pg_class',
+  'pg_attribute',
+  'pg_index',
+  'pg_constraint',
+  'pg_roles',
+  'pg_settings',
+  'sqlite_master',
+  'sqlite_schema',
+  'sqlite_temp_master',
+  'sqlite_temp_schema',
+]);
+
 function blank(chars: string[], index: number) {
   if (chars[index] !== '\n' && chars[index] !== '\r') chars[index] = ' ';
 }
@@ -86,6 +113,14 @@ function tableName(name: string): string {
   return unquote(name.split('.').pop() ?? name);
 }
 
+function isSystemCatalogReference(name: string): boolean {
+  const parts = name.split('.').map(unquote).filter(Boolean);
+  const object = parts.at(-1)?.toLowerCase();
+  const namespace = parts.length > 1 ? parts.at(-2)?.toLowerCase() : undefined;
+  return (namespace !== undefined && SYSTEM_CATALOG_SCHEMAS.has(namespace))
+    || (object !== undefined && SYSTEM_CATALOG_TABLES.has(object));
+}
+
 function findTable(schema: SchemaInfo, name: string): TableDef | undefined {
   return schema.tables.find((table) => table.name.toLowerCase() === name.toLowerCase());
 }
@@ -122,7 +157,7 @@ export function getSqlDiagnostics(sql: string, schema: SchemaInfo): SqlDiagnosti
     let tableRef: RegExpExecArray | null;
     while ((tableRef = tableRefPattern.exec(masked.text)) !== null) {
       const name = tableName(tableRef[1]);
-      if (knownCtes.has(name.toLowerCase()) || findTable(schema, name)) continue;
+      if (isSystemCatalogReference(tableRef[1]) || knownCtes.has(name.toLowerCase()) || findTable(schema, name)) continue;
       const start = tableRef.index + tableRef[0].lastIndexOf(tableRef[1]);
       pushUnique(diagnostics, { start, end: start + tableRef[1].length, severity: 'error', message: `테이블을 찾을 수 없습니다: ${name}` });
     }

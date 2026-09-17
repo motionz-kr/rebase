@@ -35,6 +35,10 @@ test.describe('query editor diagnostics', () => {
     await databaseRow.click();
     await expect(win.locator('.tree-row:has(.tree-label:text-is("diagnostics_e2e"))')).toBeVisible({ timeout: 15_000 });
 
+    // The default SQLite catalog query is valid metadata SQL and must not be
+    // shown as an unknown application table.
+    await expect(win.getByTestId('sql-diagnostics')).toHaveCount(0);
+
     await typeQuery(win, 'SELECT d.missing FROM diagnostics_e2e AS d;');
     const diagnostics = win.getByTestId('sql-diagnostics');
     await expect(diagnostics).toBeVisible({ timeout: 15_000 });
