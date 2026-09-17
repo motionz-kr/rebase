@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.26.0](https://github.com/motionz-kr/rebase/compare/v0.25.1...v0.26.0) (2026-09-17)
+
+
+### Features
+
+* bundle DataGrip-inspired query workflow ([6b269e6](https://github.com/motionz-kr/rebase/commit/6b269e6e514844d354a6cf0cadbd9515b285c5ad))
+* bundle DataGrip-inspired query workflow ([b9d7893](https://github.com/motionz-kr/rebase/commit/b9d789371011c2d249244076520633c0e71d38b4))
+
+
+### Bug Fixes
+
+* **release:** bypass release-please on tag rebuilds ([cf06789](https://github.com/motionz-kr/rebase/commit/cf067894f95fa0aecb98314e445b3ea272871cad))
+* **release:** bypass release-please on tag rebuilds ([a95f22d](https://github.com/motionz-kr/rebase/commit/a95f22d51152e1b59548e1b2923693cf5c058683))
+* **release:** bypass release-please on tag rebuilds ([#174](https://github.com/motionz-kr/rebase/issues/174)) ([cf06789](https://github.com/motionz-kr/rebase/commit/cf067894f95fa0aecb98314e445b3ea272871cad))
+* **release:** wrap selected platforms in matrix object ([e73e4b1](https://github.com/motionz-kr/rebase/commit/e73e4b17886d6f7a4c71ff5f981e23d2534020a4))
+* **release:** wrap selected platforms in matrix object ([107fc14](https://github.com/motionz-kr/rebase/commit/107fc14bc0c261ed79dcc120a85a3b2a19f58165))
+* **release:** wrap selected platforms in matrix object ([#173](https://github.com/motionz-kr/rebase/issues/173)) ([e73e4b1](https://github.com/motionz-kr/rebase/commit/e73e4b17886d6f7a4c71ff5f981e23d2534020a4))
+
 ## [0.25.1](https://github.com/motionz-kr/rebase/compare/v0.25.0...v0.25.1) (2026-09-15)
 
 
