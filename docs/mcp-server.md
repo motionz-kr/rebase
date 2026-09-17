@@ -46,6 +46,31 @@ Switching the toggle takes effect on the client's **next** session. Writes are
 never executed — `propose_write` only returns the SQL for you to run (and
 approve) inside Rebase.
 
+## Scope and activity history
+
+The MCP tab also has an engine-enforced **접근 허용 범위** section:
+
+- **허용 데이터베이스** — exact database names. For MySQL this is also the
+  schema namespace used by the adapter.
+- **허용 스키마** — exact schema names (`public`, `dbo`, etc.).
+- **허용 테이블** — exact table names, optionally schema-qualified such as
+  `public.orders`.
+
+Each value is entered one per line. An empty list preserves the legacy
+unrestricted behavior for that dimension. These lists are persisted with the
+connection profile and enforced in the engine for metadata tools,
+`run_select`, and `explain_query`; the Schema tab's hidden-table setting only
+changes local display and is not a security control. When an allowlist is
+active, an ambiguous table reference is rejected conservatively.
+
+The same MCP tab shows recent inbound handshakes, sessions, tool calls, and
+errors for that profile. The external-server section shows test/call activity.
+Only event metadata (direction, event, tool name, status, duration, timestamp,
+and a safe error summary) is stored; passwords, headers, environment
+variables, and raw SQL are not stored in this history. “Connected” means the
+client configuration is saved; the latest activity indicates whether a real
+session or call has occurred.
+
 ## Enable a connection
 
 1. Edit a **MySQL or PostgreSQL** connection (the pencil icon).
@@ -67,6 +92,10 @@ The panel shows a ready-to-paste config snippet and one-click buttons:
   **backing up the existing file first** and preserving every other entry.
 - **Copy snippet** — paste the JSON into the client's MCP config manually.
 
+Auto-connect reports that the configuration was saved; it does not claim that
+the client has already completed a handshake. Restart the client, then use the
+recent activity list to confirm a `session_started` event.
+
 Config locations:
 
 | Client | File | Format |
@@ -76,7 +105,8 @@ Config locations:
 | Codex | `~/.codex/config.toml` | TOML |
 
 Restart the client after connecting. The entry runs the bundled engine in MCP
-mode: `app-engine -mcp <profileId> -token mcp -handshake /dev/null`.
+stdio mode: `app-engine -mcp <profileId> -token mcp`. MCP stdio does not use
+the desktop HTTP handshake file.
 
 ## Tools exposed
 

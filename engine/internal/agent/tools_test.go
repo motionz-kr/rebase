@@ -78,6 +78,41 @@ func TestRegistryDispatchListTables(t *testing.T) {
 	}
 }
 
+func TestRegistryEnforcesMCPObjectScope(t *testing.T) {
+	conn := &fakeSQL{tables: []ports.TableInfo{{Name: "users"}, {Name: "orders"}}}
+	p := domain.ConnectionProfile{
+		Driver:              "postgres",
+		McpAllowedDatabases: `["devdb"]`,
+		McpAllowedSchemas:   `["public"]`,
+		McpAllowedTables:    `["users"]`,
+	}
+	reg := NewSQLRegistry(conn, p, "", "devdb")
+
+	out, err := reg.Dispatch(context.Background(), "list_tables", map[string]any{})
+	if err != nil {
+		t.Fatalf("list_tables: %v", err)
+	}
+	b, _ := json.Marshal(out)
+	if string(b) != `["users"]` {
+		t.Fatalf("scoped list_tables = %s", b)
+	}
+	if _, err := reg.Dispatch(context.Background(), "run_select", map[string]any{"sql": "SELECT * FROM public.orders"}); err == nil {
+		t.Fatal("run_select should reject a table outside the MCP scope")
+	}
+}
+
+func TestRegistryAllowsAnExplicitlyAllowedNonDefaultSchema(t *testing.T) {
+	conn := &fakeSQL{}
+	p := domain.ConnectionProfile{
+		Driver:            "postgres",
+		McpAllowedSchemas: `["archive"]`,
+	}
+	reg := NewSQLRegistry(conn, p, "", "devdb")
+	if _, err := reg.Dispatch(context.Background(), "run_select", map[string]any{"sql": "SELECT * FROM archive.orders"}); err != nil {
+		t.Fatalf("explicitly allowed schema should be accepted: %v", err)
+	}
+}
+
 func TestRegistryIntrospectionTools(t *testing.T) {
 	reg := NewSQLRegistry(&fakeSQL{}, domainProfile(), "", "devdb")
 	ctx := context.Background()

@@ -1,9 +1,16 @@
 import React, { useEffect, useState } from 'react';
-import { Plug, Trash2, AlertTriangle } from 'lucide-react';
+import { Plug, Trash2, AlertTriangle, RefreshCw } from 'lucide-react';
 import { parseArgs, parseEnv, parseHeaders, validateServer } from '../lib/mcpServerForm';
-import type { McpServer } from '../global';
+import type { McpActivityEvent, McpServer } from '../global';
 
 const WORKSPACE_ID = 'default';
+const activityLabel: Record<string, string> = {
+  session_started: 'handshake 시작',
+  session_ended: '세션 종료',
+  tool_call: '도구 호출',
+  test: '연결 테스트',
+  connect: '외부 서버 연결',
+};
 
 type TestState =
   | { kind: 'idle' }
@@ -29,16 +36,35 @@ export const McpServersPanel: React.FC = () => {
   const [formError, setFormError] = useState('');
   const [test, setTest] = useState<TestState>({ kind: 'idle' });
   const [saving, setSaving] = useState(false);
+  const [activity, setActivity] = useState<McpActivityEvent[]>([]);
+  const [activityLoading, setActivityLoading] = useState(true);
 
   const refresh = async () => {
     const res = await window.electronAPI.mcpServersList(WORKSPACE_ID);
     setServers(res.data ?? []);
   };
 
+  const refreshActivity = async () => {
+    setActivityLoading(true);
+    const res = await window.electronAPI.mcpActivityList({ limit: 30 });
+    setActivity(res.data ?? []);
+    setActivityLoading(false);
+  };
+
   useEffect(() => {
+    let active = true;
     void window.electronAPI.mcpServersList(WORKSPACE_ID).then((res) => {
+      if (!active) return;
       setServers(res.data ?? []);
     });
+    void window.electronAPI.mcpActivityList({ limit: 30 }).then((res) => {
+      if (!active) return;
+      setActivity(res.data ?? []);
+      setActivityLoading(false);
+    });
+    return () => {
+      active = false;
+    };
   }, []);
 
   // Toggling enabled/trusted re-saves the existing fields. Listing does not
@@ -56,11 +82,13 @@ export const McpServersPanel: React.FC = () => {
       trusted: patch.trusted ?? server.trusted,
     });
     await refresh();
+    void refreshActivity();
   };
 
   const remove = async (id: string) => {
     await window.electronAPI.mcpServersDelete(id);
     await refresh();
+    void refreshActivity();
   };
 
   const runTest = async () => {
@@ -72,14 +100,17 @@ export const McpServersPanel: React.FC = () => {
     const res = await window.electronAPI.mcpServersTest(payload);
     if (!res.success) {
       setTest({ kind: 'err', message: res.error || '연결 실패' });
+      void refreshActivity();
       return;
     }
     const data = res.data;
     if (data?.error) {
       setTest({ kind: 'err', message: data.error });
+      void refreshActivity();
       return;
     }
     setTest({ kind: 'ok', tools: (data?.tools ?? []).map((t) => t.name) });
+    void refreshActivity();
   };
 
   const resetForm = () => {
@@ -110,6 +141,7 @@ export const McpServersPanel: React.FC = () => {
       await window.electronAPI.mcpServersSave(input);
       resetForm();
       await refresh();
+      void refreshActivity();
     } finally {
       setSaving(false);
     }
@@ -245,6 +277,29 @@ export const McpServersPanel: React.FC = () => {
           </div>
         )}
         {test.kind === 'err' && <div className="mcp-srv-test err">{test.message}</div>}
+      </div>
+
+      <div className="mcp-activity">
+        <div className="mcp-snippet-head">
+          <span>외부 MCP 활동 기록</span>
+          <button className="btn btn-secondary btn-xs" onClick={() => void refreshActivity()} disabled={activityLoading}>
+            <RefreshCw size={12} /> {activityLoading ? '새로 고침 중…' : '새로 고침'}
+          </button>
+        </div>
+        {activity.length === 0 ? (
+          <p className="mcp-srv-note">아직 연결 테스트 또는 호출 기록이 없습니다.</p>
+        ) : (
+            <div className="mcp-activity-list">
+              {activity.slice(0, 8).map((event) => (
+              <div className="mcp-activity-row" data-event={event.event} data-tool={event.tool || undefined} key={event.id}>
+                <span className={`mcp-activity-status ${event.status}`}>{event.status === 'success' ? '성공' : '실패'}</span>
+                <span>{activityLabel[event.event] ?? event.event}{event.tool ? ` · ${event.tool}` : ''}</span>
+                <time dateTime={event.createdAt}>{new Date(event.createdAt).toLocaleString()}</time>
+                {event.error && <span className="mcp-activity-error">{event.error}</span>}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

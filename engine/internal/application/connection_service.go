@@ -181,4 +181,14 @@ func (s *ConnectionService) SetMCPConnectionSettings(ctx context.Context, id str
 	return s.repo.Update(ctx, p)
 }
 
+// SetMCPAccessScope persists the engine-enforced database/schema/table scope.
+func (s *ConnectionService) SetMCPAccessScope(ctx context.Context, id string, scope domain.MCPAccessScope) error {
+	p, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	p.SetMCPAccessScope(scope)
+	return s.repo.Update(ctx, p)
+}
+
 type ConnectionProfileService = ConnectionService

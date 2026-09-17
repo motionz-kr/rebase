@@ -106,7 +106,7 @@ function maskSql(sql: string): MaskedSql {
 }
 
 function unquote(name: string): string {
-  return name.replace(/^[`"\[]/, '').replace(/[`"\]]$/, '');
+  return name.replace(/^[`"\x5b]/, '').replace(/[`"\]]$/, '');
 }
 
 function tableName(name: string): string {

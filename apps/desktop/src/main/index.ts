@@ -906,17 +906,17 @@ app.whenReady().then(() => {
   ipcMain.handle('mcp-engine-path', () => binaryPath);
   ipcMain.handle('mcp-detect-clients', () => detectClients());
   ipcMain.handle('mcp-autoconnect', (_event, clientId: string, profileId: string) => {
-    const entry = { command: binaryPath, args: ['-mcp', profileId, '-token', 'mcp', '-handshake', '/dev/null'] };
+    const entry = { command: binaryPath, args: ['-mcp', profileId, '-token', 'mcp'] };
     const res = applyClient(clientId, `rebase-${profileId}`, entry);
     return res.ok ? { success: true, data: { path: res.path, backup: res.backup } } : { success: false, error: res.error };
   });
-  ipcMain.handle('mcp-set-settings', (_event, profileId: string, enabled: boolean, dataExposure: string) => {
+  ipcMain.handle('mcp-set-settings', (_event, profileId: string, enabled: boolean, dataExposure: string, scope?: unknown) => {
     return new Promise((resolve) => {
       if (!engineManager || engineManager.getPort() === null) {
         resolve({ success: false, error: 'Engine not started' });
         return;
       }
-      const payload = JSON.stringify({ profileId, enabled, dataExposure });
+      const payload = JSON.stringify({ profileId, enabled, dataExposure, ...(scope ? { scope } : {}) });
       const req = http.request(
         {
           host: '127.0.0.1',
@@ -1001,6 +1001,20 @@ app.whenReady().then(() => {
         path: '/mcp/servers/call',
         body: payload,
       });
+      return { success: true, data };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('mcp-activity-list', async (_e, filter?: { workspaceId?: string; profileId?: string; serverId?: string; limit?: number }) => {
+    try {
+      const params = new URLSearchParams();
+      params.set('workspaceId', filter?.workspaceId || 'default');
+      if (filter?.profileId) params.set('profileId', filter.profileId);
+      if (filter?.serverId) params.set('serverId', filter.serverId);
+      if (filter?.limit) params.set('limit', String(filter.limit));
+      const data = await requestEngine({ method: 'GET', path: `/mcp/activity?${params.toString()}` });
       return { success: true, data };
     } catch (err: any) {
       return { success: false, error: err.message };

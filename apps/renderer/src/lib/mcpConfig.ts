@@ -9,7 +9,7 @@ export interface McpEntry {
 }
 
 export function buildMcpEntry(enginePath: string, profileId: string): McpEntry {
-  return { command: enginePath, args: ['-mcp', profileId, '-token', 'mcp', '-handshake', '/dev/null'] };
+  return { command: enginePath, args: ['-mcp', profileId, '-token', 'mcp'] };
 }
 
 // Full snippet for JSON-config clients (Claude Desktop / Cursor).

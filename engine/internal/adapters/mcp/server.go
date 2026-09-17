@@ -9,19 +9,52 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/smlee/database-local-engine/engine/internal/agent"
+	"github.com/smlee/database-local-engine/engine/internal/domain"
+	"github.com/smlee/database-local-engine/engine/internal/ports"
 )
 
 const protocolVersion = "2024-11-05"
 
 type Server struct {
-	registry *agent.Registry
-	policy   agent.Policy
-	secrets  []string
+	registry    *agent.Registry
+	policy      agent.Policy
+	secrets     []string
+	activity    ports.MCPActivityRepository
+	workspaceID string
+	profileID   string
 }
 
 func NewServer(reg *agent.Registry) *Server { return &Server{registry: reg} }
+
+// SetActivity enables safe lifecycle/tool records for a profile's stdio
+// session. Activity failures never break MCP responses.
+func (s *Server) SetActivity(repo ports.MCPActivityRepository, workspaceID, profileID string) {
+	s.activity = repo
+	s.workspaceID = workspaceID
+	s.profileID = profileID
+}
+
+func (s *Server) record(ctx context.Context, event, tool, status, message string, started time.Time) {
+	if s.activity == nil {
+		return
+	}
+	_ = s.activity.Append(ctx, &domain.MCPActivityEvent{
+		ID:          uuid.NewString(),
+		WorkspaceID: s.workspaceID,
+		ProfileID:   s.profileID,
+		Direction:   "inbound",
+		Event:       event,
+		Tool:        tool,
+		Status:      status,
+		Error:       domain.SafeMCPError(message),
+		DurationMs:  time.Since(started).Milliseconds(),
+		CreatedAt:   time.Now().UTC(),
+	})
+}
 
 // SetPolicy configures the data-exposure gate + secret redaction applied to
 // tool results before they leave the server (so external clients are governed
@@ -68,6 +101,13 @@ func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 			return err
 		}
 	}
+	status := "success"
+	message := ""
+	if err := sc.Err(); err != nil {
+		status = "error"
+		message = err.Error()
+	}
+	s.record(ctx, "session_ended", "", status, message, time.Now())
 	return sc.Err()
 }
 
@@ -87,6 +127,7 @@ func (s *Server) Handle(ctx context.Context, raw []byte) *rpcResponse {
 
 	switch req.Method {
 	case "initialize":
+		s.record(ctx, "session_started", "", "success", "", time.Now())
 		return reply(map[string]any{
 			"protocolVersion": protocolVersion,
 			"capabilities":    map[string]any{"tools": map[string]any{}},
@@ -115,13 +156,16 @@ func (s *Server) Handle(ctx context.Context, raw []byte) *rpcResponse {
 			Arguments map[string]any `json:"arguments"`
 		}
 		_ = json.Unmarshal(req.Params, &p)
+		started := time.Now()
 		result, err := s.registry.Dispatch(ctx, p.Name, p.Arguments)
 		if err != nil {
+			s.record(ctx, "tool_call", p.Name, "error", err.Error(), started)
 			return reply(map[string]any{
 				"content": []map[string]any{{"type": "text", "text": err.Error()}},
 				"isError": true,
 			})
 		}
+		s.record(ctx, "tool_call", p.Name, "success", "", started)
 		b, _ := json.Marshal(agent.SanitizeForPolicy(p.Name, result, s.policy))
 		text := agent.Redact(string(b), s.secrets)
 		return reply(map[string]any{
