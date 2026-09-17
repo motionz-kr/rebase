@@ -62,9 +62,9 @@ type ExecuteQueryRequest struct {
 	ProfileID string `json:"profileId"`
 	// Database is the schema/database selected in the SQL editor. Empty keeps
 	// the connection profile's default database for backwards compatibility.
-	Database  string `json:"database"`
-	Query     string `json:"query"`
-	QueryID   string `json:"queryId"`
+	Database string `json:"database"`
+	Query    string `json:"query"`
+	QueryID  string `json:"queryId"`
 	// AllowWrite must be set for any statement that is not confidently
 	// read-only; otherwise the engine refuses it (read-only by default).
 	AllowWrite bool `json:"allowWrite"`
@@ -77,7 +77,16 @@ type ExecuteQueryRequest struct {
 	FetchAll bool `json:"fetchAll"`
 	// Acknowledged confirms the user saw the safe-mode risk report and chose to
 	// force-run a high-risk statement on a production (safe-mode) connection.
-	Acknowledged bool `json:"acknowledged"`
+	Acknowledged bool   `json:"acknowledged"`
+	SessionID    string `json:"sessionId,omitempty"`
+}
+
+type QuerySessionRequest struct {
+	Action    string `json:"action"`
+	ProfileID string `json:"profileId"`
+	Database  string `json:"database"`
+	SessionID string `json:"sessionId"`
+	ReadOnly  bool   `json:"readOnly"`
 }
 
 func profileForDatabase(profile domain.ConnectionProfile, database string) domain.ConnectionProfile {
@@ -207,6 +216,10 @@ func (h *QueryHandler) ExecuteQuery() http.Handler {
 			writeQueryPolicyError(w, gate.status, gate.code, gate.message, class.Verb)
 			return
 		}
+		if req.SessionID != "" && domain.IsManagedTransactionControl(req.Query) {
+			http.Error(w, "Use the query toolbar's Commit or Rollback controls for a managed manual transaction.", http.StatusBadRequest)
+			return
+		}
 
 		// Schema explorer actions may target a database different from the
 		// connection profile's initial database. Keep the profile immutable and
@@ -297,7 +310,21 @@ func (h *QueryHandler) ExecuteQuery() http.Handler {
 		readOnly := !req.AllowWrite
 
 		// Execute stream
-		rowsAffected, executeErr := connector.ExecuteQueryStream(queryCtx, executionProfile, password, req.Query, readOnly, onSessionStart, onHeader, onRow)
+		var rowsAffected int64
+		var executeErr error
+		if req.SessionID != "" {
+			sessionConnector, ok := connector.(ports.QuerySessionConnector)
+			if !ok {
+				executeErr = fmtError("manual transactions are not supported for this SQL driver")
+			} else {
+				rowsAffected, executeErr = sessionConnector.ExecuteQuerySessionStream(
+					queryCtx, executionProfile, password, req.ProfileID, executionProfile.Database,
+					req.SessionID, req.Query, readOnly, onSessionStart, onHeader, onRow,
+				)
+			}
+		} else {
+			rowsAffected, executeErr = connector.ExecuteQueryStream(queryCtx, executionProfile, password, req.Query, readOnly, onSessionStart, onHeader, onRow)
+		}
 
 		// Hitting the row cap is a successful, truncated result — not an error.
 		if executeErr != nil && !errors.Is(executeErr, errRowLimitReached) {
@@ -321,6 +348,69 @@ func (h *QueryHandler) ExecuteQuery() http.Handler {
 		data, _ := json.Marshal(doneMap)
 		fmt.Fprintf(w, "%s\n", data)
 		flusher.Flush()
+	})
+}
+
+// QuerySession creates, commits, rolls back, or closes a dedicated query-tab
+// session. Closing a session always rolls back any uncommitted work.
+func (h *QueryHandler) QuerySession() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !h.checkToken(r) {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		var req QuerySessionRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if req.ProfileID == "" {
+			http.Error(w, "profileId is required", http.StatusBadRequest)
+			return
+		}
+		profile, password, err := h.service.GetProfile(r.Context(), req.ProfileID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		connector, err := h.getConnector(profile.Driver)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		sessionConnector, ok := connector.(ports.QuerySessionConnector)
+		if !ok {
+			http.Error(w, "manual transactions are not supported for this SQL driver", http.StatusBadRequest)
+			return
+		}
+
+		var sessionID string
+		switch req.Action {
+		case "open":
+			executionProfile := profileForDatabase(*profile, req.Database)
+			sessionID, err = sessionConnector.OpenQuerySession(
+				r.Context(), executionProfile, password, req.ProfileID, executionProfile.Database, req.ReadOnly || profile.ReadOnly,
+			)
+		case "commit":
+			err = sessionConnector.CommitQuerySession(r.Context(), req.ProfileID, req.SessionID)
+		case "rollback":
+			err = sessionConnector.RollbackQuerySession(r.Context(), req.ProfileID, req.SessionID)
+		case "close":
+			err = sessionConnector.CloseQuerySession(req.ProfileID, req.SessionID)
+		default:
+			http.Error(w, "action must be open, commit, rollback, or close", http.StatusBadRequest)
+			return
+		}
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "sessionId": sessionID})
 	})
 }
 

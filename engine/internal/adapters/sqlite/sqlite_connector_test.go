@@ -22,7 +22,7 @@ func seedDB(t *testing.T) string {
 	}
 	defer db.Close()
 	stmts := []string{
-		`CREATE TABLE authors (id INTEGER PRIMARY KEY, name TEXT NOT NULL)`,
+		`CREATE TABLE authors (id INTEGER PRIMARY KEY, name TEXT NOT NULL DEFAULT 'Anonymous')`,
 		`CREATE TABLE books (id INTEGER PRIMARY KEY, title TEXT NOT NULL, author_id INTEGER REFERENCES authors(id))`,
 		`CREATE VIEW book_titles AS SELECT title FROM books`,
 		`CREATE UNIQUE INDEX idx_authors_name ON authors(name)`,
@@ -158,6 +158,33 @@ func TestSQLite_GetSchemaGraph(t *testing.T) {
 	}
 	if len(g.ForeignKeys) != 1 || g.ForeignKeys[0].FromTable != "books" || g.ForeignKeys[0].ToTable != "authors" {
 		t.Fatalf("unexpected FKs: %+v", g.ForeignKeys)
+	}
+	var authors *ports.SchemaGraphTable
+	for i := range g.Tables {
+		if g.Tables[i].Name == "authors" {
+			authors = &g.Tables[i]
+		}
+	}
+	if authors == nil {
+		t.Fatal("authors table missing from graph")
+	}
+	var nameColumn *ports.ColumnInfo
+	for i := range authors.Columns {
+		if authors.Columns[i].Name == "name" {
+			nameColumn = &authors.Columns[i]
+		}
+	}
+	if nameColumn == nil || nameColumn.DefaultValue != "'Anonymous'" {
+		t.Errorf("expected authors.name default to be retained, got %+v", authors.Columns)
+	}
+	var nameIndex *ports.Index
+	for i := range authors.Indexes {
+		if authors.Indexes[i].Name == "idx_authors_name" {
+			nameIndex = &authors.Indexes[i]
+		}
+	}
+	if nameIndex == nil || !nameIndex.Unique || len(nameIndex.Columns) != 1 || nameIndex.Columns[0] != "name" {
+		t.Errorf("expected authors index metadata in graph, got %+v", authors.Indexes)
 	}
 }
 

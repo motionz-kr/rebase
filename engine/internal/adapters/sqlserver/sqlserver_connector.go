@@ -7,20 +7,22 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	// Register the SQL Server driver under the name "sqlserver".
 	_ "github.com/microsoft/go-mssqldb"
 	"github.com/smlee/database-local-engine/engine/internal/adapters"
+	"github.com/smlee/database-local-engine/engine/internal/adapters/sqlsession"
 	"github.com/smlee/database-local-engine/engine/internal/domain"
 	"github.com/smlee/database-local-engine/engine/internal/ports"
 )
 
 // SQLServerConnector talks to Microsoft SQL Server (and T-SQL-compatible
 // servers such as Azure SQL Edge) via github.com/microsoft/go-mssqldb.
-type SQLServerConnector struct{}
+type SQLServerConnector struct{ querySessions *sqlsession.Manager }
 
 func NewSQLServerConnector() *SQLServerConnector {
-	return &SQLServerConnector{}
+	return &SQLServerConnector{querySessions: sqlsession.NewManager(15 * time.Minute)}
 }
 
 // dsn builds a sqlserver:// URL DSN. Passwords may contain reserved characters,
@@ -580,6 +582,58 @@ func (c *SQLServerConnector) ExecuteQueryStream(
 		rowsAffected++
 	}
 	return rowsAffected, c.normalizeError(rows.Err())
+}
+
+func (c *SQLServerConnector) OpenQuerySession(ctx context.Context, p domain.ConnectionProfile, password, ownerID, database string, readOnly bool) (string, error) {
+	if database == "" {
+		database = p.Database
+	}
+	db, err := c.connect(p, password, database)
+	if err != nil {
+		return "", err
+	}
+	// go-mssqldb rejects TxOptions.ReadOnly. The HTTP policy gate remains the
+	// write guard, matching the existing SQL Server query path.
+	return c.querySessions.Open(ctx, ownerID, database, db, readOnly || p.ReadOnly, false)
+}
+
+func (c *SQLServerConnector) ExecuteQuerySessionStream(
+	ctx context.Context,
+	_ domain.ConnectionProfile,
+	_ string,
+	ownerID, database, sessionID, query string,
+	readOnly bool,
+	onSessionStart func(sessionID int64),
+	onHeader func(columns []string) error,
+	onRow func(row []any) error,
+) (int64, error) {
+	lease, err := c.querySessions.Begin(ctx, ownerID, database, sessionID, readOnly)
+	if err != nil {
+		return 0, c.normalizeError(err)
+	}
+	defer lease.Close()
+
+	var spid int64
+	if err := lease.Queryer.QueryRowContext(ctx, "SELECT @@SPID").Scan(&spid); err != nil {
+		return 0, c.normalizeError(err)
+	}
+	if onSessionStart != nil {
+		onSessionStart(spid)
+	}
+	rowsAffected, err := adapters.ExecuteSessionQuery(ctx, lease.Queryer, query, onHeader, onRow)
+	return rowsAffected, c.normalizeError(err)
+}
+
+func (c *SQLServerConnector) CommitQuerySession(ctx context.Context, ownerID, sessionID string) error {
+	return c.normalizeError(c.querySessions.Commit(ctx, ownerID, sessionID))
+}
+
+func (c *SQLServerConnector) RollbackQuerySession(ctx context.Context, ownerID, sessionID string) error {
+	return c.normalizeError(c.querySessions.Rollback(ctx, ownerID, sessionID))
+}
+
+func (c *SQLServerConnector) CloseQuerySession(ownerID, sessionID string) error {
+	return c.normalizeError(c.querySessions.Close(ownerID, sessionID))
 }
 
 // CancelSession terminates a running session by its server session id (@@SPID)

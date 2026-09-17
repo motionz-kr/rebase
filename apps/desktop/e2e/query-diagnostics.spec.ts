@@ -1,0 +1,51 @@
+import { test, expect } from './fixtures';
+import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { typeQuery } from './helpers';
+
+test.describe('query editor diagnostics', () => {
+  const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rebase-query-diagnostics-'));
+  const databaseFile = path.join(fixtureDir, 'query_diagnostics_e2e.db');
+
+  test.beforeAll(() => {
+    execFileSync('sqlite3', [databaseFile, 'CREATE TABLE diagnostics_e2e (id INTEGER PRIMARY KEY, label TEXT);']);
+  });
+
+  test.afterAll(() => {
+    fs.rmSync(fixtureDir, { recursive: true, force: true });
+  });
+
+  test('shows schema diagnostics inline and navigates to the reported line', async ({ firstWindow: win }) => {
+    test.setTimeout(90_000);
+    await win.locator('.sidebar-head button').click();
+    const form = win.locator('.conn-form');
+    await form.locator('select').first().selectOption('sqlite');
+    await form.locator('label:text-is("Profile name") + input').fill('E2E SQLite diagnostics');
+    await form.locator('label:text-is("Database file")').locator('..').locator('input').fill(databaseFile);
+    await form.locator('button[type="submit"]').click();
+
+    const connection = win.locator('.conn-list .conn-row').filter({ hasText: 'E2E SQLite diagnostics' });
+    await expect(connection).toBeVisible();
+    await connection.click();
+    await expect(win.locator('.conn-panel .editor-toolbar')).toBeVisible({ timeout: 20_000 });
+    const databaseRow = win.locator(`.tree-row:has(.tree-label:text-is("${path.basename(databaseFile)}"))`).first();
+    await expect(databaseRow).toBeVisible({ timeout: 15_000 });
+    await databaseRow.click();
+    await expect(win.locator('.tree-row:has(.tree-label:text-is("diagnostics_e2e"))')).toBeVisible({ timeout: 15_000 });
+
+    await typeQuery(win, 'SELECT d.missing FROM diagnostics_e2e AS d;');
+    const diagnostics = win.getByTestId('sql-diagnostics');
+    await expect(diagnostics).toBeVisible({ timeout: 15_000 });
+    await expect(diagnostics).toContainText('컬럼을 찾을 수 없습니다: d.missing');
+    await expect(win.locator('.monaco-editor .squiggly-error')).toBeVisible();
+    await diagnostics.getByRole('button').filter({ hasText: 'd.missing' }).click();
+
+    await typeQuery(win, 'SELECT * FROM missing_diagnostics_table;');
+    await expect(diagnostics).toContainText('테이블을 찾을 수 없습니다: missing_diagnostics_table');
+    await win.setViewportSize({ width: 1440, height: 900 });
+    await win.mouse.move(700, 250);
+    await win.screenshot({ path: path.resolve(__dirname, '../test-results/query-diagnostics.png') });
+  });
+});

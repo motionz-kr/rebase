@@ -5,13 +5,15 @@ import { TableActionDialog, type TableAction } from './TableActionDialog';
 import { CreateTableDialog } from './CreateTableDialog';
 import { CsvImportDialog } from './CsvImportDialog';
 import { IndexManagerDialog } from './IndexManagerDialog';
+import { SchemaCompareDialog } from './SchemaCompareDialog';
 import { buildRecentRowsQuery } from '../lib/recentQuery';
 import { hiddenFor, hiddenCount, type HiddenStore } from '../lib/tableVisibility';
 import type { Driver } from '../lib/ddlBuilder';
-import type { ColumnInfo } from '../global';
+import type { ColumnInfo, ConnectionProfile } from '../global';
 
 interface SchemaExplorerProps {
   profileId: string;
+  profiles: ConnectionProfile[];
   driver: 'mysql' | 'postgres' | 'redis' | 'sqlite' | 'sqlserver';
   hiddenStore: HiddenStore;
   onDisconnect: () => void;
@@ -37,7 +39,7 @@ interface DatabaseNode {
   isLoading: boolean;
 }
 
-export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, driver, hiddenStore, onSchemaChanged, onOpenTableData, onOpenQuery, onRunQuery, onOpenErDiagram }) => {
+export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, profiles, driver, hiddenStore, onSchemaChanged, onOpenTableData, onOpenQuery, onRunQuery, onOpenErDiagram }) => {
   const [databases, setDatabases] = useState<DatabaseNode[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,6 +54,7 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
   const [dbMenu, setDbMenu] = useState<{ x: number; y: number; db: string } | null>(null);
   const [create, setCreate] = useState<{ db: string } | null>(null);
   const [viewMenu, setViewMenu] = useState<{ x: number; y: number; db: string; view: string } | null>(null);
+  const [schemaCompare, setSchemaCompare] = useState<{ database: string } | null>(null);
 
   // Close the context menu on any outside click or Escape.
   useEffect(() => {
@@ -515,6 +518,11 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
           <button className="ctx-item" onClick={() => { onOpenQuery?.(dbMenu.db); setDbMenu(null); }}>
             <FileCode size={13} /> 쿼리 입력
           </button>
+          {(driver === 'mysql' || driver === 'postgres' || driver === 'sqlite') && (
+            <button className="ctx-item" onClick={() => { setSchemaCompare({ database: dbMenu.db }); setDbMenu(null); }}>
+              <Network size={13} /> 다른 DB와 스키마 비교…
+            </button>
+          )}
           <div className="ctx-sep" />
           <button className="ctx-item" onClick={() => { void refreshDatabase(dbMenu.db); setDbMenu(null); }}>
             <RefreshCw size={13} /> 새로고침
@@ -548,6 +556,17 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, drive
           database={create.db}
           onClose={() => setCreate(null)}
           onApplied={() => refreshAfterDdl(create.db)}
+        />
+      )}
+
+      {schemaCompare && (driver === 'mysql' || driver === 'postgres' || driver === 'sqlite') && (
+        <SchemaCompareDialog
+          key={`${profileId}:${schemaCompare.database}`}
+          sourceProfileId={profileId}
+          sourceDatabase={schemaCompare.database}
+          driver={driver}
+          profiles={profiles}
+          onClose={() => setSchemaCompare(null)}
         />
       )}
 
