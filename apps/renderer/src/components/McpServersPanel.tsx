@@ -37,7 +37,7 @@ export const McpServersPanel: React.FC = () => {
   const [test, setTest] = useState<TestState>({ kind: 'idle' });
   const [saving, setSaving] = useState(false);
   const [activity, setActivity] = useState<McpActivityEvent[]>([]);
-  const [activityLoading, setActivityLoading] = useState(false);
+  const [activityLoading, setActivityLoading] = useState(true);
 
   const refresh = async () => {
     const res = await window.electronAPI.mcpServersList(WORKSPACE_ID);
@@ -52,10 +52,19 @@ export const McpServersPanel: React.FC = () => {
   };
 
   useEffect(() => {
+    let active = true;
     void window.electronAPI.mcpServersList(WORKSPACE_ID).then((res) => {
+      if (!active) return;
       setServers(res.data ?? []);
     });
-    void refreshActivity();
+    void window.electronAPI.mcpActivityList({ limit: 30 }).then((res) => {
+      if (!active) return;
+      setActivity(res.data ?? []);
+      setActivityLoading(false);
+    });
+    return () => {
+      active = false;
+    };
   }, []);
 
   // Toggling enabled/trusted re-saves the existing fields. Listing does not

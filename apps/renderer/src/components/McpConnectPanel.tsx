@@ -48,13 +48,7 @@ export const McpConnectPanel: React.FC<Props> = ({
   const [scopeSaving, setScopeSaving] = useState(false);
   const [scopeMsg, setScopeMsg] = useState<string | null>(null);
   const [activity, setActivity] = useState<McpActivityEvent[]>([]);
-  const [activityLoading, setActivityLoading] = useState(false);
-
-  useEffect(() => {
-    void window.electronAPI.mcpEnginePath().then(setEnginePath);
-    void window.electronAPI.mcpDetectClients().then(setClients);
-    void refreshActivity();
-  }, []);
+  const [activityLoading, setActivityLoading] = useState(true);
 
   const refreshActivity = async () => {
     setActivityLoading(true);
@@ -62,6 +56,20 @@ export const McpConnectPanel: React.FC<Props> = ({
     setActivity(res.data ?? []);
     setActivityLoading(false);
   };
+
+  useEffect(() => {
+    void window.electronAPI.mcpEnginePath().then(setEnginePath);
+    void window.electronAPI.mcpDetectClients().then(setClients);
+    let active = true;
+    void window.electronAPI.mcpActivityList({ profileId: connId, limit: 30 }).then((res) => {
+      if (!active) return;
+      setActivity(res.data ?? []);
+      setActivityLoading(false);
+    });
+    return () => {
+      active = false;
+    };
+  }, [connId]);
 
   const autoconnect = async (clientId: string, label: string) => {
     setConnectMsg(null);
