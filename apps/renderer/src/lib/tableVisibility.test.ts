@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { visibleTables, hiddenCount, withHidden, hiddenFor, toggleHidden, dbVisibilityState } from './tableVisibility';
+import { visibleTables, visibleDatabases, hiddenCount, withHidden, hiddenFor, toggleHidden, dbVisibilityState, hiddenDatabasesFor, withDatabaseHidden } from './tableVisibility';
 
 const all = ['users', 'orders', 'logs'];
 
@@ -9,6 +9,9 @@ describe('tableVisibility', () => {
   });
   it('empty hidden → all visible', () => {
     expect(visibleTables(all, [])).toEqual(all);
+  });
+  it('visibleDatabases drops hidden schemas, keeps order', () => {
+    expect(visibleDatabases(['app', 'audit', 'reporting'], ['audit'])).toEqual(['app', 'reporting']);
   });
   it('hiddenCount counts only hidden that still exist', () => {
     expect(hiddenCount(all, ['logs', 'ghost'])).toBe(1);
@@ -47,5 +50,13 @@ describe('tableVisibility', () => {
   });
   it('dbVisibilityState treats an empty table list as all-visible', () => {
     expect(dbVisibilityState([], [])).toBe('all');
+  });
+
+  it('stores database visibility separately from per-table visibility', () => {
+    const store = withDatabaseHidden({ p1: { db1: ['logs'] } }, 'p1', 'db2', true);
+
+    expect(hiddenDatabasesFor(store, 'p1')).toEqual(['db2']);
+    expect(hiddenFor(store, 'p1', 'db1')).toEqual(['logs']);
+    expect(withDatabaseHidden(store, 'p1', 'db2', false)).toEqual({ p1: { db1: ['logs'], __databases__: [] } });
   });
 });

@@ -893,8 +893,8 @@ function App() {
 
                   {formTab === 'schema' && editingId && (formDriver === 'mysql' || formDriver === 'postgres' || formDriver === 'sqlserver') && (
                     <div className="ctp-section">
-                      <div className="ctp-head">표시할 테이블</div>
-                      <p className="ctp-hint">체크한 테이블만 스키마 트리에 표시됩니다.</p>
+                      <div className="ctp-head">표시할 스키마 및 테이블</div>
+                      <p className="ctp-hint">스키마 체크를 해제하면 왼쪽 트리에서 해당 스키마 전체가 숨겨지고, 테이블만 해제하면 해당 테이블만 숨겨집니다.</p>
                       {conns.byId[editingId]?.status === 'connected' ? (
                         <ConnectionTablePrefs profileId={editingId} store={hiddenStore} onChange={updateHidden} />
                       ) : (

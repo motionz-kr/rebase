@@ -2,6 +2,7 @@
 export type HiddenStore = Record<string, Record<string, string[]>>;
 
 const KEY = 'rebase.ui.hiddenTables';
+const HIDDEN_DATABASES_KEY = '__databases__';
 
 export function loadHidden(): HiddenStore {
   try {
@@ -24,9 +25,26 @@ export function hiddenFor(store: HiddenStore, profileId: string, db: string): st
 export function withHidden(store: HiddenStore, profileId: string, db: string, hidden: string[]): HiddenStore {
   return { ...store, [profileId]: { ...(store[profileId] ?? {}), [db]: hidden } };
 }
+
+// Database-level visibility uses a reserved per-profile entry so existing
+// table visibility preferences remain backward-compatible in localStorage.
+export function hiddenDatabasesFor(store: HiddenStore, profileId: string): string[] {
+  return hiddenFor(store, profileId, HIDDEN_DATABASES_KEY);
+}
+
+export function withDatabaseHidden(store: HiddenStore, profileId: string, db: string, hidden: boolean): HiddenStore {
+  const current = hiddenDatabasesFor(store, profileId);
+  const next = hidden ? (current.includes(db) ? current : [...current, db]) : current.filter((name) => name !== db);
+  return withHidden(store, profileId, HIDDEN_DATABASES_KEY, next);
+}
 export function visibleTables(all: string[], hidden: string[]): string[] {
   const h = new Set(hidden);
   return all.filter((t) => !h.has(t));
+}
+
+export function visibleDatabases(all: string[], hidden: string[]): string[] {
+  const h = new Set(hidden);
+  return all.filter((db) => !h.has(db));
 }
 export function hiddenCount(all: string[], hidden: string[]): number {
   const h = new Set(hidden);

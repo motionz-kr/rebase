@@ -5,6 +5,8 @@ import {
   withHidden,
   toggleHidden,
   dbVisibilityState,
+  hiddenDatabasesFor,
+  withDatabaseHidden,
   type HiddenStore,
 } from '../lib/tableVisibility';
 
@@ -67,6 +69,11 @@ export const ConnectionTablePrefs: React.FC<Props> = ({ profileId, store, onChan
       names = [];
     }
     setDbs((prev) => prev.map((d) => (d.name === name ? { ...d, loading: false, tables: names } : d)));
+    // Migrate the old top-level "hide all tables" preference to the explicit
+    // database visibility setting so selected schemas disappear from the tree.
+    if (names.length > 0 && dbVisibilityState(names, hiddenFor(store, profileId, name)) === 'none' && !hiddenDatabasesFor(store, profileId).includes(name)) {
+      onChange(withDatabaseHidden(store, profileId, name, true));
+    }
     return names;
   };
 
@@ -84,8 +91,12 @@ export const ConnectionTablePrefs: React.FC<Props> = ({ profileId, store, onChan
   // Top-level db checkbox: reveal everything or hide everything in that db.
   const toggleDbAll = async (name: string) => {
     const tables = await ensureTables(name);
-    const allVisible = dbVisibilityState(tables, hiddenFor(store, profileId, name)) === 'all';
-    onChange(withHidden(store, profileId, name, allVisible ? [...tables] : []));
+    const allVisible = !hiddenDatabasesFor(store, profileId).includes(name)
+      && dbVisibilityState(tables, hiddenFor(store, profileId, name)) === 'all';
+    const nextStore = allVisible
+      ? withHidden(withDatabaseHidden(store, profileId, name, true), profileId, name, tables)
+      : withHidden(withDatabaseHidden(store, profileId, name, false), profileId, name, []);
+    onChange(nextStore);
   };
 
   if (loading) return <div className="ctp-status muted">테이블 목록 불러오는 중…</div>;
@@ -96,7 +107,8 @@ export const ConnectionTablePrefs: React.FC<Props> = ({ profileId, store, onChan
     <div className="tree ctp-tree">
       {dbs.map((db) => {
         const hidden = hiddenFor(store, profileId, db.name);
-        const state = db.tables ? dbVisibilityState(db.tables, hidden) : hidden.length === 0 ? 'all' : 'some';
+        const databaseHidden = hiddenDatabasesFor(store, profileId).includes(db.name);
+        const state = databaseHidden ? 'none' : db.tables ? dbVisibilityState(db.tables, hidden) : hidden.length === 0 ? 'all' : 'some';
         return (
           <div key={db.name} className="tree-node">
             <div className="tree-row">
@@ -111,7 +123,7 @@ export const ConnectionTablePrefs: React.FC<Props> = ({ profileId, store, onChan
                   if (el) el.indeterminate = state === 'some';
                 }}
                 onChange={() => void toggleDbAll(db.name)}
-                title="이 데이터베이스의 모든 테이블 표시/숨김"
+                title="이 스키마를 왼쪽 트리에 표시/숨김"
               />
               <span className="tree-icon">
                 <Database size={14} />

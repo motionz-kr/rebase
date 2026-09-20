@@ -7,7 +7,7 @@ import { CsvImportDialog } from './CsvImportDialog';
 import { IndexManagerDialog } from './IndexManagerDialog';
 import { SchemaCompareDialog } from './SchemaCompareDialog';
 import { buildRecentRowsQuery } from '../lib/recentQuery';
-import { hiddenFor, hiddenCount, type HiddenStore } from '../lib/tableVisibility';
+import { hiddenFor, hiddenCount, hiddenDatabasesFor, visibleDatabases, type HiddenStore } from '../lib/tableVisibility';
 import type { Driver } from '../lib/ddlBuilder';
 import type { ColumnInfo, ConnectionProfile } from '../global';
 
@@ -326,10 +326,12 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, profi
     return <div className="muted">No databases found.</div>;
   }
 
+  const visibleDatabaseNames = new Set(visibleDatabases(databases.map((db) => db.name), hiddenDatabasesFor(hiddenStore, profileId)));
+
   return (
     <>
       <div className="tree">
-      {databases.map((db) => (
+      {databases.filter((db) => visibleDatabaseNames.has(db.name)).map((db) => (
         <div key={db.name} className="tree-node">
           <div className="tree-row tree-db-row" onClick={() => toggleDatabase(db.name)} onContextMenu={(e) => openDbMenu(e, db.name)}>
             <span className={`tree-chevron ${db.isOpen ? 'open' : ''}`}>
