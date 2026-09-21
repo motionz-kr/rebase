@@ -119,3 +119,44 @@ func TestConnectionService(t *testing.T) {
 		t.Error("expected secret to be deleted from SecretStore, got nil error")
 	}
 }
+
+func TestConnectionServiceUpdateProfilePreservesSecretRefWhenPasswordIsOmitted(t *testing.T) {
+	ctx := context.Background()
+	repo := ports.NewFakeProfileRepository()
+	store := ports.NewFakeSecretStore()
+	service := NewConnectionService(repo, store)
+
+	p := &domain.ConnectionProfile{
+		Name:     "Keeps Credentials",
+		Driver:   "mysql",
+		Host:     "127.0.0.1",
+		Port:     3306,
+		Database: "mydb",
+		Username: "root",
+		TLSMode:  "none",
+	}
+	const password = "still-secret"
+	if err := service.CreateProfile(ctx, p, password); err != nil {
+		t.Fatalf("CreateProfile: %v", err)
+	}
+
+	// The renderer sends an edited profile without secretRef because the field
+	// is intentionally not exposed in the form model.
+	edited := *p
+	edited.Name = "Renamed Without Password"
+	edited.SecretRef = ""
+	if err := service.UpdateProfile(ctx, &edited, ""); err != nil {
+		t.Fatalf("UpdateProfile: %v", err)
+	}
+
+	got, gotPassword, err := service.GetProfile(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("GetProfile: %v", err)
+	}
+	if got.SecretRef != p.SecretRef {
+		t.Fatalf("secretRef = %q, want %q", got.SecretRef, p.SecretRef)
+	}
+	if gotPassword != password {
+		t.Errorf("password = %q, want %q", gotPassword, password)
+	}
+}
