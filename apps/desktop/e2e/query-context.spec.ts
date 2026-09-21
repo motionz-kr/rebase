@@ -31,6 +31,16 @@ test.describe('SQLite schema query context', () => {
     await connection.click();
     await expect(win.locator('.conn-panel .editor-toolbar')).toBeVisible({ timeout: 20_000 });
 
+    // New connections hide all databases by default. SQLite exposes the same
+    // schema preference UI as server-backed connections so the user can opt in.
+    await win.locator('.conn-row .icon-btn[title="Edit profile"]').click();
+    await win.locator('.conn-modal-tabs .seg-tab').filter({ hasText: '스키마' }).click();
+    const allSchemasCheckbox = win.getByTestId('schema-visibility-toggle-all');
+    await expect(allSchemasCheckbox).not.toBeChecked();
+    await allSchemasCheckbox.check();
+    await expect(allSchemasCheckbox).toBeChecked();
+    await win.locator('.conn-modal .modal-head .icon-btn').click();
+
     const dbRow = win.locator(`.tree-row:has(.tree-label:text-is("${databaseName}"))`).first();
     await expect(dbRow).toBeVisible({ timeout: 10_000 });
     await dbRow.click({ button: 'right' });
