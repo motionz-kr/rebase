@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.28.0](https://github.com/motionz-kr/rebase/compare/v0.27.1...v0.28.0) (2026-09-21)
+
+
+### Features
+
+* DataGrip 스타일 쿼리탭 세션 격리 ([#186](https://github.com/motionz-kr/rebase/issues/186)) ([67945a2](https://github.com/motionz-kr/rebase/commit/67945a2098f2cbdb6a2485f52d34693ef903b2c9))
+* improve connection session lifecycle ([920b72c](https://github.com/motionz-kr/rebase/commit/920b72c3ef85658db98d9db99137e0f0050c2120))
+* improve connection session lifecycle ([02c6d39](https://github.com/motionz-kr/rebase/commit/02c6d39ced25f94f3343d5497eccc151c7959928))
+* 세션 관리 및 쿼리탭 복원 ([#187](https://github.com/motionz-kr/rebase/issues/187)) ([5bfdc1b](https://github.com/motionz-kr/rebase/commit/5bfdc1b588f2b7dba81093bf74c214429757ec04))
+
+
+### Bug Fixes
+
+* make schema diagnostics advisory ([8229bd1](https://github.com/motionz-kr/rebase/commit/8229bd153226ef0b04f281767aa2910b9426b595))
+* make schema diagnostics advisory ([15c2fc6](https://github.com/motionz-kr/rebase/commit/15c2fc63768a18037ff10f442ffd8ee09b8c9ac6))
+
 ## [0.27.1](https://github.com/motionz-kr/rebase/compare/v0.27.0...v0.27.1) (2026-09-21)
 
 
