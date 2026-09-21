@@ -4,6 +4,8 @@ export interface SqlQueryRequest {
   sql: string;
   execute: boolean;
   nonce: number;
+  /** Open schema-explorer actions in a new database-bound query tab. */
+  openInNewTab?: boolean;
 }
 
 export function createSqlQueryRequest(
@@ -12,6 +14,14 @@ export function createSqlQueryRequest(
   sql: string,
   execute: boolean,
   nonce: number,
+  openInNewTab = false,
 ): SqlQueryRequest {
-  return { profileId, database, sql, execute, nonce };
+  return {
+    profileId,
+    database,
+    sql,
+    execute,
+    nonce,
+    ...(openInNewTab ? { openInNewTab: true } : {}),
+  };
 }

@@ -496,10 +496,11 @@ function App() {
   };
 
   const openSchemaQuery = (profileId: string, database: string) => {
+    dispatch({ type: 'focus', profileId });
     setTemplateView((m) => ({ ...m, [profileId]: null }));
     setErTab((prev) => ({ ...prev, [profileId]: null }));
     setOpenTable((prev) => ({ ...prev, [profileId]: null }));
-    setQueryRequest(createSqlQueryRequest(profileId, database, '', false, Date.now()));
+    setQueryRequest(createSqlQueryRequest(profileId, database, '', false, Date.now(), true));
   };
 
   const openLibrary = (view: LibraryView = 'saved') => {
@@ -1031,10 +1032,11 @@ function App() {
                               setErTab((prev) => ({ ...prev, [p.id!]: { db } }));
                             }}
                             onRunQuery={({ database, sql }) => {
+                              dispatch({ type: 'focus', profileId: p.id! });
                               setTemplateView((m) => ({ ...m, [p.id!]: null }));
                               setErTab((prev) => ({ ...prev, [p.id!]: null }));
                               setOpenTable((prev) => ({ ...prev, [p.id!]: null }));
-                              setQueryRequest(createSqlQueryRequest(p.id!, database, sql, true, Date.now()));
+                              setQueryRequest(createSqlQueryRequest(p.id!, database, sql, true, Date.now(), true));
                             }}
                           />
                         )}
@@ -1270,7 +1272,7 @@ function App() {
                       safeMode={profile.safeMode ?? false}
                       onQueryExecuted={() => setHistoryTrigger((n) => n + 1)}
                       loadTriggerQuery={focused ? selectedQueryText : ''}
-                      queryRequest={focused && queryRequest?.profileId === id ? queryRequest : undefined}
+                      queryRequest={queryRequest?.profileId === id ? queryRequest : undefined}
                       schemaVersion={schemaVersion}
                       agentTitlesEnabled={showAgent}
                       onOpenLibrary={() => openLibrary()}
