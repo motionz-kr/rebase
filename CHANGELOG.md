@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.28.1](https://github.com/motionz-kr/rebase/compare/v0.28.0...v0.28.1) (2026-09-21)
+
+
+### Bug Fixes
+
+* preserve connection credentials on profile edits ([05ac00b](https://github.com/motionz-kr/rebase/commit/05ac00bfb4e8a005d8a6b78bbe72650cba10681e))
+* preserve connection credentials on profile edits ([4f06343](https://github.com/motionz-kr/rebase/commit/4f063432ec35a40de9fc04312c446d23e2fc059a))
+
 ## [0.28.0](https://github.com/motionz-kr/rebase/compare/v0.27.1...v0.28.0) (2026-09-21)
 
 
