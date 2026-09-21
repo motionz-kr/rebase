@@ -833,6 +833,12 @@ function App() {
                   <option value="require">Require (encrypted)</option>
                 </select>
               </div>
+              <div className="field-check">
+                <label>
+                  <input type="checkbox" checked={formReadOnly} onChange={(e) => setFormReadOnly(e.target.checked)} />
+                  읽기 전용 (read-only)
+                </label>
+              </div>
               {formDriver === 'mongodb' && (
                 <div>
                   <label>고급: 연결 문자열 (선택)</label>
@@ -911,7 +917,7 @@ function App() {
                   {formTab === 'schema' && editingId && (formDriver === 'mysql' || formDriver === 'postgres' || formDriver === 'sqlserver') && (
                     <div className="ctp-section">
                       <div className="ctp-head">표시할 스키마 및 테이블</div>
-                      <p className="ctp-hint">스키마 체크를 해제하면 왼쪽 트리에서 해당 스키마 전체가 숨겨지고, 테이블만 해제하면 해당 테이블만 숨겨집니다.</p>
+                      <p className="ctp-hint">새 연결은 기본적으로 모든 스키마가 숨겨집니다. 상단 전체 체크로 한 번에 선택하거나 해제한 뒤, 필요한 스키마만 켤 수 있습니다.</p>
                       {conns.byId[editingId]?.status === 'connected' ? (
                         <ConnectionTablePrefs profileId={editingId} store={hiddenStore} onChange={updateHidden} />
                       ) : (
@@ -1010,6 +1016,7 @@ function App() {
                             profiles={profiles}
                             driver={p.driver as 'mysql' | 'postgres' | 'redis' | 'sqlite' | 'sqlserver'}
                             hiddenStore={hiddenStore}
+                            onHiddenStoreChange={updateHidden}
                             onDisconnect={() => disconnect(p.id!)}
                             onSchemaChanged={() => setSchemaVersion((n) => n + 1)}
                             onOpenQuery={(db) => openSchemaQuery(p.id!, db)}
@@ -1259,6 +1266,7 @@ function App() {
                       driver={profile.driver as 'mysql' | 'postgres' | 'redis' | 'sqlite' | 'sqlserver'}
                       database={profile.database}
                       connectionName={profile.name}
+                      profileReadOnly={profile.readOnly ?? false}
                       safeMode={profile.safeMode ?? false}
                       onQueryExecuted={() => setHistoryTrigger((n) => n + 1)}
                       loadTriggerQuery={focused ? selectedQueryText : ''}

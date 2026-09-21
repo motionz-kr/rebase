@@ -163,6 +163,27 @@ type ExecuteBatchRequest struct {
 	ConfirmDestructive bool     `json:"confirmDestructive"`
 }
 
+func evaluateBatchStatementGate(
+	profile domain.ConnectionProfile,
+	stmt string,
+	allowWrite bool,
+	confirmDestructive bool,
+	acknowledged bool,
+) gateResult {
+	class := domain.ClassifyQuery(stmt)
+	report := analyzer.Analyze(stmt, profile.TenantColumnList())
+	return evaluateGate(gateInput{
+		readOnlyProfile:    profile.ReadOnly,
+		safeMode:           profile.SafeMode,
+		classReadOnly:      class.ReadOnly,
+		classDestructive:   class.Destructive,
+		riskHigh:           report.Level == analyzer.RiskHigh,
+		allowWrite:         allowWrite,
+		confirmDestructive: confirmDestructive,
+		acknowledged:       acknowledged,
+	})
+}
+
 type CancelQueryRequest struct {
 	QueryID string `json:"queryId"`
 }
@@ -435,26 +456,22 @@ func (h *QueryHandler) ExecuteBatch() http.Handler {
 			return
 		}
 
-		// Per-statement policy gate (each entry is a single statement).
-		for _, stmt := range req.Statements {
-			class := domain.ClassifyQuery(stmt)
-			if !class.ReadOnly && !req.AllowWrite {
-				writeQueryPolicyError(w, http.StatusForbidden, "read_only_blocked",
-					"This statement may modify data and is blocked in read-only mode.", class.Verb)
-				return
-			}
-			if class.Destructive && !req.ConfirmDestructive {
-				writeQueryPolicyError(w, http.StatusConflict, "confirmation_required",
-					"This is a destructive statement. Confirm to run it.", class.Verb)
-				return
-			}
-		}
-
 		profile, password, err := h.service.GetProfile(r.Context(), req.ProfileID)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+
+		// Per-statement policy gate (each entry is a single statement).
+		for _, stmt := range req.Statements {
+			class := domain.ClassifyQuery(stmt)
+			gate := evaluateBatchStatementGate(*profile, stmt, req.AllowWrite, req.ConfirmDestructive, false)
+			if gate.code != "" {
+				writeQueryPolicyError(w, gate.status, gate.code, gate.message, class.Verb)
+				return
+			}
+		}
+
 		connector, err := h.getConnector(profile.Driver)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)

@@ -1038,6 +1038,11 @@
 .transaction-status-active { color: var(--amber); }
 .transaction-status-failed { color: var(--red); }
 .transaction-status-opening { color: var(--accent); }
+.query-profile-policy {
+  color: var(--amber);
+  font-size: 11px;
+  white-space: nowrap;
+}
 .transaction-action { height: 26px; padding: 0 8px; }
 .transaction-notice {
   max-width: 130px;
@@ -4254,6 +4259,34 @@
   font-size: 11px;
   color: var(--text-3);
   margin: 0 0 8px;
+}
+.ctp-bulk-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 8px;
+  margin-bottom: 4px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-2);
+}
+.ctp-bulk-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.ctp-bulk-check input {
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+.ctp-bulk-state {
+  font-size: 11px;
+  color: var(--text-3);
 }
 .ctp-tree {
   max-height: 38vh;
