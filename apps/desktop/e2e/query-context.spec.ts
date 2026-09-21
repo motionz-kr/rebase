@@ -8,10 +8,13 @@ import { typeQuery } from './helpers';
 test.describe('SQLite schema query context', () => {
   const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rebase-query-context-'));
   const databaseFile = path.join(fixtureDir, 'query_context_e2e.db');
+  const databaseFileB = path.join(fixtureDir, 'query_context_e2e_b.db');
   const databaseName = path.basename(databaseFile);
+  const databaseNameB = path.basename(databaseFileB);
 
   test.beforeAll(() => {
     execFileSync('sqlite3', [databaseFile, 'CREATE TABLE query_context_e2e (id INTEGER PRIMARY KEY, label TEXT); INSERT INTO query_context_e2e VALUES (1, \'one\'), (2, \'two\');']);
+    execFileSync('sqlite3', [databaseFileB, 'CREATE TABLE query_context_e2e_b (id INTEGER PRIMARY KEY, label TEXT); INSERT INTO query_context_e2e_b VALUES (1, \'from-b\');']);
   });
 
   test.afterAll(() => {
@@ -49,14 +52,18 @@ test.describe('SQLite schema query context', () => {
     await expect(queryInput).toContainText('쿼리 입력');
     await queryInput.click();
     await expect(win.locator('.editor-conn-db')).toHaveText(databaseName);
-    await expect(win.locator('.etab .etab-db')).toHaveText(databaseName);
+    // Schema explorer actions open a dedicated tab instead of changing the
+    // database/session of the tab that was already open.
+    await expect(win.locator('.etab')).toHaveCount(2);
+    await expect(win.locator('.etab.active .etab-db')).toHaveText(databaseName);
 
     // A new tab inherits the current schema and keeps the schema visible on
     // each tab, so switching between tabs remains unambiguous.
     await win.locator('.etab-add').click();
-    await expect(win.locator('.etab .etab-db')).toHaveCount(2);
+    await expect(win.locator('.etab')).toHaveCount(3);
     await expect(win.locator('.etab').nth(0)).toContainText(databaseName);
     await expect(win.locator('.etab').nth(1)).toContainText(databaseName);
+    await expect(win.locator('.etab').nth(2)).toContainText(databaseName);
 
     await dbRow.click();
     const tableRow = win.locator('.tree-row:has(.tree-label:text-is("query_context_e2e"))');
@@ -73,6 +80,7 @@ test.describe('SQLite schema query context', () => {
     await tableRow.click({ button: 'right' });
     await win.locator('.ctx-menu .ctx-item').filter({ hasText: '최근 500개 조회' }).click();
     await expect(win.locator('.editor-conn-db')).toHaveText(databaseName);
+    await expect(win.locator('.etab')).toHaveCount(4);
     await expect(win.locator('.conn-panel:not([style*="none"]) .grid-body .grid-row')).toHaveCount(2, { timeout: 15_000 });
 
     // Table-view filters run in the database: exercise text matching and a
@@ -167,5 +175,76 @@ test.describe('SQLite schema query context', () => {
     await expect(win.locator('.library-modal .hist-card.fail').first()).toContainText('missing_query_context_table');
     await historyStatus.selectOption('success');
     await expect(win.locator('.library-modal .history-empty')).toHaveText('No executions match these filters.');
+  });
+
+  test('routes a schema action to the selected connection tab', async ({ firstWindow: win }) => {
+    const addSqliteConnection = async (name: string, file: string) => {
+      await win.locator('.sidebar-head button').click();
+      const form = win.locator('.conn-form');
+      await form.locator('select').first().selectOption('sqlite');
+      await form.locator('label:text-is("Profile name") + input').fill(name);
+      await form.locator('label:text-is("Database file")').locator('..').locator('input').fill(file);
+      await form.locator('button[type="submit"]').click();
+
+      const row = win.locator('.conn-list .conn-row').filter({ hasText: name });
+      await expect(row).toBeVisible();
+      await row.click();
+      await expect(win.locator('.conn-panel:not([style*="none"]) .editor-toolbar')).toBeVisible({ timeout: 20_000 });
+      return row;
+    };
+
+    const enableAllSchemas = async (row: ReturnType<typeof win.locator>) => {
+      await row.locator('button[title="Edit profile"]').click();
+      await win.locator('.conn-modal-tabs .seg-tab').filter({ hasText: '스키마' }).click();
+      const allSchemasCheckbox = win.getByTestId('schema-visibility-toggle-all');
+      await expect(allSchemasCheckbox).not.toBeChecked();
+      await allSchemasCheckbox.check();
+      await expect(allSchemasCheckbox).toBeChecked();
+      await win.locator('.conn-modal .modal-head .icon-btn').click();
+    };
+
+    const rowA = await addSqliteConnection('E2E SQLite connection A', databaseFile);
+    const rowB = await addSqliteConnection('E2E SQLite connection B', databaseFileB);
+    await enableAllSchemas(rowA);
+    await enableAllSchemas(rowB);
+
+    const dbRowA = win.locator(`.tree-row:has(.tree-label:text-is("${databaseName}"))`).first();
+    const dbRowB = win.locator(`.tree-row:has(.tree-label:text-is("${databaseNameB}"))`).first();
+    await expect(dbRowA).toBeVisible({ timeout: 10_000 });
+    await expect(dbRowB).toBeVisible({ timeout: 10_000 });
+    await dbRowB.click();
+    await expect(win.locator('.tree-row:has(.tree-label:text-is("query_context_e2e_b"))').first()).toBeVisible({ timeout: 10_000 });
+    await dbRowA.click({ button: 'right' });
+    await win.locator('.ctx-menu .ctx-item').filter({ hasText: '쿼리 입력' }).click();
+    const aPanel = win.locator('.conn-panel:not([style*="none"])');
+    await expect(aPanel.locator('.etab')).toHaveCount(2);
+    await aPanel.getByTestId('tx-mode-manual').click();
+    await aPanel.locator('.editor-toolbar .btn-primary').click();
+    await expect(aPanel.getByTestId('transaction-status')).toHaveText('미커밋 트랜잭션', { timeout: 15_000 });
+
+    // Move focus away from A. The B action must activate B and create the B
+    // database-bound tab instead of being swallowed by the hidden A editor.
+    await rowA.click();
+    const tableRowB = win.locator('.tree-row:has(.tree-label:text-is("query_context_e2e_b"))').first();
+    await expect(tableRowB).toBeVisible({ timeout: 10_000 });
+    await tableRowB.click({ button: 'right' });
+    await win.locator('.ctx-menu .ctx-item').filter({ hasText: '최근 500개 조회' }).click();
+
+    const visiblePanel = win.locator('.conn-panel:not([style*="none"])');
+    await expect(visiblePanel.locator('.editor-conn-db')).toHaveText(databaseNameB);
+    await expect(visiblePanel.locator('.etab')).toHaveCount(2);
+    await expect(visiblePanel.locator('.grid-body .grid-row')).toHaveCount(1, { timeout: 15_000 });
+
+    // Switching back must reveal A's original pair of tabs, proving that the
+    // two connections do not share one focused editor/session state.
+    await rowA.click();
+    const visibleA = win.locator('.conn-panel:not([style*="none"])');
+    await expect(visibleA.locator('.editor-conn-db')).toHaveText(databaseName);
+    await expect(visibleA.locator('.etab')).toHaveCount(2);
+    await expect(visibleA.getByTestId('transaction-status')).toHaveText('미커밋 트랜잭션');
+    await rowB.click();
+    const visibleB = win.locator('.conn-panel:not([style*="none"])');
+    await expect(visibleB.locator('.editor-conn-db')).toHaveText(databaseNameB);
+    await expect(visibleB.locator('.etab')).toHaveCount(2);
   });
 });

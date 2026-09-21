@@ -29,6 +29,7 @@ import { withExplicitRiskApproval } from '../lib/queryApproval';
 import { getDisconnectTransactionTabs } from '../lib/connectionLifecycle';
 import { canEnableTabWrite, resolveQueryAllowWrite, resolveTabWriteMode } from '../lib/queryTabPolicy';
 import { readQueryTabs, writeQueryTabs, type PersistedQueryTab } from '../lib/queryTabPersistence';
+import { createMultiStatementResumePlan } from '../lib/multiStatementResume';
 
 loader.config({ monaco });
 
@@ -89,6 +90,27 @@ interface QueryTab {
   transactionNotice: string | null;
   // Each query tab is a client with its own read/write choice.
   writeMode: boolean;
+}
+
+interface MultiStatementRunOptions {
+  database: string;
+  allowWrite: boolean;
+  confirmDestructive: boolean;
+  fetchAll: boolean;
+  acknowledged: boolean;
+}
+
+interface PendingMultiStatementRun {
+  ranges: SqlStatementRange[];
+  startIndex: number;
+  options: MultiStatementRunOptions;
+  sessionId?: string;
+}
+
+interface PendingExternalExecution {
+  tabId: string;
+  sql: string;
+  database: string;
 }
 
 interface QueryEditorProps {
@@ -202,6 +224,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
   const requestedNonce = queryRequest?.nonce;
   const requestedSql = queryRequest?.sql;
   const requestedExecute = queryRequest?.execute;
+  const requestedOpenInNewTab = queryRequest?.openInNewTab === true;
   const persistedInitialRef = useRef<ReturnType<typeof readQueryTabs> | undefined>(undefined);
   if (persistedInitialRef.current === undefined) {
     persistedInitialRef.current = readQueryTabs(browserStorage(), profileId);
@@ -231,6 +254,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
   // continuation here and show the RiskConfirmDialog.
   const [riskResult, setRiskResult] = useState<AnalyzeResult | null>(null);
   const pendingRunRef = useRef<null | (() => void)>(null);
+  const [pendingExternalExecution, setPendingExternalExecution] = useState<PendingExternalExecution | null>(null);
   const [disconnectPrompt, setDisconnectPrompt] = useState(false);
   const disconnectPromptResolverRef = useRef<((choice: 'commit' | 'rollback' | 'cancel') => void) | null>(null);
   const prepareForDisconnectRef = useRef<() => Promise<boolean>>(async () => true);
@@ -239,6 +263,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
   useEffect(() => {
     if (previousProfileDatabaseRef.current === database) return;
     previousProfileDatabaseRef.current = database;
+    for (const tab of tabsRef.current) clearPendingMultiRun(tab.id);
     setTabs((prev) => prev.map((t) => ({ ...t, database })));
   }, [database]);
 
@@ -249,12 +274,27 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
   useEffect(() => {
     if (loadTriggerQuery) {
       const targetTabId = activeTabIdRef.current;
+      clearPendingMultiRun(targetTabId);
       setTabs((prev) => prev.map((t) => (t.id === targetTabId ? { ...t, query: loadTriggerQuery, statementExecutions: [] } : t)));
     }
   }, [loadTriggerQuery]);
 
   const tabsRef = useRef<QueryTab[]>(tabs);
   const transactionSessionsRef = useRef<Record<string, string>>({});
+  const pendingMultiRunsRef = useRef<Record<string, PendingMultiStatementRun | undefined>>({});
+  const clearPendingMultiRun = (tabId: string) => {
+    delete pendingMultiRunsRef.current[tabId];
+  };
+  const createDatabaseTab = (targetDatabase: string, query: string): string => {
+    const id = `tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const currentTabs = tabsRef.current;
+    const nextTabs = [...currentTabs, newTab(id, `Query ${currentTabs.length + 1}`, targetDatabase, query)];
+    tabsRef.current = nextTabs;
+    activeTabIdRef.current = id;
+    setTabs(nextTabs);
+    setActiveTabId(id);
+    return id;
+  };
   useEffect(() => {
     tabsRef.current = tabs;
   }, [tabs]);
@@ -323,6 +363,8 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
       // current query tab's session is closed when that tab changes mode.
       if (target.transactionMode === 'manual' && target.transactionSessionId) {
         await closeTransactionSession(tabId);
+        const pending = pendingMultiRunsRef.current[tabId];
+        if (pending) pending.sessionId = undefined;
       }
       tabsRef.current = tabsRef.current.map((tab) => tab.id === tabId ? { ...tab, writeMode: nextWriteMode } : tab);
       setTabs((prev) => prev.map((tab) => tab.id === tabId ? { ...tab, writeMode: nextWriteMode } : tab));
@@ -342,6 +384,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     }
     try {
       if (target.transactionSessionId) await closeTransactionSession(tabId);
+      clearPendingMultiRun(tabId);
       setTabs((prev) => prev.map((tab) => tab.id === tabId
         ? { ...tab, transactionMode: mode, transactionState: 'idle', transactionSessionId: null, transactionNotice: null }
         : tab));
@@ -535,15 +578,34 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     editorInstance.focus();
   };
 
-  // A database context request comes from the schema explorer. It changes the
-  // editor context without replacing or executing the current SQL.
+  // Schema explorer actions are bound to a database-specific query tab. This
+  // keeps an existing tab's database and live transaction session intact.
   useEffect(() => {
     if (!requestedDatabase) return;
-    const targetTabId = activeTabIdRef.current;
-    setTabs((prev) => prev.map((t) => (t.id === targetTabId ? { ...t, database: requestedDatabase, statementExecutions: [] } : t)));
+    const targetTabId = requestedOpenInNewTab
+      ? createDatabaseTab(
+          requestedDatabase,
+          requestedSql?.trim() ? requestedSql : defaultQueryForDriver(driver),
+        )
+      : activeTabIdRef.current;
+    clearPendingMultiRun(targetTabId);
+    if (!requestedOpenInNewTab) {
+      setTabs((prev) => prev.map((t) => (t.id === targetTabId
+        ? {
+            ...t,
+            database: requestedDatabase,
+            ...(requestedExecute && requestedSql ? { query: requestedSql } : {}),
+            statementExecutions: [],
+          }
+        : t)));
+    }
     setEditView(null);
-    editorInstance?.focus();
-  }, [requestedDatabase, requestedNonce, editorInstance]);
+    if (requestedExecute && requestedSql) {
+      setPendingExternalExecution({ tabId: targetTabId, sql: requestedSql, database: requestedDatabase });
+    } else {
+      editorInstance?.focus();
+    }
+  }, [requestedDatabase, requestedNonce, requestedSql, requestedExecute, requestedOpenInNewTab, driver]);
 
   // Drag-resizable SQL editor height (the splitter below it grows/shrinks the
   // results area inversely). Persisted across sessions.
@@ -698,6 +760,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
 
   const handleQueryChange = (value: string | undefined) => {
     if (value === undefined) return;
+    clearPendingMultiRun(activeTabId);
     setTabs((prev) => prev.map((t) => (t.id === activeTabId ? { ...t, query: value, statementExecutions: [] } : t)));
   };
 
@@ -711,7 +774,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
   // ignores it because the tab's queryId is never set to these ids.
   const runSingleStatementCollected = (
     stmt: string,
-    opts: { database: string; allowWrite: boolean; confirmDestructive: boolean; fetchAll: boolean; sessionId?: string; tabId: string }
+    opts: MultiStatementRunOptions & { sessionId?: string; tabId: string }
   ): Promise<{ result?: ResultSet; policy?: PolicyPrompt }> =>
     new Promise((resolve) => {
       const queryId = `query-${crypto.randomUUID()}`;
@@ -780,39 +843,60 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
   // stopping on the first error or policy block.
   const runMultiStatements = async (
     statementRanges: ReturnType<typeof splitStatementRanges>,
-    opts: { database: string; allowWrite: boolean; confirmDestructive: boolean; fetchAll: boolean }
+    opts: MultiStatementRunOptions,
+    startIndex = 0,
+    existingSessionId?: string,
   ) => {
     const statements = statementRanges.map((range) => range.statement);
+    const resumePlan = createMultiStatementResumePlan(statementRanges, startIndex);
+    if (startIndex > 0 && !resumePlan) return;
     const runTabId = activeTabId;
     const currentTab = tabsRef.current.find((tab) => tab.id === runTabId);
     if (currentTab?.transactionMode === 'manual' && currentTab.transactionState === 'failed') return;
-    const startTime = Date.now();
+    const isResume = startIndex > 0;
+    const startTime = isResume ? (currentTab?.startTime ?? Date.now()) : Date.now();
     const manualMode = tabsRef.current.find((tab) => tab.id === runTabId)?.transactionMode === 'manual';
-    let sessionId: string | undefined;
+    let sessionId: string | undefined = existingSessionId;
     multiAbortRef.current = false;
-    setTabs((prev) =>
-      prev.map((t) =>
-        t.id === runTabId
-          ? {
-              ...t,
-              loading: true,
-              transactionNotice: null,
-              columns: [],
-              rows: [],
-              error: null,
-              rowsAffected: null,
-              queryId: null,
-              startTime,
-              elapsedTimeMs: null,
-              policyPrompt: null,
-              truncated: false,
-              resultSets: [],
-              activeResultIndex: 0,
-              statementExecutions: statementRanges.map((range) => ({ ...range, state: 'pending' as const })),
-            }
-          : t
-      )
-    );
+    if (!isResume) clearPendingMultiRun(runTabId);
+    setTabs((prev) => prev.map((t) => {
+      if (t.id !== runTabId) return t;
+      if (isResume) {
+        return {
+          ...t,
+          loading: true,
+          transactionNotice: null,
+          error: null,
+          queryId: null,
+          startTime,
+          elapsedTimeMs: null,
+          policyPrompt: null,
+          activeResultIndex: Math.min(t.activeResultIndex, Math.max(0, t.resultSets.length - 1)),
+          statementExecutions: t.statementExecutions.map((execution, index) => {
+            if (index === startIndex) return { ...execution, state: 'running' as const, message: undefined };
+            if (index > startIndex) return { ...execution, state: 'pending' as const, message: undefined };
+            return execution;
+          }),
+        };
+      }
+      return {
+        ...t,
+        loading: true,
+        transactionNotice: null,
+        columns: [],
+        rows: [],
+        error: null,
+        rowsAffected: null,
+        queryId: null,
+        startTime,
+        elapsedTimeMs: null,
+        policyPrompt: null,
+        truncated: false,
+        resultSets: [],
+        activeResultIndex: 0,
+        statementExecutions: statementRanges.map((range) => ({ ...range, state: 'pending' as const })),
+      };
+    }));
 
     if (manualMode) {
       try {
@@ -825,9 +909,10 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
       }
     }
 
-    const collected: ResultSet[] = [];
+    const collected: ResultSet[] = isResume ? [...(currentTab?.resultSets ?? [])] : [];
     let policy: PolicyPrompt | null = null;
-    for (const [statementIndex, stmt] of statements.entries()) {
+    for (let statementIndex = startIndex; statementIndex < statements.length; statementIndex += 1) {
+      const stmt = statements[statementIndex];
       setTabs((prev) =>
         prev.map((t) =>
           t.id === runTabId
@@ -843,6 +928,12 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
       const r = await runSingleStatementCollected(stmt, { ...opts, sessionId, tabId: runTabId });
       if (r.policy) {
         policy = r.policy;
+        pendingMultiRunsRef.current[runTabId] = {
+          ranges: statementRanges,
+          startIndex: statementIndex,
+          options: opts,
+          sessionId,
+        };
         setTabs((prev) =>
           prev.map((t) =>
             t.id === runTabId
@@ -888,7 +979,10 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
               : t
           )
         );
-        if (r.result.error) break; // stop the script on the first failure
+        if (r.result.error) {
+          clearPendingMultiRun(runTabId);
+          break; // stop the script on the first failure
+        }
       } else {
         setTabs((prev) =>
           prev.map((t) =>
@@ -903,10 +997,14 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
           )
         );
       }
-      if (multiAbortRef.current) break;
+      if (multiAbortRef.current) {
+        clearPendingMultiRun(runTabId);
+        break;
+      }
     }
 
     multiCancelRef.current = null;
+    if (!policy) clearPendingMultiRun(runTabId);
     const elapsed = Date.now() - startTime;
     const lastErr = collected.find((rs) => rs.error)?.error ?? null;
     const totalRows = collected.reduce((n, rs) => n + (rs.columns.length > 0 ? rs.rows.length : 0), 0);
@@ -925,7 +1023,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
               loading: false,
               elapsedTimeMs: elapsed,
               activeResultIndex: 0,
-              policyPrompt: policy ?? t.policyPrompt,
+              policyPrompt: policy,
               lastExec,
               statementExecutions: t.statementExecutions.map((execution) =>
                 execution.state === 'pending' || execution.state === 'running'
@@ -948,12 +1046,38 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     allowWrite?: boolean;
     confirmDestructive?: boolean;
     fetchAll?: boolean;
-    sqlOverride?: string;
     acknowledged?: boolean;
+    resumeMulti?: boolean;
+    sqlOverride?: string;
     databaseOverride?: string;
     statementRangesOverride?: SqlStatementRange[];
   }) => {
     if (activeTab.loading) return;
+
+    const pendingMultiRun = pendingMultiRunsRef.current[activeTab.id];
+    if (override?.resumeMulti && pendingMultiRun) {
+      const resumePlan = createMultiStatementResumePlan(pendingMultiRun.ranges, pendingMultiRun.startIndex);
+      if (resumePlan) {
+        setEditView(null);
+        await runMultiStatements(
+          pendingMultiRun.ranges,
+          {
+            ...pendingMultiRun.options,
+            database: override.databaseOverride ?? pendingMultiRun.options.database,
+            allowWrite: override.allowWrite ?? pendingMultiRun.options.allowWrite,
+            confirmDestructive: override.confirmDestructive ?? pendingMultiRun.options.confirmDestructive,
+            fetchAll: override.fetchAll ?? pendingMultiRun.options.fetchAll,
+            acknowledged: override.acknowledged ?? pendingMultiRun.options.acknowledged,
+          },
+          resumePlan.startIndex,
+          pendingMultiRun.sessionId,
+        );
+        return;
+      }
+    }
+    // A normal run, a changed query, or a different selected block starts a new
+    // execution plan and must not inherit an old policy continuation.
+    clearPendingMultiRun(activeTab.id);
 
     const allowWrite = resolveQueryAllowWrite(profileReadOnly, activeTab.writeMode, override?.allowWrite);
     const confirmDestructive = override?.confirmDestructive ?? false;
@@ -968,7 +1092,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     const statements = statementRanges.map((range) => range.statement);
     if (statements.length > 1) {
       setEditView(null);
-      await runMultiStatements(statementRanges, { database: queryDatabase, allowWrite, confirmDestructive, fetchAll });
+      await runMultiStatements(statementRanges, { database: queryDatabase, allowWrite, confirmDestructive, fetchAll, acknowledged });
       return;
     }
 
@@ -1086,19 +1210,21 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     }
   };
 
-  // One-click "load this SQL and run it" requests (e.g. table → recent rows).
+  // One-click "load this SQL and run it" requests (e.g. table → recent rows)
+  // wait until the requested tab is active, so executeQuery cannot target the
+  // previously focused database/session.
   useEffect(() => {
-    if (!requestedExecute || !requestedSql || !requestedDatabase) return;
-    const sql = requestedSql;
-    const targetTabId = activeTabIdRef.current;
-    setTabs((prev) => prev.map((t) => (t.id === targetTabId ? { ...t, database: requestedDatabase, query: sql } : t)));
-    void executeQuery({ sqlOverride: sql, databaseOverride: requestedDatabase });
+    if (!pendingExternalExecution || pendingExternalExecution.tabId !== activeTabId) return;
+    const request = pendingExternalExecution;
+    setPendingExternalExecution(null);
+    void executeQuery({ sqlOverride: request.sql, databaseOverride: request.database });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [requestedExecute, requestedSql, requestedDatabase, requestedNonce]);
+  }, [pendingExternalExecution, activeTabId]);
 
   const formatQuery = () => {
     const formatted = formatSql(activeTab.query, driver);
     if (formatted === activeTab.query) return;
+    clearPendingMultiRun(activeTabId);
     setTabs((prev) => prev.map((t) => (t.id === activeTabId ? { ...t, query: formatted } : t)));
   };
 
@@ -1124,6 +1250,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
 
   const cancelTabQuery = async (tabId: string, qid: string): Promise<boolean> => {
     multiAbortRef.current = true; // stop the multi-statement loop after this one
+    clearPendingMultiRun(tabId);
     try {
       const result = await window.electronAPI.cancelQuery(qid);
       if (!result.success) throw new Error(result.error || 'Query cancellation failed');
@@ -1213,8 +1340,10 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     return onRegisterDisconnect(() => prepareForDisconnectRef.current());
   }, [onRegisterDisconnect, profileId]);
 
-  const dismissPolicy = () =>
+  const dismissPolicy = () => {
+    clearPendingMultiRun(activeTabId);
     setTabs((prev) => prev.map((t) => (t.id === activeTabId ? { ...t, policyPrompt: null } : t)));
+  };
 
   const createTab = () => {
     const id = `tab-${Date.now()}`;
@@ -1225,6 +1354,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
   const closeTab = async (tabId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (tabs.length === 1) return;
+    clearPendingMultiRun(tabId);
     const target = tabs.find((t) => t.id === tabId);
     if (target?.transactionMode === 'manual' && ['opening', 'active', 'failed'].includes(target.transactionState)) {
       if (!window.confirm('이 탭을 닫으면 미커밋 변경 사항이 Rollback 됩니다. 계속할까요?')) return;
@@ -1563,7 +1693,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
               <button
                 className="btn btn-secondary btn-sm"
                 onClick={async () => {
-                  if (await changeWriteMode(activeTab.id, true)) await executeQuery({ allowWrite: true });
+                  if (await changeWriteMode(activeTab.id, true)) await executeQuery({ allowWrite: true, resumeMulti: true });
                 }}
               >
                 Enable write & run
@@ -1571,7 +1701,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
             ) : prompt.code === 'read_only_blocked' && profileReadOnly ? (
               <span className="query-profile-policy">이 연결은 Read-only로 고정되어 쓰기를 허용할 수 없습니다.</span>
             ) : (
-              <button className="btn btn-danger btn-sm" onClick={() => executeQuery({ allowWrite: true, confirmDestructive: true })}>
+              <button className="btn btn-danger btn-sm" onClick={() => executeQuery({ allowWrite: true, confirmDestructive: true, acknowledged: true, resumeMulti: true })}>
                 Run anyway
               </button>
             )}

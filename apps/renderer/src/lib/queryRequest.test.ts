@@ -21,4 +21,15 @@ describe('createSqlQueryRequest', () => {
       nonce: 43,
     });
   });
+
+  it('marks schema actions that must open a dedicated query tab', () => {
+    expect(createSqlQueryRequest('profile-1', 'reporting', 'SELECT 1', true, 44, true)).toMatchObject({
+      profileId: 'profile-1',
+      database: 'reporting',
+      sql: 'SELECT 1',
+      execute: true,
+      nonce: 44,
+      openInNewTab: true,
+    });
+  });
 });
