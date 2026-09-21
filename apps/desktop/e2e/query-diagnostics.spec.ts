@@ -39,6 +39,21 @@ test.describe('query editor diagnostics', () => {
     // shown as an unknown application table.
     await expect(win.getByTestId('sql-diagnostics')).toHaveCount(0);
 
+    // Built-in values, table functions, generated targets, CTEs, and upsert
+    // clauses must not be presented as missing application tables.
+    const falsePositiveQueries = [
+      'SELECT * FROM CURRENT_TIMESTAMP;',
+      "SELECT $$ FROM missing_diagnostics_table; $$ AS body FROM diagnostics_e2e;",
+      "SELECT * FROM json_each('{}') AS item;",
+      "INSERT INTO diagnostics_e2e (id, label) VALUES (1, 'one') ON CONFLICT(id) DO UPDATE SET label = excluded.label;",
+      'SELECT id INTO generated_diagnostics FROM diagnostics_e2e;',
+      'WITH first_rows AS (SELECT id FROM diagnostics_e2e), second_rows AS (SELECT id FROM first_rows) SELECT id FROM second_rows;',
+    ];
+    for (const sql of falsePositiveQueries) {
+      await typeQuery(win, sql);
+      await expect(win.getByTestId('sql-diagnostics')).toHaveCount(0);
+    }
+
     await typeQuery(win, 'SELECT d.missing FROM diagnostics_e2e AS d;');
     const diagnostics = win.getByTestId('sql-diagnostics');
     await expect(diagnostics).toBeVisible({ timeout: 15_000 });
