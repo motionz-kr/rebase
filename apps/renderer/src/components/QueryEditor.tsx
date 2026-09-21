@@ -25,6 +25,8 @@ import { buildExplainSql } from '../lib/explainPlan';
 import { getTransactionControls, getTransactionStatusLabel, type QueryTransactionMode, type QueryTransactionState } from '../lib/queryTransaction';
 import { getSqlDiagnostics, type SqlDiagnostic } from '../lib/sqlDiagnostics';
 import { withExplicitRiskApproval } from '../lib/queryApproval';
+import { getDisconnectTransactionTabs } from '../lib/connectionLifecycle';
+import { canEnableTabWrite, resolveQueryAllowWrite, resolveTabWriteMode } from '../lib/queryTabPolicy';
 
 loader.config({ monaco });
 
@@ -83,6 +85,8 @@ interface QueryTab {
   transactionState: QueryTransactionState;
   transactionSessionId: string | null;
   transactionNotice: string | null;
+  // Each query tab is a client with its own read/write choice.
+  writeMode: boolean;
 }
 
 interface QueryEditorProps {
@@ -90,6 +94,7 @@ interface QueryEditorProps {
   driver: 'mysql' | 'postgres' | 'redis' | 'sqlite' | 'sqlserver';
   database: string;
   connectionName: string;
+  profileReadOnly?: boolean;
   safeMode?: boolean;
   onQueryExecuted?: () => void;
   loadTriggerQuery?: string;
@@ -99,6 +104,7 @@ interface QueryEditorProps {
   schemaVersion?: number;
   agentTitlesEnabled?: boolean;
   onOpenLibrary?: () => void;
+  onRegisterDisconnect?: (handler: () => Promise<boolean>) => () => void;
 }
 
 type SchemaLoadStatus = 'loading' | 'ready' | 'unavailable';
@@ -146,9 +152,10 @@ const newTab = (id: string, name: string, database: string, query: string): Quer
   transactionState: 'idle',
   transactionSessionId: null,
   transactionNotice: null,
+  writeMode: false,
 });
 
-export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, database, connectionName, safeMode = false, onQueryExecuted, loadTriggerQuery, queryRequest, schemaVersion, agentTitlesEnabled = false, onOpenLibrary }) => {
+export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, database, connectionName, profileReadOnly = false, safeMode = false, onQueryExecuted, loadTriggerQuery, queryRequest, schemaVersion, agentTitlesEnabled = false, onOpenLibrary, onRegisterDisconnect }) => {
   const requestedDatabase = queryRequest?.database;
   const requestedNonce = queryRequest?.nonce;
   const requestedSql = queryRequest?.sql;
@@ -177,7 +184,6 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
   // When the run query is a plain single-table SELECT *, the result is shown in
   // an editable table view (add/edit/delete) instead of the read-only grid.
   const [editView, setEditView] = useState<EditableQuery | null>(null);
-  const [writeMode, setWriteMode] = useState(false);
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [saveQueryName, setSaveQueryName] = useState('');
   const [saveNameTouched, setSaveNameTouched] = useState(false);
@@ -188,6 +194,9 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
   // continuation here and show the RiskConfirmDialog.
   const [riskResult, setRiskResult] = useState<AnalyzeResult | null>(null);
   const pendingRunRef = useRef<null | (() => void)>(null);
+  const [disconnectPrompt, setDisconnectPrompt] = useState(false);
+  const disconnectPromptResolverRef = useRef<((choice: 'commit' | 'rollback' | 'cancel') => void) | null>(null);
+  const prepareForDisconnectRef = useRef<() => Promise<boolean>>(async () => true);
 
   const previousProfileDatabaseRef = useRef(database);
   useEffect(() => {
@@ -246,22 +255,29 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     updateTabTransaction(tabId, { transactionSessionId: null, transactionState: 'idle' });
   };
 
-  const changeWriteMode = async (nextWriteMode: boolean): Promise<boolean> => {
-    if (nextWriteMode === writeMode) return true;
-    const hasUncommittedTransaction = tabsRef.current.some((tab) =>
-      tab.transactionMode === 'manual' && ['opening', 'active', 'failed'].includes(tab.transactionState)
-    );
+  const changeWriteMode = async (tabId: string, nextWriteMode: boolean): Promise<boolean> => {
+    const target = tabsRef.current.find((tab) => tab.id === tabId);
+    if (!target) return false;
+    const currentWriteMode = resolveTabWriteMode(profileReadOnly, target.writeMode);
+    if (nextWriteMode === currentWriteMode) return true;
+    if (!canEnableTabWrite(profileReadOnly, nextWriteMode)) {
+      alert('이 연결은 Read-only로 설정되어 Write 모드를 사용할 수 없습니다.');
+      return false;
+    }
+    const hasUncommittedTransaction = target.transactionMode === 'manual'
+      && ['opening', 'active', 'failed'].includes(target.transactionState);
     if (hasUncommittedTransaction) {
       alert('Manual 트랜잭션을 먼저 Commit 또는 Rollback 해주세요.');
       return false;
     }
     try {
-      // A session is bound to its read/write permission when it is opened.
-      // Close idle sessions so the next query uses the newly selected mode.
-      await Promise.all(tabsRef.current
-        .filter((tab) => tab.transactionMode === 'manual' && tab.transactionSessionId)
-        .map((tab) => closeTransactionSession(tab.id)));
-      setWriteMode(nextWriteMode);
+      // A manual session is bound to its read/write permission. Only the
+      // current query tab's session is closed when that tab changes mode.
+      if (target.transactionMode === 'manual' && target.transactionSessionId) {
+        await closeTransactionSession(tabId);
+      }
+      tabsRef.current = tabsRef.current.map((tab) => tab.id === tabId ? { ...tab, writeMode: nextWriteMode } : tab);
+      setTabs((prev) => prev.map((tab) => tab.id === tabId ? { ...tab, writeMode: nextWriteMode } : tab));
       return true;
     } catch (error) {
       alert(error instanceof Error ? error.message : '트랜잭션 세션을 닫지 못했습니다.');
@@ -875,7 +891,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
   }) => {
     if (activeTab.loading) return;
 
-    const allowWrite = override?.allowWrite ?? writeMode;
+    const allowWrite = resolveQueryAllowWrite(profileReadOnly, activeTab.writeMode, override?.allowWrite);
     const confirmDestructive = override?.confirmDestructive ?? false;
     const fetchAll = override?.fetchAll ?? false;
     const acknowledged = override?.acknowledged ?? false;
@@ -1042,21 +1058,96 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
   const formatRef = useRef<() => void>(() => {});
   formatRef.current = formatQuery;
 
-  const cancelQuery = async () => {
-    const qid = activeTab.queryId || multiCancelRef.current;
-    if (!activeTab.loading || !qid) return;
+  const cancelTabQuery = async (tabId: string, qid: string): Promise<boolean> => {
     multiAbortRef.current = true; // stop the multi-statement loop after this one
     try {
-      await window.electronAPI.cancelQuery(qid);
+      const result = await window.electronAPI.cancelQuery(qid);
+      if (!result.success) throw new Error(result.error || 'Query cancellation failed');
       setTabs((prev) =>
         prev.map((t) =>
-          t.id === activeTabId ? { ...t, loading: false, error: 'Query cancelled.', queryId: null } : t
+          t.id === tabId
+            ? {
+                ...t,
+                loading: false,
+                error: 'Query cancelled.',
+                queryId: null,
+                statementExecutions: t.statementExecutions.map((execution) =>
+                  execution.state === 'pending' || execution.state === 'running'
+                    ? { ...execution, state: 'skipped', message: '취소됨' }
+                    : execution
+                ),
+              }
+            : t
         )
       );
+      if (multiCancelRef.current === qid) multiCancelRef.current = null;
+      return true;
     } catch (e) {
       console.error('Failed to cancel query:', e);
+      return false;
     }
   };
+
+  const cancelQuery = async () => {
+    const tab = tabsRef.current.find((item) => item.id === activeTabId);
+    const qid = tab?.queryId || multiCancelRef.current;
+    if (!tab?.loading || !qid) return;
+    await cancelTabQuery(tab.id, qid);
+  };
+
+  const requestDisconnectChoice = (): Promise<'commit' | 'rollback' | 'cancel'> => new Promise((resolve) => {
+    disconnectPromptResolverRef.current = resolve;
+    setDisconnectPrompt(true);
+  });
+
+  const resolveDisconnectChoice = (choice: 'commit' | 'rollback' | 'cancel') => {
+    setDisconnectPrompt(false);
+    const resolve = disconnectPromptResolverRef.current;
+    disconnectPromptResolverRef.current = null;
+    resolve?.(choice);
+  };
+
+  const prepareForDisconnect = async (): Promise<boolean> => {
+    const runningTab = tabsRef.current.find((tab) => tab.loading);
+    if (runningTab) {
+      const qid = runningTab.queryId || multiCancelRef.current;
+      if (qid && !(await cancelTabQuery(runningTab.id, qid))) return false;
+    }
+
+    const pendingTransactions = getDisconnectTransactionTabs(tabsRef.current);
+    if (pendingTransactions.length > 0) {
+      const choice = await requestDisconnectChoice();
+      if (choice === 'cancel') return false;
+
+      for (const tab of pendingTransactions) {
+        const sessionId = transactionSessionsRef.current[tab.id] ?? tab.transactionSessionId;
+        if (!sessionId) continue;
+        const result = await window.electronAPI.querySession(choice, profileId, '', sessionId);
+        if (!result.success || result.data?.success === false) {
+          alert(result.error || `트랜잭션 ${choice === 'commit' ? 'Commit' : 'Rollback'}에 실패했습니다.`);
+          return false;
+        }
+      }
+    }
+
+    try {
+      const sessions = tabsRef.current
+        .filter((tab) => tab.transactionMode === 'manual' && (transactionSessionsRef.current[tab.id] || tab.transactionSessionId))
+        .map((tab) => closeTransactionSession(tab.id));
+      await Promise.all(sessions);
+      return true;
+    } catch (error) {
+      alert(error instanceof Error ? error.message : '트랜잭션 세션을 닫지 못했습니다.');
+      return false;
+    }
+  };
+
+  prepareForDisconnectRef.current = prepareForDisconnect;
+
+  useEffect(() => {
+    if (!onRegisterDisconnect) return;
+    return onRegisterDisconnect(() => prepareForDisconnectRef.current());
+  }, [onRegisterDisconnect, profileId]);
 
   const dismissPolicy = () =>
     setTabs((prev) => prev.map((t) => (t.id === activeTabId ? { ...t, policyPrompt: null } : t)));
@@ -1313,12 +1404,19 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
           {activeTab.loading && <span className="spinner" />}
           {activeTab.elapsedTimeMs !== null && <span className="elapsed">{activeTab.elapsedTimeMs} ms</span>}
           <div className="mode-toggle">
-            <button className={`mode-opt ${!writeMode ? 'active' : ''}`} onClick={() => void changeWriteMode(false)}>
+            <button data-testid="query-mode-readonly" className={`mode-opt ${!resolveTabWriteMode(profileReadOnly, activeTab.writeMode) ? 'active' : ''}`} onClick={() => void changeWriteMode(activeTab.id, false)}>
               <Lock size={11} /> Read-only
             </button>
-            <button className={`mode-opt write ${writeMode ? 'active' : ''}`} onClick={() => void changeWriteMode(true)}>
+            <button
+              data-testid="query-mode-write"
+              className={`mode-opt write ${resolveTabWriteMode(profileReadOnly, activeTab.writeMode) ? 'active' : ''}`}
+              onClick={() => void changeWriteMode(activeTab.id, true)}
+              disabled={profileReadOnly}
+              title={profileReadOnly ? '이 연결은 Read-only입니다' : '현재 쿼리탭에서 쓰기를 허용합니다'}
+            >
               <Pencil size={11} /> Write
             </button>
+            {profileReadOnly && <span className="query-profile-policy" data-testid="query-profile-readonly">Connection Read-only</span>}
           </div>
           {driver !== 'redis' && <div className="transaction-controls" aria-label="Query transaction controls">
             <div className="mode-toggle transaction-mode-toggle">
@@ -1377,15 +1475,17 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
             <button className="btn btn-ghost btn-sm" onClick={dismissPolicy}>
               Dismiss
             </button>
-            {prompt.code === 'read_only_blocked' ? (
+            {prompt.code === 'read_only_blocked' && !profileReadOnly ? (
               <button
                 className="btn btn-secondary btn-sm"
                 onClick={async () => {
-                  if (await changeWriteMode(true)) await executeQuery({ allowWrite: true });
+                  if (await changeWriteMode(activeTab.id, true)) await executeQuery({ allowWrite: true });
                 }}
               >
                 Enable write & run
               </button>
+            ) : prompt.code === 'read_only_blocked' && profileReadOnly ? (
+              <span className="query-profile-policy">이 연결은 Read-only로 고정되어 쓰기를 허용할 수 없습니다.</span>
             ) : (
               <button className="btn btn-danger btn-sm" onClick={() => executeQuery({ allowWrite: true, confirmDestructive: true })}>
                 Run anyway
@@ -1406,7 +1506,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
             table={editView.table}
             initialOrderBy={editView.orderBy ?? undefined}
             limit={editView.limit ?? undefined}
-            readOnly={!writeMode}
+            readOnly={!resolveTabWriteMode(profileReadOnly, activeTab.writeMode)}
             embedded
           />
         </div>
@@ -1513,7 +1613,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
                       </span>
                       <button
                         className="btn btn-secondary btn-xs"
-                        onClick={() => executeQuery({ allowWrite: writeMode, fetchAll: true })}
+                        onClick={() => executeQuery({ allowWrite: resolveTabWriteMode(profileReadOnly, activeTab.writeMode), fetchAll: true })}
                       >
                         Fetch all rows
                       </button>
@@ -1566,6 +1666,28 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {disconnectPrompt && (
+        <div className="risk-dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="disconnect-dialog-title">
+          <div className="risk-dialog">
+            <header className="risk-header risk-warn">
+              <span className="risk-badge">Transaction</span>
+              <span className="risk-verb">Disconnect · {connectionName}</span>
+            </header>
+            <section className="risk-body">
+              <h3 id="disconnect-dialog-title">미커밋 변경 사항이 있습니다</h3>
+              <p className="risk-note">연결을 끊기 전에 트랜잭션을 Commit하거나 Rollback해야 합니다.</p>
+            </section>
+            <footer className="risk-footer">
+              <div className="risk-actions">
+                <button className="btn btn-secondary" onClick={() => resolveDisconnectChoice('cancel')}>취소</button>
+                <button className="btn btn-secondary" data-testid="disconnect-rollback" onClick={() => resolveDisconnectChoice('rollback')}>Rollback 후 끊기</button>
+                <button className="risk-run" data-testid="disconnect-commit" onClick={() => resolveDisconnectChoice('commit')}>Commit 후 끊기</button>
+              </div>
+            </footer>
           </div>
         </div>
       )}

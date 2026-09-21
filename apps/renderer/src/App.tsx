@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useReducer } from 'react';
+import React, { useState, useEffect, useCallback, useReducer, useRef } from 'react';
 import {
   Database,
   Plus,
@@ -132,6 +132,8 @@ function App() {
   // Multiple open connections (status + focus). Per-connection editor/results
   // state is preserved by keeping each panel mounted (hidden when not focused).
   const [conns, dispatch] = useReducer(connectionsReducer, initialConnectionsState);
+  const disconnectGuardsRef = useRef<Record<string, () => Promise<boolean>>>({});
+  const disconnectingRef = useRef(new Set<string>());
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [redisKeys, setRedisKeys] = useState<Record<string, string | null>>({});
   const [redisRefresh, setRedisRefresh] = useState<Record<string, number>>({});
@@ -421,15 +423,30 @@ function App() {
     setExpanded((prev) => ({ ...prev, [p.id!]: !prev[p.id!] }));
   };
 
-  const disconnect = (id: string, e?: React.MouseEvent) => {
+  const registerDisconnectGuard = useCallback((id: string, handler: () => Promise<boolean>) => {
+    disconnectGuardsRef.current[id] = handler;
+    return () => {
+      if (disconnectGuardsRef.current[id] === handler) delete disconnectGuardsRef.current[id];
+    };
+  }, []);
+
+  const disconnect = async (id: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
-    dispatch({ type: 'close', profileId: id });
-    setExpanded((prev) => ({ ...prev, [id]: false }));
-    setRedisKeys((prev) => {
-      const next = { ...prev };
-      delete next[id];
-      return next;
-    });
+    if (disconnectingRef.current.has(id)) return;
+    disconnectingRef.current.add(id);
+    try {
+      const guard = disconnectGuardsRef.current[id];
+      if (guard && !(await guard())) return;
+      dispatch({ type: 'close', profileId: id });
+      setExpanded((prev) => ({ ...prev, [id]: false }));
+      setRedisKeys((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    } finally {
+      disconnectingRef.current.delete(id);
+    }
   };
 
   const checkHealth = useCallback(async () => {
@@ -816,6 +833,12 @@ function App() {
                   <option value="require">Require (encrypted)</option>
                 </select>
               </div>
+              <div className="field-check">
+                <label>
+                  <input type="checkbox" checked={formReadOnly} onChange={(e) => setFormReadOnly(e.target.checked)} />
+                  읽기 전용 (read-only)
+                </label>
+              </div>
               {formDriver === 'mongodb' && (
                 <div>
                   <label>고급: 연결 문자열 (선택)</label>
@@ -894,7 +917,7 @@ function App() {
                   {formTab === 'schema' && editingId && (formDriver === 'mysql' || formDriver === 'postgres' || formDriver === 'sqlserver') && (
                     <div className="ctp-section">
                       <div className="ctp-head">표시할 스키마 및 테이블</div>
-                      <p className="ctp-hint">스키마 체크를 해제하면 왼쪽 트리에서 해당 스키마 전체가 숨겨지고, 테이블만 해제하면 해당 테이블만 숨겨집니다.</p>
+                      <p className="ctp-hint">새 연결은 기본적으로 모든 스키마가 숨겨집니다. 상단 전체 체크로 한 번에 선택하거나 해제한 뒤, 필요한 스키마만 켤 수 있습니다.</p>
                       {conns.byId[editingId]?.status === 'connected' ? (
                         <ConnectionTablePrefs profileId={editingId} store={hiddenStore} onChange={updateHidden} />
                       ) : (
@@ -993,6 +1016,7 @@ function App() {
                             profiles={profiles}
                             driver={p.driver as 'mysql' | 'postgres' | 'redis' | 'sqlite' | 'sqlserver'}
                             hiddenStore={hiddenStore}
+                            onHiddenStoreChange={updateHidden}
                             onDisconnect={() => disconnect(p.id!)}
                             onSchemaChanged={() => setSchemaVersion((n) => n + 1)}
                             onOpenQuery={(db) => openSchemaQuery(p.id!, db)}
@@ -1242,6 +1266,7 @@ function App() {
                       driver={profile.driver as 'mysql' | 'postgres' | 'redis' | 'sqlite' | 'sqlserver'}
                       database={profile.database}
                       connectionName={profile.name}
+                      profileReadOnly={profile.readOnly ?? false}
                       safeMode={profile.safeMode ?? false}
                       onQueryExecuted={() => setHistoryTrigger((n) => n + 1)}
                       loadTriggerQuery={focused ? selectedQueryText : ''}
@@ -1249,6 +1274,7 @@ function App() {
                       schemaVersion={schemaVersion}
                       agentTitlesEnabled={showAgent}
                       onOpenLibrary={() => openLibrary()}
+                      onRegisterDisconnect={(handler) => registerDisconnectGuard(id, handler)}
                     />
                   )}
                   </div>

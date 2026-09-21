@@ -7,7 +7,7 @@ import { CsvImportDialog } from './CsvImportDialog';
 import { IndexManagerDialog } from './IndexManagerDialog';
 import { SchemaCompareDialog } from './SchemaCompareDialog';
 import { buildRecentRowsQuery } from '../lib/recentQuery';
-import { hiddenFor, hiddenCount, hiddenDatabasesFor, visibleDatabases, type HiddenStore } from '../lib/tableVisibility';
+import { hiddenFor, hiddenCount, hiddenDatabasesFor, visibleDatabases, initializeDatabaseVisibility, type HiddenStore } from '../lib/tableVisibility';
 import type { Driver } from '../lib/ddlBuilder';
 import type { ColumnInfo, ConnectionProfile } from '../global';
 
@@ -16,6 +16,7 @@ interface SchemaExplorerProps {
   profiles: ConnectionProfile[];
   driver: 'mysql' | 'postgres' | 'redis' | 'sqlite' | 'sqlserver';
   hiddenStore: HiddenStore;
+  onHiddenStoreChange?: (next: HiddenStore) => void;
   onDisconnect: () => void;
   onSchemaChanged?: () => void;
   onOpenTableData?: (db: string, table: string) => void;
@@ -39,7 +40,7 @@ interface DatabaseNode {
   isLoading: boolean;
 }
 
-export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, profiles, driver, hiddenStore, onSchemaChanged, onOpenTableData, onOpenQuery, onRunQuery, onOpenErDiagram }) => {
+export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, profiles, driver, hiddenStore, onHiddenStoreChange, onSchemaChanged, onOpenTableData, onOpenQuery, onRunQuery, onOpenErDiagram }) => {
   const [databases, setDatabases] = useState<DatabaseNode[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -221,7 +222,10 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, profi
     try {
       const res = await window.electronAPI.listDatabases(profileId);
       if (res.success && res.data) {
-        setDatabases(res.data.map((db) => ({ name: db.name, isOpen: false, isLoading: false })));
+        const names = res.data.map((db) => db.name);
+        setDatabases(names.map((name) => ({ name, isOpen: false, isLoading: false })));
+        const nextStore = initializeDatabaseVisibility(hiddenStore, profileId, names);
+        if (nextStore !== hiddenStore) onHiddenStoreChange?.(nextStore);
       } else {
         setError(res.error || 'Failed to list databases');
       }
@@ -327,6 +331,9 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({ profileId, profi
   }
 
   const visibleDatabaseNames = new Set(visibleDatabases(databases.map((db) => db.name), hiddenDatabasesFor(hiddenStore, profileId)));
+  if (visibleDatabaseNames.size === 0) {
+    return <div className="muted">표시할 스키마가 없습니다. 연결 설정에서 선택하세요.</div>;
+  }
 
   return (
     <>

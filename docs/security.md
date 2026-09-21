@@ -82,6 +82,9 @@ Query 실행은 policy layer를 통과해야 한다.
 초기 정책:
 
 - read-only mode에서는 write query를 기본 차단하되, 사용자가 위험 분석 대화상자에서 명시적으로 실행을 승인한 현재 쿼리에 한해 허용한다. 연결 프로필 자체가 read-only로 고정된 경우에는 이 예외를 허용하지 않는다.
+- 연결 프로필의 read-only는 해당 연결의 모든 쿼리탭(client), 배치 실행, 테이블 편집 및 DDL 경로에 적용되는 hard guard다.
+- 쿼리탭의 Read-only/Write 선택은 탭별 상태이며, 같은 연결의 다른 쿼리탭이나 다른 연결 프로필의 상태를 공유하지 않는다.
+- 수동 트랜잭션 세션은 쿼리탭별로 소유하고, 세션을 닫을 때 미커밋 변경은 rollback한다.
 - destructive query는 confirmation 없이 실행하지 않는다.
 - query timeout 기본값을 둔다.
 - result row limit 기본값을 둔다.

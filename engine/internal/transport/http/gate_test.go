@@ -1,6 +1,10 @@
 package http
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/smlee/database-local-engine/engine/internal/domain"
+)
 
 func TestEvaluateGate(t *testing.T) {
 	// read-only profile blocks any write regardless of allowWrite
@@ -27,5 +31,19 @@ func TestEvaluateGate(t *testing.T) {
 	g = evaluateGate(gateInput{classReadOnly: true})
 	if g.code != "" {
 		t.Errorf("read-only select should pass, got %q", g.code)
+	}
+}
+
+func TestEvaluateBatchStatementGateUsesConnectionPolicy(t *testing.T) {
+	profile := domain.ConnectionProfile{ReadOnly: true}
+	got := evaluateBatchStatementGate(profile, "UPDATE users SET active = 0", true, true, false)
+	if got.code != "read_only_blocked" {
+		t.Fatalf("read-only batch connection must block writes, got %q", got.code)
+	}
+
+	profile.ReadOnly = false
+	got = evaluateBatchStatementGate(profile, "UPDATE users SET active = 0", false, true, false)
+	if got.code != "read_only_blocked" {
+		t.Fatalf("read-only batch tab must block writes, got %q", got.code)
 	}
 }

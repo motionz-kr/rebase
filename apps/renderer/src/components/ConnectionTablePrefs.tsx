@@ -7,6 +7,8 @@ import {
   dbVisibilityState,
   hiddenDatabasesFor,
   withDatabaseHidden,
+  withDatabasesHidden,
+  initializeDatabaseVisibility,
   type HiddenStore,
 } from '../lib/tableVisibility';
 
@@ -41,7 +43,10 @@ export const ConnectionTablePrefs: React.FC<Props> = ({ profileId, store, onChan
         const res = await window.electronAPI.listDatabases(profileId);
         if (!alive) return;
         if (res.success && res.data) {
-          setDbs(res.data.map((d) => ({ name: d.name, open: false, tables: null, loading: false })));
+          const names = res.data.map((d) => d.name);
+          setDbs(names.map((name) => ({ name, open: false, tables: null, loading: false })));
+          const nextStore = initializeDatabaseVisibility(store, profileId, names);
+          if (nextStore !== store) onChange(nextStore);
         } else {
           setError(res.error || '데이터베이스 목록을 불러오지 못했습니다.');
         }
@@ -88,6 +93,12 @@ export const ConnectionTablePrefs: React.FC<Props> = ({ profileId, store, onChan
     onChange(withHidden(store, profileId, db, toggleHidden(cur, table)));
   };
 
+  const toggleAllDatabases = () => {
+    const names = dbs.map((db) => db.name);
+    const state = dbVisibilityState(names, hiddenDatabasesFor(store, profileId));
+    onChange(withDatabasesHidden(store, profileId, names, state !== 'all'));
+  };
+
   // Top-level db checkbox: reveal everything or hide everything in that db.
   const toggleDbAll = async (name: string) => {
     const tables = await ensureTables(name);
@@ -103,8 +114,30 @@ export const ConnectionTablePrefs: React.FC<Props> = ({ profileId, store, onChan
   if (error) return <div className="ctp-status error">{error}</div>;
   if (dbs.length === 0) return <div className="ctp-status muted">표시할 데이터베이스가 없습니다.</div>;
 
+  const databaseNames = dbs.map((db) => db.name);
+  const databaseState = dbVisibilityState(databaseNames, hiddenDatabasesFor(store, profileId));
+
   return (
-    <div className="tree ctp-tree">
+    <>
+      <div className="ctp-bulk-row">
+        <label className="ctp-bulk-check">
+          <input
+            type="checkbox"
+            data-testid="schema-visibility-toggle-all"
+            checked={databaseState === 'all'}
+            ref={(el) => {
+              if (el) el.indeterminate = databaseState === 'some';
+            }}
+            onChange={toggleAllDatabases}
+            title="전체 스키마 선택/해제"
+          />
+          <span>전체 스키마 표시</span>
+        </label>
+        <span className="ctp-bulk-state">
+          {databaseState === 'all' ? '전체 선택' : databaseState === 'none' ? '전체 제외' : '일부 선택'}
+        </span>
+      </div>
+      <div className="tree ctp-tree">
       {dbs.map((db) => {
         const hidden = hiddenFor(store, profileId, db.name);
         const databaseHidden = hiddenDatabasesFor(store, profileId).includes(db.name);
@@ -162,6 +195,7 @@ export const ConnectionTablePrefs: React.FC<Props> = ({ profileId, store, onChan
           </div>
         );
       })}
-    </div>
+      </div>
+    </>
   );
 };

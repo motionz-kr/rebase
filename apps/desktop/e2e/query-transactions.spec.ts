@@ -32,6 +32,17 @@ test.describe('query tab transactions', () => {
     await connection.click();
     await expect(win.locator('.conn-panel .editor-toolbar')).toBeVisible({ timeout: 20_000 });
 
+    // Each query tab is an independent client: changing tab 1 to Write must
+    // not change the default Read-only mode of a newly opened tab 2.
+    await expect(win.getByTestId('query-mode-readonly')).toHaveClass(/active/);
+    await win.getByTestId('query-mode-write').click();
+    await win.locator('.etab-add').click();
+    await expect(win.getByTestId('query-mode-readonly')).toHaveClass(/active/);
+    await win.getByTestId('query-mode-write').click();
+    await win.locator('.etab').nth(0).click();
+    await expect(win.getByTestId('query-mode-write')).toHaveClass(/active/);
+    await win.locator('.etab').nth(1).getByRole('button').click();
+
     await win.getByRole('button', { name: 'Write' }).click();
     await win.getByTestId('tx-mode-manual').click();
     await expect(win.getByTestId('transaction-status')).toHaveText(/Manual · 대기/);
@@ -80,5 +91,23 @@ test.describe('query tab transactions', () => {
     await win.getByTestId('tx-rollback').click();
     await expect(win.locator('.transaction-notice')).toHaveText('Rolled back');
     expect(countRows()).toBe(1);
+  });
+
+  test('blocks Write mode when the connection profile is read-only', async ({ firstWindow: win }) => {
+    await win.locator('.sidebar-head button').click();
+    const form = win.locator('.conn-form');
+    await form.locator('select').first().selectOption('sqlite');
+    await form.locator('label:text-is("Profile name") + input').fill('E2E SQLite read-only');
+    await form.locator('label:text-is("Database file")').locator('..').locator('input').fill(databaseFile);
+    await form.locator('label').filter({ hasText: '읽기 전용 (read-only)' }).locator('input').check();
+    await form.locator('button[type="submit"]').click();
+
+    const connection = win.locator('.conn-list .conn-row').filter({ hasText: 'E2E SQLite read-only' });
+    await expect(connection).toBeVisible();
+    await connection.click();
+    await expect(win.locator('.conn-panel .editor-toolbar')).toBeVisible({ timeout: 20_000 });
+    await expect(win.getByTestId('query-profile-readonly')).toHaveText('Connection Read-only');
+    await expect(win.getByTestId('query-mode-readonly')).toHaveClass(/active/);
+    await expect(win.getByTestId('query-mode-write')).toBeDisabled();
   });
 });

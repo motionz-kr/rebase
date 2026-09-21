@@ -32,11 +32,28 @@ export function hiddenDatabasesFor(store: HiddenStore, profileId: string): strin
   return hiddenFor(store, profileId, HIDDEN_DATABASES_KEY);
 }
 
+export function hasDatabaseVisibilityPreference(store: HiddenStore, profileId: string): boolean {
+  return Object.prototype.hasOwnProperty.call(store[profileId] ?? {}, HIDDEN_DATABASES_KEY);
+}
+
 export function withDatabaseHidden(store: HiddenStore, profileId: string, db: string, hidden: boolean): HiddenStore {
   const current = hiddenDatabasesFor(store, profileId);
   const next = hidden ? (current.includes(db) ? current : [...current, db]) : current.filter((name) => name !== db);
   return withHidden(store, profileId, HIDDEN_DATABASES_KEY, next);
 }
+
+export function withDatabasesHidden(store: HiddenStore, profileId: string, databases: string[], hidden: boolean): HiddenStore {
+  return withHidden(store, profileId, HIDDEN_DATABASES_KEY, hidden ? [...databases] : []);
+}
+
+// New connections opt into schemas explicitly. Existing table preferences are
+// treated as an older, visible-by-default configuration and are preserved.
+export function initializeDatabaseVisibility(store: HiddenStore, profileId: string, databases: string[]): HiddenStore {
+  if (hasDatabaseVisibilityPreference(store, profileId)) return store;
+  const hasLegacyPreferences = Object.keys(store[profileId] ?? {}).length > 0;
+  return withDatabasesHidden(store, profileId, databases, !hasLegacyPreferences);
+}
+
 export function visibleTables(all: string[], hidden: string[]): string[] {
   const h = new Set(hidden);
   return all.filter((t) => !h.has(t));
