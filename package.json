@@ -1,6 +1,6 @@
 {
   "name": "database-desktop-tool",
-  "version": "0.28.1",
+  "version": "0.29.0",
   "private": true,
   "packageManager": "pnpm@8.15.9",
   "license": "MIT",
