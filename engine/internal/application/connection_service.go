@@ -76,6 +76,15 @@ func (s *ConnectionService) UpdateProfile(ctx context.Context, p *domain.Connect
 		return fmt.Errorf("invalid profile: %w", err)
 	}
 
+	// SecretRef is server-managed and the renderer intentionally omits it from
+	// the edit form. Always use the persisted reference so leaving the password
+	// blank does not disconnect the profile from its existing keychain entry.
+	existing, err := s.repo.GetByID(ctx, p.ID)
+	if err != nil {
+		return fmt.Errorf("failed to load existing profile: %w", err)
+	}
+	p.SecretRef = existing.SecretRef
+
 	p.UpdatedAt = time.Now()
 
 	// If a new password is provided, update it in SecretStore
