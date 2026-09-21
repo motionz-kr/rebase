@@ -57,14 +57,23 @@ test.describe('query editor diagnostics', () => {
     await typeQuery(win, 'SELECT d.missing FROM diagnostics_e2e AS d;');
     const diagnostics = win.getByTestId('sql-diagnostics');
     await expect(diagnostics).toBeVisible({ timeout: 15_000 });
-    await expect(diagnostics).toContainText('컬럼을 찾을 수 없습니다: d.missing');
-    await expect(win.locator('.monaco-editor .squiggly-error')).toBeVisible();
+    await expect(diagnostics).toContainText('스키마에서 확인되지 않는 컬럼: d.missing');
+    await expect(win.locator('.monaco-editor .squiggly-warning')).toBeVisible();
     await diagnostics.getByRole('button').filter({ hasText: 'd.missing' }).click();
 
     await typeQuery(win, 'SELECT * FROM missing_diagnostics_table;');
-    await expect(diagnostics).toContainText('테이블을 찾을 수 없습니다: missing_diagnostics_table');
+    await expect(diagnostics).toContainText('스키마에서 확인되지 않는 테이블: missing_diagnostics_table');
     await win.setViewportSize({ width: 1440, height: 900 });
     await win.mouse.move(700, 250);
     await win.screenshot({ path: path.resolve(__dirname, '../test-results/query-diagnostics.png') });
+
+    // A table created after schema completion is initially unknown to the
+    // advisory snapshot, but a successful execution is authoritative and must
+    // clear the stale static diagnostic.
+    execFileSync('sqlite3', [databaseFile, 'CREATE TABLE late_diagnostics_e2e (id INTEGER PRIMARY KEY);']);
+    await typeQuery(win, 'SELECT COUNT(*) FROM late_diagnostics_e2e;');
+    await expect(diagnostics).toContainText('스키마에서 확인되지 않는 테이블: late_diagnostics_e2e');
+    await win.getByRole('button', { name: 'Run', exact: true }).click();
+    await expect(diagnostics).toHaveCount(0, { timeout: 15_000 });
   });
 });

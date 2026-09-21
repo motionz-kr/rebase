@@ -101,6 +101,16 @@ interface QueryEditorProps {
   onOpenLibrary?: () => void;
 }
 
+type SchemaLoadStatus = 'loading' | 'ready' | 'unavailable';
+
+interface SchemaState {
+  contextKey: string;
+  status: SchemaLoadStatus;
+  schema: SchemaInfo;
+}
+
+const EMPTY_SCHEMA: SchemaInfo = { tables: [] };
+
 const DRIVER_LABEL: Record<string, string> = { mysql: 'MY', postgres: 'PG', redis: 'RS', sqlite: 'SQ', sqlserver: 'MS' };
 
 const statementExecutionLabel = (execution: StatementExecution): string => {
@@ -305,10 +315,19 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
 
   // The Monaco editor + monaco namespace, exposed for the custom autocomplete.
   const [editorInstance, setEditorInstance] = useState<monaco.editor.IStandaloneCodeEditor | null>(null);
-  const [schema, setSchema] = useState<SchemaInfo>({ tables: [] });
+  const [schemaState, setSchemaState] = useState<SchemaState>({
+    contextKey: '',
+    status: 'loading',
+    schema: EMPTY_SCHEMA,
+  });
   const [sqlDiagnostics, setSqlDiagnostics] = useState<SqlDiagnostic[]>([]);
   const statementDecorationsRef = useRef<string[]>([]);
   const [activeStatementRanges, setActiveStatementRanges] = useState<SqlStatementRange[]>([]);
+
+  const schemaContextKey = `${profileId}\u0000${activeDatabase}\u0000${schemaVersion ?? 0}`;
+  const activeSchemaState = schemaState.contextKey === schemaContextKey ? schemaState : null;
+  const schema = activeSchemaState?.schema ?? EMPTY_SCHEMA;
+  const schemaReady = activeSchemaState?.status === 'ready';
 
   // Keep the cursor's statement range live as the caret/selection moves. This
   // is independent of execution state: an idle statement is still outlined.
@@ -403,7 +422,10 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     if (!editorInstance) return;
     const model = editorInstance.getModel();
     if (!model) return;
-    const diagnostics = getSqlDiagnostics(activeTab.query, schema);
+    const hasSuccessfulExecution = activeTab.lastExecutedSql === activeTab.query && activeTab.lastExec?.error === null;
+    const diagnostics = hasSuccessfulExecution
+      ? []
+      : getSqlDiagnostics(activeTab.query, schema, { schemaReady });
     setSqlDiagnostics(diagnostics);
     const markers = [...diagnostics, ...runtimeDiagnostics].map((diagnostic) => {
       const start = model.getPositionAt(Math.max(0, Math.min(diagnostic.start, model.getValueLength())));
@@ -421,7 +443,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     return () => monaco.editor.setModelMarkers(model, 'rebase-sql-diagnostics', []);
     // runtimeDiagnostics is derived from the active tab and intentionally part
     // of the dependency list so server errors become squiggles immediately.
-  }, [editorInstance, activeTab.id, activeTab.query, activeTab.statementExecutions, schema]);
+  }, [editorInstance, activeTab.id, activeTab.query, activeTab.lastExecutedSql, activeTab.lastExec, activeTab.statementExecutions, schema, schemaReady]);
 
   const focusDiagnostic = (diagnostic: SqlDiagnostic) => {
     if (!editorInstance) return;
@@ -482,14 +504,19 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
   }, [profileId, agentTitlesEnabled]);
 
   useEffect(() => {
+    const contextKey = `${profileId}\u0000${activeDatabase}\u0000${schemaVersion ?? 0}`;
     let ignore = false;
+    setSchemaState({ contextKey, status: 'loading', schema: EMPTY_SCHEMA });
     (async () => {
       try {
         const res = await window.electronAPI.getSchemaCompletion(profileId, activeDatabase);
         if (!ignore && res.success && res.data) {
-          setSchema({ tables: res.data.tables });
+          setSchemaState({ contextKey, status: 'ready', schema: { tables: res.data.tables } });
+        } else if (!ignore) {
+          setSchemaState({ contextKey, status: 'unavailable', schema: EMPTY_SCHEMA });
         }
       } catch (e) {
+        if (!ignore) setSchemaState({ contextKey, status: 'unavailable', schema: EMPTY_SCHEMA });
         console.error('Failed to load schema for completion:', e);
       }
     })();
@@ -1212,10 +1239,10 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
       </div>
 
       {allDiagnostics.length > 0 && (
-        <div className="query-diagnostics" data-testid="sql-diagnostics" role="region" aria-label="SQL diagnostics">
+        <div className={`query-diagnostics${runtimeDiagnostics.length > 0 ? ' query-diagnostics-runtime' : ''}`} data-testid="sql-diagnostics" role="region" aria-label="SQL diagnostics">
           <div className="query-diagnostics-head">
             <AlertTriangle size={13} />
-            <span>{allDiagnostics.length}개 진단 결과</span>
+            <span>{runtimeDiagnostics.length > 0 ? '실행 오류' : '스키마 참고'} · {allDiagnostics.length}개 진단 결과</span>
             <span className="query-diagnostics-hint">항목을 클릭하면 해당 위치로 이동합니다</span>
           </div>
           <div className="query-diagnostics-list">

@@ -9,6 +9,14 @@ export interface SqlDiagnostic {
   message: string;
 }
 
+export interface SqlDiagnosticOptions {
+  /**
+   * Name resolution depends on a completed schema snapshot. Syntax checks are
+   * still useful while the snapshot is loading or unavailable.
+   */
+  schemaReady?: boolean;
+}
+
 type ScanState = 'normal' | 'single' | 'double' | 'backtick' | 'bracket' | 'dollar-quote' | 'line-comment' | 'block-comment';
 
 interface MaskedSql {
@@ -242,7 +250,7 @@ function pushUnique(out: SqlDiagnostic[], diagnostic: SqlDiagnostic) {
   if (!out.some((item) => item.start === diagnostic.start && item.end === diagnostic.end && item.message === diagnostic.message)) out.push(diagnostic);
 }
 
-export function getSqlDiagnostics(sql: string, schema: SchemaInfo): SqlDiagnostic[] {
+export function getSqlDiagnostics(sql: string, schema: SchemaInfo, options: SqlDiagnosticOptions = {}): SqlDiagnostic[] {
   if (!sql.trim()) return [];
   const masked = maskSql(sql);
   const diagnostics: SqlDiagnostic[] = [];
@@ -261,7 +269,7 @@ export function getSqlDiagnostics(sql: string, schema: SchemaInfo): SqlDiagnosti
   for (const opening of stack) pushUnique(diagnostics, { start: opening, end: Math.min(opening + 1, sql.length), severity: 'error', message: '닫히지 않은 괄호입니다.' });
 
   // Do not report name-resolution warnings while introspection is still loading.
-  if (schema.tables.length > 0) {
+  if (options.schemaReady !== false && schema.tables.length > 0) {
     const knownCtes = new Set<string>();
     const ctePattern = /(?:\bWITH\b|,)\s*(?:RECURSIVE\s+)?([A-Za-z_][A-Za-z0-9_$]*)(?:\s*\([^)]*\))?\s+AS\s*\(/gi;
     let cte: RegExpExecArray | null;
@@ -274,7 +282,7 @@ export function getSqlDiagnostics(sql: string, schema: SchemaInfo): SqlDiagnosti
       const start = tableRef.index + tableRef[0].lastIndexOf(tableRef[2]);
       const end = start + tableRef[2].length;
       if (isSystemCatalogReference(tableRef[2]) || knownCtes.has(name.toLowerCase()) || findTable(schema, name) || isNonTableReference(masked.text, keyword, name, start, end)) continue;
-      pushUnique(diagnostics, { start, end, severity: 'error', message: `테이블을 찾을 수 없습니다: ${name}` });
+      pushUnique(diagnostics, { start, end, severity: 'warning', message: `스키마에서 확인되지 않는 테이블: ${name}` });
     }
 
     const refs = parseTableRefs(masked.text);
@@ -287,7 +295,7 @@ export function getSqlDiagnostics(sql: string, schema: SchemaInfo): SqlDiagnosti
       const table = findTable(schema, ref.table);
       if (!table || table.columns.some((item) => item.name.toLowerCase() === column.toLowerCase())) continue;
       const columnStart = qualified.index + qualified[0].lastIndexOf(column);
-      pushUnique(diagnostics, { start: qualified.index, end: columnStart + column.length, severity: 'error', message: `컬럼을 찾을 수 없습니다: ${qualifier}.${column}` });
+      pushUnique(diagnostics, { start: qualified.index, end: columnStart + column.length, severity: 'warning', message: `스키마에서 확인되지 않는 컬럼: ${qualifier}.${column}` });
     }
   }
   return diagnostics.sort((a, b) => a.start - b.start);
