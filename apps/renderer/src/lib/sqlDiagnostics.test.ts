@@ -9,10 +9,21 @@ const schema: SchemaInfo = {
 };
 
 describe('getSqlDiagnostics', () => {
+  it('does not resolve table names while schema metadata is unavailable', () => {
+    const diagnostics = getSqlDiagnostics('SELECT * FROM missing_users;', { tables: [] }, { schemaReady: false });
+    expect(diagnostics).toEqual([]);
+  });
+
+  it('keeps syntax diagnostics while schema metadata is unavailable', () => {
+    const diagnostics = getSqlDiagnostics('SELECT (', { tables: [] }, { schemaReady: false });
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]).toMatchObject({ severity: 'error', message: '닫히지 않은 괄호입니다.' });
+  });
+
   it('reports an unknown table at the table token', () => {
     const sql = 'SELECT * FROM missing_users;';
     const [diagnostic] = getSqlDiagnostics(sql, schema);
-    expect(diagnostic).toMatchObject({ severity: 'error', message: '테이블을 찾을 수 없습니다: missing_users' });
+    expect(diagnostic).toMatchObject({ severity: 'warning', message: '스키마에서 확인되지 않는 테이블: missing_users' });
     expect(sql.slice(diagnostic.start, diagnostic.end)).toBe('missing_users');
   });
 
@@ -31,7 +42,7 @@ describe('getSqlDiagnostics', () => {
   it('reports an unknown qualified column while accepting known columns', () => {
     const diagnostics = getSqlDiagnostics('SELECT u.id, u.email FROM users AS u;', schema);
     expect(diagnostics).toHaveLength(1);
-    expect(diagnostics[0]).toMatchObject({ severity: 'error', message: '컬럼을 찾을 수 없습니다: u.email' });
+    expect(diagnostics[0]).toMatchObject({ severity: 'warning', message: '스키마에서 확인되지 않는 컬럼: u.email' });
   });
 
   it('reports unclosed literals and unbalanced parentheses', () => {
