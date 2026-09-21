@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useReducer } from 'react';
+import React, { useState, useEffect, useCallback, useReducer, useRef } from 'react';
 import {
   Database,
   Plus,
@@ -132,6 +132,8 @@ function App() {
   // Multiple open connections (status + focus). Per-connection editor/results
   // state is preserved by keeping each panel mounted (hidden when not focused).
   const [conns, dispatch] = useReducer(connectionsReducer, initialConnectionsState);
+  const disconnectGuardsRef = useRef<Record<string, () => Promise<boolean>>>({});
+  const disconnectingRef = useRef(new Set<string>());
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [redisKeys, setRedisKeys] = useState<Record<string, string | null>>({});
   const [redisRefresh, setRedisRefresh] = useState<Record<string, number>>({});
@@ -421,15 +423,30 @@ function App() {
     setExpanded((prev) => ({ ...prev, [p.id!]: !prev[p.id!] }));
   };
 
-  const disconnect = (id: string, e?: React.MouseEvent) => {
+  const registerDisconnectGuard = useCallback((id: string, handler: () => Promise<boolean>) => {
+    disconnectGuardsRef.current[id] = handler;
+    return () => {
+      if (disconnectGuardsRef.current[id] === handler) delete disconnectGuardsRef.current[id];
+    };
+  }, []);
+
+  const disconnect = async (id: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
-    dispatch({ type: 'close', profileId: id });
-    setExpanded((prev) => ({ ...prev, [id]: false }));
-    setRedisKeys((prev) => {
-      const next = { ...prev };
-      delete next[id];
-      return next;
-    });
+    if (disconnectingRef.current.has(id)) return;
+    disconnectingRef.current.add(id);
+    try {
+      const guard = disconnectGuardsRef.current[id];
+      if (guard && !(await guard())) return;
+      dispatch({ type: 'close', profileId: id });
+      setExpanded((prev) => ({ ...prev, [id]: false }));
+      setRedisKeys((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    } finally {
+      disconnectingRef.current.delete(id);
+    }
   };
 
   const checkHealth = useCallback(async () => {
@@ -1249,6 +1266,7 @@ function App() {
                       schemaVersion={schemaVersion}
                       agentTitlesEnabled={showAgent}
                       onOpenLibrary={() => openLibrary()}
+                      onRegisterDisconnect={(handler) => registerDisconnectGuard(id, handler)}
                     />
                   )}
                   </div>
