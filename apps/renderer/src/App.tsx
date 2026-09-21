@@ -707,7 +707,7 @@ function App() {
                     <X size={15} />
                   </button>
                 </div>
-                {editingId && (formDriver === 'mysql' || formDriver === 'postgres' || formDriver === 'sqlserver') && (
+                {editingId && (formDriver === 'mysql' || formDriver === 'postgres' || formDriver === 'sqlite' || formDriver === 'sqlserver') && (
                   <div className="seg-tabs conn-modal-tabs">
                     <button type="button" className={`seg-tab ${formTab === 'basic' ? 'active' : ''}`} onClick={() => setFormTab('basic')}>
                       기본 정보
@@ -720,7 +720,7 @@ function App() {
                     </button>
                   </div>
                 )}
-                <div className={`conn-modal-body${editingId && (formDriver === 'mysql' || formDriver === 'postgres' || formDriver === 'sqlserver') ? ' tabbed' : ''}`}>
+                <div className={`conn-modal-body${editingId && (formDriver === 'mysql' || formDriver === 'postgres' || formDriver === 'sqlite' || formDriver === 'sqlserver') ? ' tabbed' : ''}`}>
                   {formTab === 'basic' && (
                   <form className="conn-form" onSubmit={handleCreateProfile}>
               <div>
@@ -914,7 +914,7 @@ function App() {
                     </>
                   )}
 
-                  {formTab === 'schema' && editingId && (formDriver === 'mysql' || formDriver === 'postgres' || formDriver === 'sqlserver') && (
+                  {formTab === 'schema' && editingId && (formDriver === 'mysql' || formDriver === 'postgres' || formDriver === 'sqlite' || formDriver === 'sqlserver') && (
                     <div className="ctp-section">
                       <div className="ctp-head">표시할 스키마 및 테이블</div>
                       <p className="ctp-hint">새 연결은 기본적으로 모든 스키마가 숨겨집니다. 상단 전체 체크로 한 번에 선택하거나 해제한 뒤, 필요한 스키마만 켤 수 있습니다.</p>

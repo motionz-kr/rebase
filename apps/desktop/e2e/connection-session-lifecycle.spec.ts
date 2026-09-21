@@ -71,7 +71,14 @@ test.describe('connection session lifecycle', () => {
     await typeQuery(win, 'WITH RECURSIVE numbers(value) AS (SELECT 1 UNION ALL SELECT value + 1 FROM numbers WHERE value < 100000000) SELECT value FROM numbers;');
     await win.locator('.editor-toolbar .btn-primary').click();
     await expect(win.locator('.editor-toolbar .btn-danger')).toBeVisible({ timeout: 15_000 });
-    await connection.locator('button[title="Disconnect"]').click();
+    await connection.locator('button[title="Disconnect"]').click({ force: true });
+    // Manual mode is restored with the query tab, so a running query may leave
+    // an active dedicated session that must be rolled back before disconnect.
+    const finalDisconnectDialog = win.getByRole('dialog');
+    if (await finalDisconnectDialog.isVisible().catch(() => false)) {
+      await expect(finalDisconnectDialog).toContainText('미커밋 변경 사항이 있습니다');
+      await finalDisconnectDialog.getByTestId('disconnect-rollback').click();
+    }
     await expect(connection.locator('button[title="Disconnect"]')).toHaveCount(0, { timeout: 20_000 });
   });
 });

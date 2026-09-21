@@ -1101,19 +1101,18 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle('cancel-query', async (event, queryId) => {
-    try {
-      // Tell the engine to cancel server-side, then tear down the local stream
-      // socket so we stop receiving rows even if the engine is slow to stop.
-      const data = await requestEngine({
-        method: 'POST',
-        path: '/query/cancel',
-        body: { queryId },
-      });
-      abortStream(queryId);
-      return { success: true, data };
-    } catch (err: any) {
-      return { success: false, error: err.message };
-    }
+    // Tear down the local stream immediately. The engine derives the query
+    // context from that request, so this is the reliable cancellation path even
+    // when the separate cancellation endpoint is delayed by a long-running DB
+    // operation. Keep the explicit server-side cancellation request in flight
+    // as a best-effort accelerator for connectors that support it.
+    void requestEngine({
+      method: 'POST',
+      path: '/query/cancel',
+      body: { queryId },
+    }).catch(() => undefined);
+    abortStream(queryId);
+    return { success: true };
   });
 
   ipcMain.handle('redis-scan', async (event, profileId, pattern, cursor, count) => {

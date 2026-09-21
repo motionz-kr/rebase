@@ -14,6 +14,7 @@ import { analyzeEditableQuery, type EditableQuery } from '../lib/editableQuery';
 import { TableDataView } from './TableDataView';
 import { ExecStatusBar, type ExecInfo } from './ExecStatusBar';
 import { ResultNarrator } from './ResultNarrator';
+import { QuerySessionManager, type QuerySessionClient } from './QuerySessionManager';
 import type { SchemaInfo } from '../lib/sqlCompletion';
 import type { AnalyzeResult } from '../global';
 import { clampEditorHeight, EDITOR_DEFAULT, loadNum, saveNum } from '../lib/uiPrefs';
@@ -27,6 +28,7 @@ import { getSqlDiagnostics, type SqlDiagnostic } from '../lib/sqlDiagnostics';
 import { withExplicitRiskApproval } from '../lib/queryApproval';
 import { getDisconnectTransactionTabs } from '../lib/connectionLifecycle';
 import { canEnableTabWrite, resolveQueryAllowWrite, resolveTabWriteMode } from '../lib/queryTabPolicy';
+import { readQueryTabs, writeQueryTabs, type PersistedQueryTab } from '../lib/queryTabPersistence';
 
 loader.config({ monaco });
 
@@ -119,6 +121,16 @@ const EMPTY_SCHEMA: SchemaInfo = { tables: [] };
 
 const DRIVER_LABEL: Record<string, string> = { mysql: 'MY', postgres: 'PG', redis: 'RS', sqlite: 'SQ', sqlserver: 'MS' };
 
+const defaultQueryForDriver = (driver: QueryEditorProps['driver']): string => (
+  driver === 'mysql'
+    ? 'SELECT SCHEMA_NAME FROM information_schema.schemata;'
+    : driver === 'sqlite'
+      ? "SELECT name FROM sqlite_master WHERE type='table';"
+      : driver === 'sqlserver'
+        ? 'SELECT name FROM sys.databases;'
+        : 'SELECT datname FROM pg_database;'
+);
+
 const statementExecutionLabel = (execution: StatementExecution): string => {
   if (execution.state === 'running') return '실행 중';
   if (execution.state === 'success') return '실행 완료';
@@ -155,26 +167,50 @@ const newTab = (id: string, name: string, database: string, query: string): Quer
   writeMode: false,
 });
 
+const hydratePersistedTab = (tab: PersistedQueryTab): QueryTab => ({
+  ...newTab(tab.id, tab.name, tab.database, tab.query),
+  writeMode: tab.writeMode,
+  transactionMode: tab.transactionMode,
+});
+
+const browserStorage = (): Storage | undefined => {
+  try {
+    return typeof window === 'undefined' ? undefined : window.localStorage;
+  } catch {
+    return undefined;
+  }
+};
+
+const persistTabs = (profileId: string, tabs: QueryTab[], activeTabId: string): void => {
+  const activeId = tabs.some((tab) => tab.id === activeTabId) ? activeTabId : tabs[0]?.id;
+  if (!activeId) return;
+  writeQueryTabs(browserStorage(), profileId, {
+    activeTabId: activeId,
+    tabs: tabs.map((tab) => ({
+      id: tab.id,
+      name: tab.name,
+      database: tab.database,
+      query: tab.query,
+      writeMode: tab.writeMode,
+      transactionMode: tab.transactionMode,
+    })),
+  });
+};
+
 export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, database, connectionName, profileReadOnly = false, safeMode = false, onQueryExecuted, loadTriggerQuery, queryRequest, schemaVersion, agentTitlesEnabled = false, onOpenLibrary, onRegisterDisconnect }) => {
   const requestedDatabase = queryRequest?.database;
   const requestedNonce = queryRequest?.nonce;
   const requestedSql = queryRequest?.sql;
   const requestedExecute = queryRequest?.execute;
-  const [tabs, setTabs] = useState<QueryTab[]>([
-    newTab(
-      'tab-1',
-      'Query 1',
-      database,
-      driver === 'mysql'
-        ? 'SELECT SCHEMA_NAME FROM information_schema.schemata;'
-        : driver === 'sqlite'
-          ? "SELECT name FROM sqlite_master WHERE type='table';"
-          : driver === 'sqlserver'
-            ? 'SELECT name FROM sys.databases;'
-            : 'SELECT datname FROM pg_database;'
-    ),
-  ]);
-  const [activeTabId, setActiveTabId] = useState('tab-1');
+  const persistedInitialRef = useRef<ReturnType<typeof readQueryTabs> | undefined>(undefined);
+  if (persistedInitialRef.current === undefined) {
+    persistedInitialRef.current = readQueryTabs(browserStorage(), profileId);
+  }
+  const persistedInitial = persistedInitialRef.current;
+  const defaultTab = newTab('tab-1', 'Query 1', database, defaultQueryForDriver(driver));
+  const initialTabs = persistedInitial?.tabs.map(hydratePersistedTab) ?? [defaultTab];
+  const [tabs, setTabs] = useState<QueryTab[]>(initialTabs);
+  const [activeTabId, setActiveTabId] = useState(persistedInitial?.activeTabId ?? initialTabs[0].id);
   const { resolved } = useTheme();
   const activeTab = tabs.find((t) => t.id === activeTabId) || tabs[0];
   const activeDatabase = activeTab.database;
@@ -184,6 +220,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
   // When the run query is a plain single-table SELECT *, the result is shown in
   // an editable table view (add/edit/delete) instead of the read-only grid.
   const [editView, setEditView] = useState<EditableQuery | null>(null);
+  const [showSessionManager, setShowSessionManager] = useState(false);
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [saveQueryName, setSaveQueryName] = useState('');
   const [saveNameTouched, setSaveNameTouched] = useState(false);
@@ -221,6 +258,17 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
   useEffect(() => {
     tabsRef.current = tabs;
   }, [tabs]);
+
+  // Persist only editor/client settings. Results and live DB sessions are
+  // intentionally excluded so reconnecting always starts with fresh state.
+  useEffect(() => {
+    const timer = window.setTimeout(() => persistTabs(profileId, tabs, activeTabId), 250);
+    return () => window.clearTimeout(timer);
+  }, [profileId, tabs, activeTabId]);
+
+  useEffect(() => () => {
+    persistTabs(profileId, tabsRef.current, activeTabIdRef.current);
+  }, [profileId]);
 
   const updateTabTransaction = (tabId: string, patch: Partial<Pick<QueryTab, 'transactionMode' | 'transactionState' | 'transactionSessionId'>>) => {
     tabsRef.current = tabsRef.current.map((tab) => tab.id === tabId ? { ...tab, ...patch } : tab);
@@ -302,20 +350,36 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     }
   };
 
-  const finishTransaction = async (action: 'commit' | 'rollback') => {
-    const sessionId = transactionSessionsRef.current[activeTab.id] ?? activeTab.transactionSessionId;
+  const finishTransaction = async (tabId: string, action: 'commit' | 'rollback') => {
+    const target = tabsRef.current.find((tab) => tab.id === tabId);
+    if (!target) return;
+    const sessionId = transactionSessionsRef.current[tabId] ?? target.transactionSessionId;
     if (!sessionId) return;
     const result = await window.electronAPI.querySession(action, profileId, '', sessionId);
     if (!result.success || result.data?.success === false) {
       const message = result.error || '트랜잭션 작업에 실패했습니다.';
-      setTabs((prev) => prev.map((tab) => tab.id === activeTab.id
+      setTabs((prev) => prev.map((tab) => tab.id === tabId
         ? { ...tab, transactionState: 'failed', transactionNotice: message, error: message }
         : tab));
       return;
     }
-    setTabs((prev) => prev.map((tab) => tab.id === activeTab.id
+    setTabs((prev) => prev.map((tab) => tab.id === tabId
       ? { ...tab, transactionState: 'idle', transactionNotice: action === 'commit' ? 'Committed' : 'Rolled back', error: null }
       : tab));
+  };
+
+  const closeManagedSession = async (tabId: string) => {
+    const target = tabsRef.current.find((tab) => tab.id === tabId);
+    if (!target?.transactionSessionId) return;
+    if (['opening', 'active', 'failed'].includes(target.transactionState)) {
+      const confirmed = window.confirm('세션을 종료하면 미커밋 변경 사항이 Rollback 됩니다. 계속할까요?');
+      if (!confirmed) return;
+    }
+    try {
+      await closeTransactionSession(tabId);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : '세션을 종료하지 못했습니다.');
+    }
   };
 
   useEffect(() => {
@@ -1235,6 +1299,18 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
   }, [showSaveModal, saveNameTouched, profileId, activeTab.query]);
 
   const prompt = activeTab.policyPrompt;
+  const sessionClients: QuerySessionClient[] = tabs.map((tab) => ({
+    id: tab.id,
+    name: tab.name,
+    database: tab.database,
+    writeMode: resolveTabWriteMode(profileReadOnly, tab.writeMode),
+    transactionMode: tab.transactionMode,
+    transactionState: tab.transactionState,
+    transactionSessionId: transactionSessionsRef.current[tab.id] ?? tab.transactionSessionId,
+    transactionNotice: tab.transactionNotice,
+    loading: tab.loading,
+    queryId: tab.queryId,
+  }));
 
   return (
     <div className="editor">
@@ -1266,6 +1342,14 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
           <Plus size={15} />
         </button>
         <span className="editor-tabs-fill" />
+        <button
+          className="btn btn-secondary btn-sm session-manager-action"
+          data-testid="session-manager-open"
+          onClick={() => setShowSessionManager(true)}
+          title="현재 연결의 쿼리탭과 세션을 관리합니다"
+        >
+          <Database size={13} /> 세션
+        </button>
         {onOpenLibrary && (
           <button className="btn btn-secondary btn-sm query-library-action" onClick={onOpenLibrary}>
             <BookOpen size={13} /> Query Library
@@ -1446,14 +1530,14 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
             <button
               className="btn btn-secondary btn-sm transaction-action"
               data-testid="tx-commit"
-              onClick={() => void finishTransaction('commit')}
+              onClick={() => void finishTransaction(activeTab.id, 'commit')}
               disabled={!getTransactionControls(activeTab.transactionMode, activeTab.transactionState, activeTab.loading).commit}
               title="현재 탭의 변경 사항을 커밋합니다"
             ><Check size={13} /> Commit</button>
             <button
               className="btn btn-secondary btn-sm transaction-action"
               data-testid="tx-rollback"
-              onClick={() => void finishTransaction('rollback')}
+              onClick={() => void finishTransaction(activeTab.id, 'rollback')}
               disabled={!getTransactionControls(activeTab.transactionMode, activeTab.transactionState, activeTab.loading).rollback}
               title="현재 탭의 변경 사항을 되돌립니다"
             ><RotateCcw size={13} /> Rollback</button>
@@ -1691,6 +1775,22 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
           </div>
         </div>
       )}
+
+      <QuerySessionManager
+        open={showSessionManager}
+        connectionName={connectionName}
+        clients={sessionClients}
+        activeTabId={activeTabId}
+        onClose={() => setShowSessionManager(false)}
+        onSelectTab={(tabId) => {
+          setActiveTabId(tabId);
+          setShowSessionManager(false);
+        }}
+        onCommit={(tabId) => void finishTransaction(tabId, 'commit')}
+        onRollback={(tabId) => void finishTransaction(tabId, 'rollback')}
+        onCloseSession={(tabId) => void closeManagedSession(tabId)}
+        onCancelQuery={(tabId, queryId) => void cancelTabQuery(tabId, queryId)}
+      />
 
       {/* Risk confirm dialog — shown before executing a risky statement */}
       {riskResult && (

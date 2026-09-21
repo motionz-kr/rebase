@@ -96,7 +96,9 @@ export const ConnectionTablePrefs: React.FC<Props> = ({ profileId, store, onChan
   const toggleAllDatabases = () => {
     const names = dbs.map((db) => db.name);
     const state = dbVisibilityState(names, hiddenDatabasesFor(store, profileId));
-    onChange(withDatabasesHidden(store, profileId, names, state !== 'all'));
+    // Clicking an unchecked (none/some) checkbox reveals all schemas; clicking
+    // a fully checked checkbox hides them all.
+    onChange(withDatabasesHidden(store, profileId, names, state === 'all'));
   };
 
   // Top-level db checkbox: reveal everything or hide everything in that db.
