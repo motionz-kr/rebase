@@ -25,6 +25,7 @@ import { buildExplainSql } from '../lib/explainPlan';
 import { getTransactionControls, getTransactionStatusLabel, type QueryTransactionMode, type QueryTransactionState } from '../lib/queryTransaction';
 import { getSqlDiagnostics, type SqlDiagnostic } from '../lib/sqlDiagnostics';
 import { withExplicitRiskApproval } from '../lib/queryApproval';
+import { getDisconnectTransactionTabs } from '../lib/connectionLifecycle';
 
 loader.config({ monaco });
 
@@ -99,6 +100,7 @@ interface QueryEditorProps {
   schemaVersion?: number;
   agentTitlesEnabled?: boolean;
   onOpenLibrary?: () => void;
+  onRegisterDisconnect?: (handler: () => Promise<boolean>) => () => void;
 }
 
 const DRIVER_LABEL: Record<string, string> = { mysql: 'MY', postgres: 'PG', redis: 'RS', sqlite: 'SQ', sqlserver: 'MS' };
@@ -138,7 +140,7 @@ const newTab = (id: string, name: string, database: string, query: string): Quer
   transactionNotice: null,
 });
 
-export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, database, connectionName, safeMode = false, onQueryExecuted, loadTriggerQuery, queryRequest, schemaVersion, agentTitlesEnabled = false, onOpenLibrary }) => {
+export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, database, connectionName, safeMode = false, onQueryExecuted, loadTriggerQuery, queryRequest, schemaVersion, agentTitlesEnabled = false, onOpenLibrary, onRegisterDisconnect }) => {
   const requestedDatabase = queryRequest?.database;
   const requestedNonce = queryRequest?.nonce;
   const requestedSql = queryRequest?.sql;
@@ -178,6 +180,9 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
   // continuation here and show the RiskConfirmDialog.
   const [riskResult, setRiskResult] = useState<AnalyzeResult | null>(null);
   const pendingRunRef = useRef<null | (() => void)>(null);
+  const [disconnectPrompt, setDisconnectPrompt] = useState(false);
+  const disconnectPromptResolverRef = useRef<((choice: 'commit' | 'rollback' | 'cancel') => void) | null>(null);
+  const prepareForDisconnectRef = useRef<() => Promise<boolean>>(async () => true);
 
   const previousProfileDatabaseRef = useRef(database);
   useEffect(() => {
@@ -1015,21 +1020,96 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
   const formatRef = useRef<() => void>(() => {});
   formatRef.current = formatQuery;
 
-  const cancelQuery = async () => {
-    const qid = activeTab.queryId || multiCancelRef.current;
-    if (!activeTab.loading || !qid) return;
+  const cancelTabQuery = async (tabId: string, qid: string): Promise<boolean> => {
     multiAbortRef.current = true; // stop the multi-statement loop after this one
     try {
-      await window.electronAPI.cancelQuery(qid);
+      const result = await window.electronAPI.cancelQuery(qid);
+      if (!result.success) throw new Error(result.error || 'Query cancellation failed');
       setTabs((prev) =>
         prev.map((t) =>
-          t.id === activeTabId ? { ...t, loading: false, error: 'Query cancelled.', queryId: null } : t
+          t.id === tabId
+            ? {
+                ...t,
+                loading: false,
+                error: 'Query cancelled.',
+                queryId: null,
+                statementExecutions: t.statementExecutions.map((execution) =>
+                  execution.state === 'pending' || execution.state === 'running'
+                    ? { ...execution, state: 'skipped', message: '취소됨' }
+                    : execution
+                ),
+              }
+            : t
         )
       );
+      if (multiCancelRef.current === qid) multiCancelRef.current = null;
+      return true;
     } catch (e) {
       console.error('Failed to cancel query:', e);
+      return false;
     }
   };
+
+  const cancelQuery = async () => {
+    const tab = tabsRef.current.find((item) => item.id === activeTabId);
+    const qid = tab?.queryId || multiCancelRef.current;
+    if (!tab?.loading || !qid) return;
+    await cancelTabQuery(tab.id, qid);
+  };
+
+  const requestDisconnectChoice = (): Promise<'commit' | 'rollback' | 'cancel'> => new Promise((resolve) => {
+    disconnectPromptResolverRef.current = resolve;
+    setDisconnectPrompt(true);
+  });
+
+  const resolveDisconnectChoice = (choice: 'commit' | 'rollback' | 'cancel') => {
+    setDisconnectPrompt(false);
+    const resolve = disconnectPromptResolverRef.current;
+    disconnectPromptResolverRef.current = null;
+    resolve?.(choice);
+  };
+
+  const prepareForDisconnect = async (): Promise<boolean> => {
+    const runningTab = tabsRef.current.find((tab) => tab.loading);
+    if (runningTab) {
+      const qid = runningTab.queryId || multiCancelRef.current;
+      if (qid && !(await cancelTabQuery(runningTab.id, qid))) return false;
+    }
+
+    const pendingTransactions = getDisconnectTransactionTabs(tabsRef.current);
+    if (pendingTransactions.length > 0) {
+      const choice = await requestDisconnectChoice();
+      if (choice === 'cancel') return false;
+
+      for (const tab of pendingTransactions) {
+        const sessionId = transactionSessionsRef.current[tab.id] ?? tab.transactionSessionId;
+        if (!sessionId) continue;
+        const result = await window.electronAPI.querySession(choice, profileId, '', sessionId);
+        if (!result.success || result.data?.success === false) {
+          alert(result.error || `트랜잭션 ${choice === 'commit' ? 'Commit' : 'Rollback'}에 실패했습니다.`);
+          return false;
+        }
+      }
+    }
+
+    try {
+      const sessions = tabsRef.current
+        .filter((tab) => tab.transactionMode === 'manual' && (transactionSessionsRef.current[tab.id] || tab.transactionSessionId))
+        .map((tab) => closeTransactionSession(tab.id));
+      await Promise.all(sessions);
+      return true;
+    } catch (error) {
+      alert(error instanceof Error ? error.message : '트랜잭션 세션을 닫지 못했습니다.');
+      return false;
+    }
+  };
+
+  prepareForDisconnectRef.current = prepareForDisconnect;
+
+  useEffect(() => {
+    if (!onRegisterDisconnect) return;
+    return onRegisterDisconnect(() => prepareForDisconnectRef.current());
+  }, [onRegisterDisconnect, profileId]);
 
   const dismissPolicy = () =>
     setTabs((prev) => prev.map((t) => (t.id === activeTabId ? { ...t, policyPrompt: null } : t)));
@@ -1539,6 +1619,28 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {disconnectPrompt && (
+        <div className="risk-dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="disconnect-dialog-title">
+          <div className="risk-dialog">
+            <header className="risk-header risk-warn">
+              <span className="risk-badge">Transaction</span>
+              <span className="risk-verb">Disconnect · {connectionName}</span>
+            </header>
+            <section className="risk-body">
+              <h3 id="disconnect-dialog-title">미커밋 변경 사항이 있습니다</h3>
+              <p className="risk-note">연결을 끊기 전에 트랜잭션을 Commit하거나 Rollback해야 합니다.</p>
+            </section>
+            <footer className="risk-footer">
+              <div className="risk-actions">
+                <button className="btn btn-secondary" onClick={() => resolveDisconnectChoice('cancel')}>취소</button>
+                <button className="btn btn-secondary" data-testid="disconnect-rollback" onClick={() => resolveDisconnectChoice('rollback')}>Rollback 후 끊기</button>
+                <button className="risk-run" data-testid="disconnect-commit" onClick={() => resolveDisconnectChoice('commit')}>Commit 후 끊기</button>
+              </div>
+            </footer>
           </div>
         </div>
       )}
