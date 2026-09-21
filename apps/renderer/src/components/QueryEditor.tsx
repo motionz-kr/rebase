@@ -24,6 +24,7 @@ import { formatQueryTabLabel } from '../lib/queryTabLabel';
 import { buildExplainSql } from '../lib/explainPlan';
 import { getTransactionControls, getTransactionStatusLabel, type QueryTransactionMode, type QueryTransactionState } from '../lib/queryTransaction';
 import { getSqlDiagnostics, type SqlDiagnostic } from '../lib/sqlDiagnostics';
+import { withExplicitRiskApproval } from '../lib/queryApproval';
 
 loader.config({ monaco });
 
@@ -882,10 +883,11 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
       try {
         const analyzeRes = await window.electronAPI.analyzeQuery(profileId, sql, queryDatabase);
         if (analyzeRes.success && analyzeRes.data) {
-          // Capture the run continuation — will be called when user confirms.
+          // Capture the run continuation — the explicit dialog confirmation
+          // authorizes this execution without changing the persistent mode.
           pendingRunRef.current = () => {
             setRiskResult(null);
-            void executeQuery({ ...override, sqlOverride: sql, acknowledged: true });
+            void executeQuery(withExplicitRiskApproval({ ...override, sqlOverride: sql }));
           };
           setRiskResult(analyzeRes.data);
           return; // halt until user acts
