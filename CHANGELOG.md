@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.27.1](https://github.com/motionz-kr/rebase/compare/v0.27.0...v0.27.1) (2026-09-21)
+
+
+### Bug Fixes
+
+* prevent false positive SQL diagnostics and respect schema visibility ([5c327ce](https://github.com/motionz-kr/rebase/commit/5c327ceaeb89efa4dec2b4f8731d7c5e5bd2fc43))
+* streamline query risk confirmation ([5d537e0](https://github.com/motionz-kr/rebase/commit/5d537e0837202c210c0c7671eaa86d567b040f83))
+* streamline query risk confirmation ([b510b93](https://github.com/motionz-kr/rebase/commit/b510b93df31fe06b8179b5a9c5a6421a49e5bd3d))
+
 ## [0.27.0](https://github.com/motionz-kr/rebase/compare/v0.26.0...v0.27.0) (2026-09-17)
 
 
