@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.30.0](https://github.com/motionz-kr/rebase/compare/v0.29.0...v0.30.0) (2026-09-22)
+
+
+### Features
+
+* expose full MCP results and activity history ([1dca631](https://github.com/motionz-kr/rebase/commit/1dca63118a1005c9a2fc959675db72feb5e26364))
+
+
+### Bug Fixes
+
+* satisfy renderer lint for MCP refresh effects ([5815a95](https://github.com/motionz-kr/rebase/commit/5815a9544626e56a8a37eea9b7be27289951e20b))
+* satisfy renderer lint for MCP refresh effects ([6fd69a3](https://github.com/motionz-kr/rebase/commit/6fd69a30f207209697fd02f33e02f9dffab385a9))
+
 ## [0.29.0](https://github.com/motionz-kr/rebase/compare/v0.28.1...v0.29.0) (2026-09-21)
 
 
