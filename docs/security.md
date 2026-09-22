@@ -137,7 +137,10 @@ MCP 원칙:
 - MCP read-only tool results are returned in full, including row values and
   diagnostic output such as `EXPLAIN`; this is required for the connected local
   AI client to perform useful analysis.
-- MCP의 write 경로는 실행하지 않고 `propose_write`로 SQL만 제안한다.
+- MCP의 write 경로는 연결별로 기본 비활성화한다. 승인 모드에서는
+  `propose_write`가 원문 SQL을 local SQLite proposal로 저장하고, Rebase UI의
+  명시적 승인 이후에만 엔진이 그 원문을 실행한다. 외부 MCP 프로세스가 직접
+  write를 실행할 수는 없다.
 - 활성화된 경우 database/schema/table exact allowlist가 엔진에서 강제된다.
 - allowlist가 활성화된 상태에서 파싱할 수 없는 `FROM`/`JOIN` 참조는 거부한다.
 - MCP 활동 기록에는 방향, 이벤트, 도구명, 상태, 실행 시간, 실행된 SQL, 안전한 오류 요약을 남긴다.
@@ -146,7 +149,8 @@ MCP 원칙:
 
 ## Audit Log
 
-MCP 활동은 local SQLite의 `mcp_activity_events`에 저장한다. Team 기능이 추가되면
+MCP 활동은 local SQLite의 `mcp_activity_events`에 저장하고, 승인 대기 write는
+`mcp_write_proposals`에 저장한다. Team 기능이 추가되면
 workspace/user 권한과 audit log를 별도 모델로 분리한다.
 
 기록 후보:

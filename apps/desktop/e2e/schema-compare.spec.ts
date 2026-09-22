@@ -39,6 +39,11 @@ test.describe('schema compare and migration draft', () => {
     const source = await createProfile('E2E Schema Compare Source', sourceFile);
     await source.click();
     await expect(win.locator('.conn-panel .editor-toolbar')).toBeVisible({ timeout: 20_000 });
+    await source.locator('button[title="Edit profile"]').click();
+    await win.locator('.conn-modal-tabs .seg-tab').filter({ hasText: '스키마' }).click();
+    await expect(win.getByTestId('schema-visibility-toggle-all')).toBeVisible({ timeout: 15_000 });
+    await win.getByTestId('schema-visibility-toggle-all').check();
+    await win.locator('.conn-modal .modal-head button[aria-label="닫기"]').click();
 
     const sourceDatabase = path.basename(sourceFile);
     const databaseRow = win.locator(`.tree-row:has(.tree-label:text-is("${sourceDatabase}"))`).first();

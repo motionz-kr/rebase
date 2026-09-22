@@ -24,8 +24,8 @@ Once connected, ask the client things like:
 - "Describe the `orders` table — columns, types, indexes."
 - "Find slow queries and tell me which indexes are missing."
 - "Are there any unused or duplicate indexes I can drop?"
-- "Write the SQL to add a `status` column to `orders`." *(returns SQL only — see
-  below)*
+- "Update the stale `orders` rows." *(creates an approval request when writes
+  are enabled for that connection — see below)*
 
 The client calls Rebase's tools (`list_tables`, `describe_table`, `run_select`,
 `explain_query`, …) so its answers are grounded in your **actual** schema, not
@@ -38,8 +38,12 @@ diagnostic values, and complete `EXPLAIN` plans. For a table
 `demo_users(name, email)`, `run_select` returns the actual values. Credentials
 are still redacted before a response leaves the server.
 
-Writes are never executed — `propose_write` only returns the SQL for you to run
-(and approve) inside Rebase.
+Writes are disabled by default. When **승인 후 실행** is selected for an
+individual connection, `propose_write` stores the exact SQL as a pending request;
+it still does not execute it. Open **MCP 활동**, review the SQL and risk reasons,
+then click **승인 후 실행**. Rebase executes that stored statement exactly once
+and reports the outcome through `write_proposal_status`. **거부** rejects the
+request without touching the database.
 
 ## Scope and activity history
 
@@ -59,9 +63,10 @@ changes local display and is not a security control. When an allowlist is
 active, an ambiguous table reference is rejected conservatively.
 
 The MCP activity page shows recent inbound handshakes, sessions, tool calls,
-and errors for the profile. The external-server section shows test/call
-activity. Tool-call activity includes the SQL actually sent to the connector
-(including generated `EXPLAIN` and diagnostic queries) and elapsed time.
+errors, and pending write approvals for the profile. The external-server
+section shows test/call activity. Tool-call activity includes the SQL actually
+sent to the connector (including generated `EXPLAIN` and diagnostic queries)
+and elapsed time; expand an event to inspect the exact query.
 Registered connection secrets are replaced with `[redacted]` before SQL is
 stored; passwords, headers, and environment variables are not stored in this
 history. “Connected” means the
@@ -75,6 +80,10 @@ session or call has occurred.
 A connection that isn't enabled is **refused** even if a client is configured to
 launch it. Once enabled, read-only MCP tools return their complete results,
 including row values and `EXPLAIN` plans.
+3. Choose the connection's **외부 AI 쓰기 실행** policy:
+   - **사용 안 함 (읽기 전용)** — `propose_write` only returns a safety assessment.
+   - **승인 후 실행** — each write becomes a pending request in **MCP 활동** and
+     requires an explicit Rebase approval.
 
 ## Connect a client
 
@@ -107,14 +116,19 @@ The same 14 read/diagnostic tools the agent uses: `list_tables`,
 `describe_table`, `get_table_ddl`, `list_indexes`, `list_foreign_keys`,
 `find_column`, `profile_table`, `table_stats`, `run_select`, `explain_query`,
 `find_duplicate_indexes`, `slow_queries`, `find_unused_indexes`, and
-`propose_write` (which only **classifies** a write and returns the SQL — it never
-executes). No tool mutates data.
+`propose_write`. `write_proposal_status` is added when approval mode is enabled.
+No external MCP tool executes a write directly; an approved request is executed
+only by the local Rebase engine after the user clicks approval.
 
 ## Security model
 
 - **stdio only** — no network port; the client launches the binary locally. The
   trust boundary is your machine.
 - **Opt-in per connection** — only enabled connections can be served.
+- **Write policy per connection** — writes remain disabled unless the profile is
+  explicitly set to approval mode; profile-level read-only still overrides it.
+- **Explicit approval** — the approval UI executes the stored SQL, not a newly
+  generated or edited statement.
 - **Full read results** — row values and diagnostic output are returned to the
   connected local client so it can answer database questions accurately.
 - **Secret redaction** strips the connection password / secret ref from anything

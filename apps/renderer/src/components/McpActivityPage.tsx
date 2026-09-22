@@ -14,7 +14,7 @@ import {
   Server,
   X,
 } from 'lucide-react';
-import type { McpActivityEvent, McpServer } from '../global';
+import type { McpActivityEvent, McpServer, McpWriteProposal } from '../global';
 
 type StatusFilter = 'all' | 'success' | 'error';
 type DirectionFilter = 'all' | 'inbound' | 'outbound';
@@ -30,6 +30,7 @@ const EVENT_LABEL: Record<string, string> = {
   tool_call: '도구 호출',
   test: '연결 테스트',
   connect: '외부 서버 연결',
+  write_approval: '쓰기 승인 실행',
 };
 
 function eventLabel(event: McpActivityEvent): string {
@@ -56,6 +57,9 @@ function formatDuration(value: number): string {
 export const McpActivityPage: React.FC<Props> = ({ profiles, onClose }) => {
   const [events, setEvents] = useState<McpActivityEvent[]>([]);
   const [servers, setServers] = useState<McpServer[]>([]);
+  const [writeProposals, setWriteProposals] = useState<McpWriteProposal[]>([]);
+  const [proposalBusyId, setProposalBusyId] = useState<string | null>(null);
+  const [proposalError, setProposalError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -72,13 +76,16 @@ export const McpActivityPage: React.FC<Props> = ({ profiles, onClose }) => {
     if (manual) setRefreshing(true);
     setLoadError(null);
     try {
-      const [activityRes, serversRes] = await Promise.all([
+      const [activityRes, serversRes, proposalsRes] = await Promise.all([
         window.electronAPI.mcpActivityList({ limit: 100 }),
         window.electronAPI.mcpServersList('default'),
+        window.electronAPI.mcpWriteProposalsList(undefined, 'pending_approval'),
       ]);
       if (!activityRes.success) setLoadError(activityRes.error || 'MCP 활동을 불러오지 못했습니다.');
       setEvents(activityRes.data ?? []);
       setServers(serversRes.data ?? []);
+      setWriteProposals((proposalsRes.data ?? []).map((proposal) => ({ ...proposal, reasons: proposal.reasons ?? [] })));
+      if (!proposalsRes.success && !activityRes.success) setLoadError(proposalsRes.error || activityRes.error || 'MCP 활동을 불러오지 못했습니다.');
       setExpandedId(null);
       setLoadedDetailIds(new Set());
       setDetailError(null);
@@ -89,6 +96,23 @@ export const McpActivityPage: React.FC<Props> = ({ profiles, onClose }) => {
       setRefreshing(false);
     }
   }, []);
+
+  const actOnProposal = useCallback(async (id: string, action: 'approve' | 'reject') => {
+    setProposalBusyId(id);
+    setProposalError(null);
+    try {
+      const result = await window.electronAPI.mcpWriteProposalAction(id, action);
+      if (!result.success) {
+        setProposalError(result.error || '쓰기 승인 요청을 처리하지 못했습니다.');
+        return;
+      }
+      await load(true);
+    } catch (error) {
+      setProposalError(error instanceof Error ? error.message : '쓰기 승인 요청을 처리하지 못했습니다.');
+    } finally {
+      setProposalBusyId(null);
+    }
+  }, [load]);
 
   useEffect(() => {
     const initialLoad = window.setTimeout(() => void load(), 0);
@@ -158,6 +182,7 @@ export const McpActivityPage: React.FC<Props> = ({ profiles, onClose }) => {
   const failureCount = events.filter((event) => event.status === 'error').length;
   const toolCallCount = events.filter((event) => event.event === 'tool_call').length;
   const sessionCount = events.filter((event) => event.event === 'session_started').length;
+  const profileLabel = useCallback((profileId: string) => profileNames.get(profileId) || `프로필 ${profileId.slice(0, 8)}`, [profileNames]);
 
   return (
     <div className="modal-overlay settings-page-overlay mcp-activity-overlay" onClick={onClose}>
@@ -209,6 +234,40 @@ export const McpActivityPage: React.FC<Props> = ({ profiles, onClose }) => {
         <div className="mcp-activity-note">
           <ShieldNote /> 실행된 SQL 원문과 소요 시간을 표시합니다. 등록된 연결 비밀번호 같은 시크릿은 저장 전에 자동으로 가립니다.
         </div>
+
+        {writeProposals.length > 0 && (
+          <section className="mcp-write-approval" aria-labelledby="mcp-write-approval-title">
+            <div className="mcp-write-approval-head">
+              <div>
+                <h3 id="mcp-write-approval-title">쓰기 승인 대기 <span>{writeProposals.length}</span></h3>
+                <p>외부 AI가 제안한 SQL입니다. 내용을 확인한 뒤 연결별로 실행 여부를 결정하세요.</p>
+              </div>
+            </div>
+            {proposalError && <div className="mcp-write-approval-error"><AlertTriangle size={14} /> {proposalError}</div>}
+            <div className="mcp-write-approval-list">
+              {writeProposals.map((proposal) => {
+                const busy = proposalBusyId === proposal.id;
+                return (
+                  <article className="mcp-write-proposal" data-proposal-id={proposal.id} key={proposal.id}>
+                    <div className="mcp-write-proposal-meta">
+                      <strong>{profileLabel(proposal.profileId)}</strong>
+                      <span>{formatTime(proposal.createdAt)}</span>
+                      <span className={`mcp-write-risk ${proposal.risk}`}>{proposal.risk}</span>
+                    </div>
+                    <pre>{proposal.sql}</pre>
+                    {proposal.reasons.length > 0 && <ul>{proposal.reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>}
+                    <div className="mcp-write-proposal-actions">
+                      <button className="btn btn-primary btn-sm" onClick={() => void actOnProposal(proposal.id, 'approve')} disabled={busy}>
+                        {busy ? '실행 중…' : '승인 후 실행'}
+                      </button>
+                      <button className="btn btn-secondary btn-sm" onClick={() => void actOnProposal(proposal.id, 'reject')} disabled={busy}>거부</button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+        )}
 
         <main className="mcp-activity-body">
           {loading ? (

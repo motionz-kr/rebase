@@ -116,6 +116,7 @@ export interface ConnectionProfile {
   domainNotes?: string;
   mcpEnabled?: boolean;
   mcpDataExposure?: string;
+  mcpWriteMode?: string;
   mcpAllowedDatabases?: string;
   mcpAllowedSchemas?: string;
   mcpAllowedTables?: string;
@@ -237,6 +238,20 @@ export interface McpActivityEvent {
   createdAt: string;
 }
 
+export interface McpWriteProposal {
+  id: string;
+  workspaceId: string;
+  profileId: string;
+  sql: string;
+  risk: string;
+  reasons: string[];
+  status: string;
+  rowsAffected: number;
+  error?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface AnalyzeResult {
   level: 'safe' | 'warn' | 'medium' | 'high';
   verb: string;
@@ -298,7 +313,7 @@ declare global {
       >;
       agentCliLogin: (tool: string) => Promise<ResultWrapper<{ success: boolean }>>;
       mcpEnginePath: () => Promise<string>;
-      mcpSetSettings: (profileId: string, enabled: boolean, dataExposure: string, scope?: McpAccessScope) => Promise<ResultWrapper<unknown>>;
+      mcpSetSettings: (profileId: string, enabled: boolean, dataExposure: string, scope?: McpAccessScope, writeMode?: string) => Promise<ResultWrapper<unknown>>;
       mcpDetectClients: () => Promise<Array<{ id: string; label: string; present: boolean }>>;
       mcpAutoconnect: (clientId: string, profileId: string) => Promise<ResultWrapper<{ path?: string; backup?: string }>>;
       mcpServersList: (workspaceId: string) => Promise<ResultWrapper<McpServer[]>>;
@@ -308,6 +323,8 @@ declare global {
       mcpServersCall: (payload: { serverId: string; tool: string; toolArgs: Record<string, unknown> }) => Promise<ResultWrapper<{ result?: unknown; error?: string }>>;
       mcpActivityList: (filter?: { workspaceId?: string; profileId?: string; serverId?: string; limit?: number }) => Promise<ResultWrapper<McpActivityEvent[]>>;
       mcpActivityGet: (id: string, workspaceId?: string) => Promise<ResultWrapper<McpActivityEvent>>;
+      mcpWriteProposalsList: (profileId?: string, status?: string) => Promise<ResultWrapper<McpWriteProposal[]>>;
+      mcpWriteProposalAction: (id: string, action: 'approve' | 'reject') => Promise<ResultWrapper<McpWriteProposal>>;
       updateCheck: () => Promise<void>;
       updateDownload: () => Promise<void>;
       updateInstall: () => Promise<void>;

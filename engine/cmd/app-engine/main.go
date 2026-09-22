@@ -308,6 +308,30 @@ func main() {
 			`,
 			Checksum: "mcp-activity-workspace-time-v1",
 		},
+		{
+			Version: 17,
+			Name:    "add_mcp_write_approval",
+			SQL: `
+				ALTER TABLE connection_profiles ADD COLUMN mcp_write_mode TEXT NOT NULL DEFAULT 'disabled';
+				CREATE TABLE IF NOT EXISTS mcp_write_proposals (
+					id TEXT PRIMARY KEY,
+					workspace_id TEXT NOT NULL,
+					profile_id TEXT NOT NULL,
+					sql_text TEXT NOT NULL,
+					risk TEXT NOT NULL,
+					reasons_json TEXT NOT NULL DEFAULT '[]',
+					status TEXT NOT NULL,
+					rows_affected INTEGER NOT NULL DEFAULT 0,
+					error_message TEXT NOT NULL DEFAULT '',
+					created_at DATETIME NOT NULL,
+					updated_at DATETIME NOT NULL,
+					approved_at DATETIME,
+					executed_at DATETIME
+				);
+				CREATE INDEX IF NOT EXISTS idx_mcp_write_profile_status ON mcp_write_proposals(profile_id, status, created_at DESC);
+			`,
+			Checksum: "mcp-write-approval-v1",
+		},
 	}
 	if err := migrationRunner.Run(migrations); err != nil {
 		log.Fatalf("failed to run migrations: %v", err)
@@ -318,11 +342,12 @@ func main() {
 	secretStore := keychain.NewKeyringStore("AntigravityDBDesktop")
 	connectionService := application.NewConnectionService(profileRepo, secretStore)
 	mcpActivityRepo := sqlite.NewSQLiteMCPActivityRepository(db)
+	mcpWriteRepo := sqlite.NewSQLiteMCPWriteProposalRepository(db)
 
 	// MCP mode: serve the DB tool registry over stdio (for a local CLI like
 	// `claude --mcp-config`) instead of the HTTP API, then exit.
 	if *mcpProfile != "" {
-		runMCPServer(connectionService, mcpActivityRepo, *mcpProfile)
+		runMCPServer(connectionService, mcpActivityRepo, mcpWriteRepo, *mcpProfile)
 		return
 	}
 
@@ -392,6 +417,7 @@ func main() {
 	mcpServerRepo := sqlite.NewSQLiteMcpServerRepository(db)
 	agentHandler.SetMCP(mcpServerRepo, secretStore, mcpActivityRepo)
 	mcpServerHandler := internalHttp.NewMcpServerHandler(*token, mcpServerRepo, secretStore, mcpActivityRepo)
+	mcpWriteHandler := internalHttp.NewMCPWriteHandler(*token, connectionService, mcpWriteRepo, mcpActivityRepo)
 	mux.Handle("/agent/run", agentHandler.Run())
 	mux.Handle("/agent/complete", agentHandler.Complete())
 	mux.Handle("/agent/key", agentHandler.Key())
@@ -401,6 +427,7 @@ func main() {
 	mux.Handle("/mcp/servers/test", mcpServerHandler.Test())
 	mux.Handle("/mcp/servers/call", mcpServerHandler.Call())
 	mux.Handle("/mcp/activity", mcpServerHandler.Activity())
+	mux.Handle("/mcp/write-proposals", mcpWriteHandler.Proposals())
 
 	workspaceHandler := internalHttp.NewWorkspaceHandler(*token, workspaceService)
 	mux.Handle("/workspaces", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -516,7 +543,7 @@ func main() {
 
 // runMCPServer serves the agent's DB tool registry over stdio as an MCP server
 // for the given profile, then returns when stdin closes.
-func runMCPServer(svc *application.ConnectionService, activity ports.MCPActivityRepository, profileID string) {
+func runMCPServer(svc *application.ConnectionService, activity ports.MCPActivityRepository, proposals ports.MCPWriteProposalRepository, profileID string) {
 	ctx := context.Background()
 	profile, password, err := svc.GetProfile(ctx, profileID)
 	if err != nil {
@@ -538,7 +565,9 @@ func runMCPServer(svc *application.ConnectionService, activity ports.MCPActivity
 	if !profile.McpEnabled {
 		log.Fatalf("mcp: connection %q is not enabled for MCP (enable it in Rebase → connection settings)", profileID)
 	}
-	registry := agent.NewSQLRegistry(conn, *profile, password, profile.Database)
+	registry := agent.NewSQLRegistryWithMCPWrites(conn, *profile, password, profile.Database, agent.MCPWriteConfig{
+		Mode: profile.McpWriteMode, WorkspaceID: "default", ProfileID: profileID, Proposals: proposals,
+	})
 	srv := mcp.NewServer(registry)
 	srv.SetActivity(activity, "default", profileID)
 	srv.SetSecrets([]string{password, profile.SecretRef})

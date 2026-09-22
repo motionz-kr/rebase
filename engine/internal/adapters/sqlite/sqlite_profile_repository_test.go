@@ -37,6 +37,7 @@ func newProfileRepo(t *testing.T) *SQLiteProfileRepository {
 					tls_mode TEXT NOT NULL,
 					mcp_enabled INTEGER NOT NULL DEFAULT 0,
 					mcp_data_exposure TEXT NOT NULL DEFAULT 'metadata',
+					mcp_write_mode TEXT NOT NULL DEFAULT 'disabled',
 					mcp_allowed_databases TEXT NOT NULL DEFAULT '',
 					mcp_allowed_schemas TEXT NOT NULL DEFAULT '',
 					mcp_allowed_tables TEXT NOT NULL DEFAULT '',
@@ -176,7 +177,7 @@ func TestProfileMCPFieldsRoundTrip(t *testing.T) {
 	p := &domain.ConnectionProfile{
 		ID: "p1", Name: "x", Driver: "mysql", Host: "h", Port: 3306, Database: "d",
 		Username: "u", SecretRef: "s", TLSMode: "none",
-		McpEnabled: true, McpDataExposure: "unrestricted",
+		McpEnabled: true, McpDataExposure: "unrestricted", McpWriteMode: domain.MCPWriteModeApproval,
 		CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}
 	if err := repo.Create(ctx, p); err != nil {
@@ -186,17 +187,18 @@ func TestProfileMCPFieldsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if !got.McpEnabled || got.McpDataExposure != "unrestricted" {
+	if !got.McpEnabled || got.McpDataExposure != "unrestricted" || got.McpWriteMode != domain.MCPWriteModeApproval {
 		t.Errorf("mcp fields not persisted: %+v", got)
 	}
 
 	got.McpEnabled = false
 	got.McpDataExposure = "metadata"
+	got.McpWriteMode = domain.MCPWriteModeDisabled
 	if err := repo.Update(ctx, got); err != nil {
 		t.Fatalf("update: %v", err)
 	}
 	again, _ := repo.GetByID(ctx, "p1")
-	if again.McpEnabled || again.McpDataExposure != "metadata" {
+	if again.McpEnabled || again.McpDataExposure != "metadata" || again.McpWriteMode != domain.MCPWriteModeDisabled {
 		t.Errorf("mcp fields not updated: %+v", again)
 	}
 }

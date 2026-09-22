@@ -179,7 +179,7 @@ func (s *ConnectionService) HasOAuthToken(ctx context.Context, provider string) 
 // SetMCPConnectionSettings toggles MCP exposure for a profile. The
 // dataExposure argument remains for IPC/API compatibility, but MCP now
 // returns tool results in full; only credentials are redacted by the server.
-func (s *ConnectionService) SetMCPConnectionSettings(ctx context.Context, id string, enabled bool, dataExposure string) error {
+func (s *ConnectionService) SetMCPConnectionSettings(ctx context.Context, id string, enabled bool, dataExposure string, writeMode ...string) error {
 	p, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return err
@@ -187,6 +187,9 @@ func (s *ConnectionService) SetMCPConnectionSettings(ctx context.Context, id str
 	_ = dataExposure
 	p.McpEnabled = enabled
 	p.McpDataExposure = "unrestricted"
+	if len(writeMode) > 0 && writeMode[0] != "" {
+		p.McpWriteMode = domain.NormalizeMCPWriteMode(writeMode[0])
+	}
 	return s.repo.Update(ctx, p)
 }
 

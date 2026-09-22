@@ -67,6 +67,7 @@ export interface ConnectionProfile {
   domainNotes?: string;
   mcpEnabled?: boolean;
   mcpDataExposure?: string;
+  mcpWriteMode?: string;
   mcpAllowedDatabases?: string;
   mcpAllowedSchemas?: string;
   mcpAllowedTables?: string;
@@ -923,21 +924,23 @@ function App() {
                   </form>
                   )}
 
-                  {formTab === 'mcp' && editingId && (formDriver === 'mysql' || formDriver === 'postgres' || formDriver === 'sqlserver') && (
+                  {formTab === 'mcp' && editingId && (formDriver === 'mysql' || formDriver === 'postgres' || formDriver === 'sqlite' || formDriver === 'sqlserver') && (
                     <>
                       <McpConnectPanel
                         connId={editingId}
                         connName={formName}
                         initialEnabled={profiles.find((p) => p.id === editingId)?.mcpEnabled ?? false}
+                        initialWriteMode={profiles.find((p) => p.id === editingId)?.mcpWriteMode}
                         initialAllowedDatabases={profiles.find((p) => p.id === editingId)?.mcpAllowedDatabases}
                         initialAllowedSchemas={profiles.find((p) => p.id === editingId)?.mcpAllowedSchemas}
                         initialAllowedTables={profiles.find((p) => p.id === editingId)?.mcpAllowedTables}
                         onOpenActivity={() => setShowMcpActivity(true)}
-                        onSaved={({ enabled, exposure, scope }) => {
+                        onSaved={({ enabled, exposure, scope, writeMode }) => {
                           setProfiles((current) => current.map((profile) => profile.id === editingId ? {
                             ...profile,
                             mcpEnabled: enabled,
                             mcpDataExposure: exposure,
+                            mcpWriteMode: writeMode,
                             mcpAllowedDatabases: scope.allowedDatabases.length ? JSON.stringify(scope.allowedDatabases) : '',
                             mcpAllowedSchemas: scope.allowedSchemas.length ? JSON.stringify(scope.allowedSchemas) : '',
                             mcpAllowedTables: scope.allowedTables.length ? JSON.stringify(scope.allowedTables) : '',
