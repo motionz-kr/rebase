@@ -292,6 +292,22 @@ func main() {
 			`,
 			Checksum: "mcp-activity-events-v1",
 		},
+		{
+			Version: 15,
+			Name:    "add_mcp_activity_query_text",
+			SQL: `
+				ALTER TABLE mcp_activity_events ADD COLUMN query_text TEXT NOT NULL DEFAULT '';
+			`,
+			Checksum: "mcp-activity-query-text-v1",
+		},
+		{
+			Version: 16,
+			Name:    "index_mcp_activity_workspace_time",
+			SQL: `
+				CREATE INDEX IF NOT EXISTS idx_mcp_activity_workspace_time ON mcp_activity_events(workspace_id, created_at DESC);
+			`,
+			Checksum: "mcp-activity-workspace-time-v1",
+		},
 	}
 	if err := migrationRunner.Run(migrations); err != nil {
 		log.Fatalf("failed to run migrations: %v", err)

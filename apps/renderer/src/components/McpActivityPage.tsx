@@ -64,6 +64,9 @@ export const McpActivityPage: React.FC<Props> = ({ profiles, onClose }) => {
   const [target, setTarget] = useState('all');
   const [search, setSearch] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [loadingDetailId, setLoadingDetailId] = useState<string | null>(null);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const [loadedDetailIds, setLoadedDetailIds] = useState<Set<string>>(() => new Set());
 
   const load = useCallback(async (manual = false) => {
     if (manual) setRefreshing(true);
@@ -76,6 +79,9 @@ export const McpActivityPage: React.FC<Props> = ({ profiles, onClose }) => {
       if (!activityRes.success) setLoadError(activityRes.error || 'MCP 활동을 불러오지 못했습니다.');
       setEvents(activityRes.data ?? []);
       setServers(serversRes.data ?? []);
+      setExpandedId(null);
+      setLoadedDetailIds(new Set());
+      setDetailError(null);
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : 'MCP 활동을 불러오지 못했습니다.');
     } finally {
@@ -88,6 +94,31 @@ export const McpActivityPage: React.FC<Props> = ({ profiles, onClose }) => {
     const initialLoad = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(initialLoad);
   }, [load]);
+
+  const toggleEvent = useCallback(async (event: McpActivityEvent) => {
+    if (expandedId === event.id) {
+      setExpandedId(null);
+      return;
+    }
+    setExpandedId(event.id);
+    setDetailError(null);
+    if (loadedDetailIds.has(event.id)) return;
+
+    setLoadingDetailId(event.id);
+    try {
+      const detailRes = await window.electronAPI.mcpActivityGet(event.id, event.workspaceId || 'default');
+      if (!detailRes.success || !detailRes.data) {
+        setDetailError(detailRes.error || 'MCP 활동 상세를 불러오지 못했습니다.');
+        return;
+      }
+      setEvents((current) => current.map((item) => item.id === event.id ? { ...item, ...detailRes.data } : item));
+      setLoadedDetailIds((current) => new Set(current).add(event.id));
+    } catch (error) {
+      setDetailError(error instanceof Error ? error.message : 'MCP 활동 상세를 불러오지 못했습니다.');
+    } finally {
+      setLoadingDetailId((current) => current === event.id ? null : current);
+    }
+  }, [expandedId, loadedDetailIds]);
 
   const profileNames = useMemo(() => new Map(profiles.filter((p) => p.id).map((p) => [p.id!, p.name])), [profiles]);
   const serverNames = useMemo(() => new Map(servers.map((server) => [server.id, server.name])), [servers]);
@@ -148,7 +179,7 @@ export const McpActivityPage: React.FC<Props> = ({ profiles, onClose }) => {
         </header>
 
         <div className="mcp-activity-summary">
-          <div className="mcp-activity-stat"><span>전체 이벤트</span><strong>{events.length}</strong><small>최근 100건</small></div>
+          <div className="mcp-activity-stat"><span>전체 이벤트</span><strong>{events.length}</strong><small>최근 100건 · 상세 지연 조회</small></div>
           <div className={`mcp-activity-stat${failureCount > 0 ? ' danger' : ''}`}><span>실패</span><strong>{failureCount}</strong><small>{failureCount > 0 ? '확인이 필요합니다' : '실패 없음'}</small></div>
           <div className="mcp-activity-stat"><span>도구 호출</span><strong>{toolCallCount}</strong><small>tool_call</small></div>
           <div className="mcp-activity-stat"><span>세션 시작</span><strong>{sessionCount}</strong><small>session_started</small></div>
@@ -176,7 +207,7 @@ export const McpActivityPage: React.FC<Props> = ({ profiles, onClose }) => {
         </div>
 
         <div className="mcp-activity-note">
-          <ShieldNote /> 원문 SQL, 호출 인자, 비밀번호·헤더는 보안상 저장하거나 표시하지 않습니다. 아래 내용은 감사용 메타데이터입니다.
+          <ShieldNote /> 실행된 SQL 원문과 소요 시간을 표시합니다. 등록된 연결 비밀번호 같은 시크릿은 저장 전에 자동으로 가립니다.
         </div>
 
         <main className="mcp-activity-body">
@@ -198,7 +229,7 @@ export const McpActivityPage: React.FC<Props> = ({ profiles, onClose }) => {
                       className={`mcp-activity-list-row${expanded ? ' expanded' : ''}`}
                       data-event={event.event}
                       data-tool={event.tool || undefined}
-                      onClick={() => setExpandedId(expanded ? null : event.id)}
+                      onClick={() => void toggleEvent(event)}
                       aria-expanded={expanded}
                     >
                       <time dateTime={event.createdAt}>{formatTime(event.createdAt)}</time>
@@ -215,6 +246,15 @@ export const McpActivityPage: React.FC<Props> = ({ profiles, onClose }) => {
                         <div><span>워크스페이스</span><code>{event.workspaceId || 'default'}</code></div>
                         {event.profileId && <div><span>프로필 ID</span><code>{event.profileId}</code></div>}
                         {event.serverId && <div><span>서버 ID</span><code>{event.serverId}</code></div>}
+                        <div><span>소요 시간</span><strong className="mcp-activity-detail-duration">{formatDuration(event.durationMs)}</strong></div>
+                        {loadingDetailId === event.id ? (
+                          <div className="mcp-activity-query"><span>실행 쿼리</span><span className="mcp-activity-detail-loading">상세 정보를 불러오는 중…</span></div>
+                        ) : event.queryText ? (
+                          <div className="mcp-activity-query"><span>실행 쿼리</span><pre>{event.queryText}</pre></div>
+                        ) : loadedDetailIds.has(event.id) ? (
+                          <div className="mcp-activity-query"><span>실행 쿼리</span><span className="mcp-activity-detail-muted">기록된 SQL이 없습니다.</span></div>
+                        ) : null}
+                        {detailError && expandedId === event.id && <div className="mcp-activity-detail-error"><span>상세 조회 오류</span><strong>{detailError}</strong></div>}
                         {event.error && <div className="mcp-activity-detail-error"><span>안전한 오류 요약</span><strong>{event.error}</strong></div>}
                       </div>
                     )}

@@ -232,6 +232,7 @@ export interface McpActivityEvent {
   tool: string;
   status: string;
   error?: string;
+  queryText?: string;
   durationMs: number;
   createdAt: string;
 }
@@ -306,6 +307,7 @@ declare global {
       mcpServersTest: (payload: { transport?: string; url?: string; command?: string; args?: string[]; env?: Record<string, string>; headers?: Record<string, string> }) => Promise<ResultWrapper<{ tools?: { name: string; description: string }[]; error?: string }>>;
       mcpServersCall: (payload: { serverId: string; tool: string; toolArgs: Record<string, unknown> }) => Promise<ResultWrapper<{ result?: unknown; error?: string }>>;
       mcpActivityList: (filter?: { workspaceId?: string; profileId?: string; serverId?: string; limit?: number }) => Promise<ResultWrapper<McpActivityEvent[]>>;
+      mcpActivityGet: (id: string, workspaceId?: string) => Promise<ResultWrapper<McpActivityEvent>>;
       updateCheck: () => Promise<void>;
       updateDownload: () => Promise<void>;
       updateInstall: () => Promise<void>;

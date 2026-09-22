@@ -354,8 +354,9 @@ func (h *McpServerHandler) Call() http.Handler {
 	})
 }
 
-// Activity lists persisted MCP lifecycle and tool events without returning
-// secrets or raw SQL.
+// Activity lists persisted MCP lifecycle and tool events. Local MCP tool-call
+// records may include executed SQL, with configured connection secrets already
+// redacted before persistence.
 func (h *McpServerHandler) Activity() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !h.checkToken(r) {
@@ -370,8 +371,21 @@ func (h *McpServerHandler) Activity() http.Handler {
 		if workspaceID == "" {
 			workspaceID = "default"
 		}
+		if eventID := r.URL.Query().Get("id"); eventID != "" {
+			event, err := h.activity.Get(r.Context(), workspaceID, eventID)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			if event == nil {
+				http.Error(w, "MCP activity event not found", http.StatusNotFound)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(event)
+			return
+		}
 		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-		events, err := h.activity.List(r.Context(), domain.MCPActivityFilter{
+		events, err := h.activity.ListSummary(r.Context(), domain.MCPActivityFilter{
 			WorkspaceID: workspaceID,
 			ProfileID:   r.URL.Query().Get("profileId"),
 			ServerID:    r.URL.Query().Get("serverId"),

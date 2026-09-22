@@ -23,6 +23,23 @@ func (f *fakeActivity) Append(_ context.Context, event *domain.MCPActivityEvent)
 func (f *fakeActivity) List(context.Context, domain.MCPActivityFilter) ([]domain.MCPActivityEvent, error) {
 	return f.events, nil
 }
+func (f *fakeActivity) ListSummary(_ context.Context, _ domain.MCPActivityFilter) ([]domain.MCPActivityEvent, error) {
+	out := make([]domain.MCPActivityEvent, len(f.events))
+	copy(out, f.events)
+	for i := range out {
+		out[i].QueryText = ""
+	}
+	return out, nil
+}
+func (f *fakeActivity) Get(_ context.Context, _ string, eventID string) (*domain.MCPActivityEvent, error) {
+	for i := range f.events {
+		if f.events[i].ID == eventID {
+			out := f.events[i]
+			return &out, nil
+		}
+	}
+	return nil, nil
+}
 
 func (fakeSQL) ListTables(context.Context, domain.ConnectionProfile, string, string) ([]ports.TableInfo, error) {
 	return []ports.TableInfo{{Name: "users"}, {Name: "orders"}}, nil
@@ -132,6 +149,39 @@ func TestServerRecordsSessionAndToolActivity(t *testing.T) {
 	}
 	if activity.events[1].ProfileID != "profile-1" || activity.events[1].Status != "success" {
 		t.Fatalf("activity metadata missing: %+v", activity.events[1])
+	}
+	if activity.events[1].QueryText != "" {
+		t.Fatalf("non-query tool should not invent SQL: %+v", activity.events[1])
+	}
+}
+
+func TestServerRecordsFinalExecutedSQLAndRedactsSecrets(t *testing.T) {
+	activity := &fakeActivity{}
+	s := newServer()
+	s.SetActivity(activity, "default", "profile-1")
+	s.SetSecrets([]string{"secretpw"})
+	_ = req(t, s, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"explain_query","arguments":{"sql":"SELECT 'secretpw' FROM users"}}}`)
+	if len(activity.events) != 1 {
+		t.Fatalf("activity events = %+v", activity.events)
+	}
+	if activity.events[0].QueryText != "EXPLAIN SELECT '[redacted]' FROM users" {
+		t.Fatalf("recorded query = %q", activity.events[0].QueryText)
+	}
+	if activity.events[0].DurationMs < 0 {
+		t.Fatalf("duration must be non-negative: %d", activity.events[0].DurationMs)
+	}
+}
+
+func TestServerRecordsGeneratedTableStatsSQL(t *testing.T) {
+	activity := &fakeActivity{}
+	s := newServer()
+	s.SetActivity(activity, "default", "profile-1")
+	_ = req(t, s, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"table_stats","arguments":{"table":"users"}}}`)
+	if len(activity.events) != 1 {
+		t.Fatalf("activity events = %+v", activity.events)
+	}
+	if !strings.Contains(activity.events[0].QueryText, "information_schema.tables") || !strings.Contains(activity.events[0].QueryText, "table_name") {
+		t.Fatalf("table_stats should record generated SQL, got %q", activity.events[0].QueryText)
 	}
 }
 

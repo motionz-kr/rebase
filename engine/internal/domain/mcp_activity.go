@@ -5,8 +5,9 @@ import (
 	"time"
 )
 
-// MCPActivityEvent is a safe, non-secret audit record for MCP lifecycle and
-// tool activity. Raw SQL and credentials are deliberately not stored here.
+// MCPActivityEvent is a safe audit record for MCP lifecycle and tool activity.
+// QueryText contains executed SQL after configured connection secrets have
+// been redacted before persistence.
 type MCPActivityEvent struct {
 	ID          string    `json:"id"`
 	WorkspaceID string    `json:"workspaceId"`
@@ -17,6 +18,7 @@ type MCPActivityEvent struct {
 	Tool        string    `json:"tool"`
 	Status      string    `json:"status"` // success | error
 	Error       string    `json:"error,omitempty"`
+	QueryText   string    `json:"queryText,omitempty"`
 	DurationMs  int64     `json:"durationMs"`
 	CreatedAt   time.Time `json:"createdAt"`
 }

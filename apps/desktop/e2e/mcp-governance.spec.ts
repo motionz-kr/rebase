@@ -125,13 +125,65 @@ test('MCP scope is visible in UI and enforced by a real stdio server process', a
     const denied = await nextRpcLine(output);
     expect(denied.result?.isError).toBe(true);
     expect(denied.result?.content?.[0]?.text).toContain('MCP table access denied');
+
+    // The DB may not be running in CI, but the MCP server still traces the
+    // exact SQL before the connector is invoked. This gives the activity UI a
+    // deterministic query and elapsed-time record to inspect.
+    sendRpc(mcpProcess, {
+      jsonrpc: '2.0',
+      id: 4,
+      method: 'tools/call',
+      params: { name: 'run_select', arguments: { sql: 'SELECT * FROM allowed_table' } },
+    });
+    const traced = await nextRpcLine(output);
+    expect(traced.result?.isError).toBe(true);
+
+    // Confirm the existing activity preview before pushing the history past
+    // the list limit.
+    await win.getByRole('button', { name: '새로 고침', exact: true }).first().click();
+    await expect(win.locator('.mcp-activity-row[data-event="session_started"]')).toHaveCount(1);
+    await expect(win.locator('.mcp-activity-row[data-event="tool_call"][data-tool="run_select"]')).toHaveCount(2);
+
+    // Add more than the activity list limit with cheap, deterministic tool
+    // errors. The final traced call remains the newest row for detail testing.
+    for (let i = 0; i < 105; i += 1) {
+      sendRpc(mcpProcess, {
+        jsonrpc: '2.0',
+        id: 100 + i,
+        method: 'tools/call',
+        params: { name: 'unknown_tool', arguments: {} },
+      });
+      const overflow = await nextRpcLine(output);
+      expect(overflow.result?.isError).toBe(true);
+    }
+    sendRpc(mcpProcess, {
+      jsonrpc: '2.0',
+      id: 999,
+      method: 'tools/call',
+      params: { name: 'run_select', arguments: { sql: 'SELECT * FROM allowed_table' } },
+    });
+    const newestTraced = await nextRpcLine(output);
+    expect(newestTraced.result?.isError).toBe(true);
+
     await stopProcess(mcpProcess);
     output.close();
     mcpProcess = undefined;
 
-    await win.getByRole('button', { name: '새로 고침', exact: true }).first().click();
-    await expect(win.locator('.mcp-activity-row[data-event="session_started"]')).toHaveCount(1);
-    await expect(win.locator('.mcp-activity-row[data-event="tool_call"][data-tool="run_select"]')).toHaveCount(1);
+    await win.locator('.conn-modal .modal-head button[aria-label="닫기"]').click();
+
+    await win.locator('.statusbar-action[aria-label="MCP 활동 열기"]').click();
+    const activityPage = win.locator('.mcp-activity-page');
+    await expect(activityPage).toBeVisible();
+    await expect(activityPage.locator('.mcp-activity-list-row')).toHaveCount(100);
+    const tracedRow = activityPage.locator('.mcp-activity-list-row[data-event="tool_call"][data-tool="run_select"]').first();
+    await tracedRow.click();
+    const detail = tracedRow.locator('xpath=following-sibling::div[contains(@class, "mcp-activity-detail")]');
+    await expect(detail).toContainText('실행 쿼리');
+    await expect(detail).toContainText('SELECT * FROM allowed_table');
+    await expect(detail).toContainText('소요 시간');
+    await expect(detail.locator('pre')).toBeVisible();
+    await expect(activityPage.getByRole('button', { name: 'MCP 활동 닫기' })).toBeVisible();
+    await activityPage.getByRole('button', { name: 'MCP 활동 닫기' }).click();
   } finally {
     if (mcpProcess) await stopProcess(mcpProcess);
     if (profileId) {

@@ -1021,6 +1021,16 @@ app.whenReady().then(() => {
     }
   });
 
+  ipcMain.handle('mcp-activity-get', async (_e, id: string, workspaceId?: string) => {
+    try {
+      const params = new URLSearchParams({ workspaceId: workspaceId || 'default', id });
+      const data = await requestEngine({ method: 'GET', path: `/mcp/activity?${params.toString()}` });
+      return { success: true, data };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
   // Strip the agent-harness / proxy overrides so a spawned claude uses the
   // user's own login (mirrors the engine's sanitizeEnv).
   function sanitizedEnv(): NodeJS.ProcessEnv {

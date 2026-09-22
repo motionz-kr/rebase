@@ -78,6 +78,22 @@ func TestRegistryDispatchListTables(t *testing.T) {
 	}
 }
 
+func TestRegistryDispatchRecordsExecutedSQL(t *testing.T) {
+	conn := &fakeSQL{}
+	reg := NewSQLRegistry(conn, domainProfile(), "", "devdb")
+	var queries []string
+	ctx := WithQueryRecorder(context.Background(), func(query string) {
+		queries = append(queries, query)
+	})
+
+	if _, err := reg.Dispatch(ctx, "explain_query", map[string]any{"sql": "SELECT * FROM users"}); err != nil {
+		t.Fatalf("dispatch explain_query: %v", err)
+	}
+	if len(queries) != 1 || queries[0] != "EXPLAIN SELECT * FROM users" {
+		t.Fatalf("recorded queries = %#v", queries)
+	}
+}
+
 func TestRegistryEnforcesMCPObjectScope(t *testing.T) {
 	conn := &fakeSQL{tables: []ports.TableInfo{{Name: "users"}, {Name: "orders"}}}
 	p := domain.ConnectionProfile{
