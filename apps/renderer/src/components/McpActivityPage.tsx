@@ -85,7 +85,8 @@ export const McpActivityPage: React.FC<Props> = ({ profiles, onClose }) => {
   }, []);
 
   useEffect(() => {
-    void load();
+    const initialLoad = window.setTimeout(() => void load(), 0);
+    return () => window.clearTimeout(initialLoad);
   }, [load]);
 
   const profileNames = useMemo(() => new Map(profiles.filter((p) => p.id).map((p) => [p.id!, p.name])), [profiles]);
