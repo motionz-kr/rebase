@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.32.0](https://github.com/motionz-kr/rebase/compare/v0.31.0...v0.32.0) (2026-09-22)
+
+
+### Features
+
+* add MCP write approval workflow ([67130a6](https://github.com/motionz-kr/rebase/commit/67130a6c4800ea12f3300f1af36e2a6e2b768ae2))
+* add MCP write approval workflow ([565670a](https://github.com/motionz-kr/rebase/commit/565670a17bc74e4087986e5fbf4bf640830cd12a))
+
 ## [0.31.0](https://github.com/motionz-kr/rebase/compare/v0.30.0...v0.31.0) (2026-09-22)
 
 
