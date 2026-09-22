@@ -71,6 +71,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   mcpServersTest: (payload: unknown) => ipcRenderer.invoke('mcp-servers-test', payload),
   mcpServersCall: (payload: unknown) => ipcRenderer.invoke('mcp-servers-call', payload),
   mcpActivityList: (filter?: unknown) => ipcRenderer.invoke('mcp-activity-list', filter),
+  mcpActivityGet: (id: string, workspaceId?: string) => ipcRenderer.invoke('mcp-activity-get', id, workspaceId),
   updateCheck: () => ipcRenderer.invoke('update-check'),
   updateDownload: () => ipcRenderer.invoke('update-download'),
   updateInstall: () => ipcRenderer.invoke('update-install'),

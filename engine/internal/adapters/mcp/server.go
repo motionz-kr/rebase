@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -37,7 +38,7 @@ func (s *Server) SetActivity(repo ports.MCPActivityRepository, workspaceID, prof
 	s.profileID = profileID
 }
 
-func (s *Server) record(ctx context.Context, event, tool, status, message string, started time.Time) {
+func (s *Server) record(ctx context.Context, event, tool, status, message, queryText string, started time.Time) {
 	if s.activity == nil {
 		return
 	}
@@ -50,6 +51,7 @@ func (s *Server) record(ctx context.Context, event, tool, status, message string
 		Tool:        tool,
 		Status:      status,
 		Error:       domain.SafeMCPError(message),
+		QueryText:   agent.Redact(queryText, s.secrets),
 		DurationMs:  time.Since(started).Milliseconds(),
 		CreatedAt:   time.Now().UTC(),
 	})
@@ -105,7 +107,7 @@ func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 		status = "error"
 		message = err.Error()
 	}
-	s.record(ctx, "session_ended", "", status, message, time.Now())
+	s.record(ctx, "session_ended", "", status, message, "", time.Now())
 	return sc.Err()
 }
 
@@ -125,7 +127,7 @@ func (s *Server) Handle(ctx context.Context, raw []byte) *rpcResponse {
 
 	switch req.Method {
 	case "initialize":
-		s.record(ctx, "session_started", "", "success", "", time.Now())
+		s.record(ctx, "session_started", "", "success", "", "", time.Now())
 		return reply(map[string]any{
 			"protocolVersion": protocolVersion,
 			"capabilities":    map[string]any{"tools": map[string]any{}},
@@ -155,15 +157,18 @@ func (s *Server) Handle(ctx context.Context, raw []byte) *rpcResponse {
 		}
 		_ = json.Unmarshal(req.Params, &p)
 		started := time.Now()
-		result, err := s.registry.Dispatch(ctx, p.Name, p.Arguments)
+		queries := make([]string, 0, 1)
+		traceCtx := agent.WithQueryRecorder(ctx, func(query string) { queries = append(queries, query) })
+		result, err := s.registry.Dispatch(traceCtx, p.Name, p.Arguments)
+		queryText := strings.Join(queries, "\n\n")
 		if err != nil {
-			s.record(ctx, "tool_call", p.Name, "error", err.Error(), started)
+			s.record(ctx, "tool_call", p.Name, "error", err.Error(), queryText, started)
 			return reply(map[string]any{
 				"content": []map[string]any{{"type": "text", "text": err.Error()}},
 				"isError": true,
 			})
 		}
-		s.record(ctx, "tool_call", p.Name, "success", "", started)
+		s.record(ctx, "tool_call", p.Name, "success", "", queryText, started)
 		b, _ := json.Marshal(result)
 		text := agent.Redact(string(b), s.secrets)
 		return reply(map[string]any{

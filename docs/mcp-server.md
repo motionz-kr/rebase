@@ -58,11 +58,13 @@ connection profile and enforced in the engine for metadata tools,
 changes local display and is not a security control. When an allowlist is
 active, an ambiguous table reference is rejected conservatively.
 
-The same MCP tab shows recent inbound handshakes, sessions, tool calls, and
-errors for that profile. The external-server section shows test/call activity.
-Only event metadata (direction, event, tool name, status, duration, timestamp,
-and a safe error summary) is stored; passwords, headers, environment
-variables, and raw SQL are not stored in this history. “Connected” means the
+The MCP activity page shows recent inbound handshakes, sessions, tool calls,
+and errors for the profile. The external-server section shows test/call
+activity. Tool-call activity includes the SQL actually sent to the connector
+(including generated `EXPLAIN` and diagnostic queries) and elapsed time.
+Registered connection secrets are replaced with `[redacted]` before SQL is
+stored; passwords, headers, and environment variables are not stored in this
+history. “Connected” means the
 client configuration is saved; the latest activity indicates whether a real
 session or call has occurred.
 

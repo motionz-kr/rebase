@@ -140,8 +140,9 @@ MCP 원칙:
 - MCP의 write 경로는 실행하지 않고 `propose_write`로 SQL만 제안한다.
 - 활성화된 경우 database/schema/table exact allowlist가 엔진에서 강제된다.
 - allowlist가 활성화된 상태에서 파싱할 수 없는 `FROM`/`JOIN` 참조는 거부한다.
-- MCP 활동 기록에는 방향, 이벤트, 도구명, 상태, 시간, 안전한 오류 요약만 남긴다.
-- password, token, header, environment variable, raw SQL은 MCP 활동 기록에 저장하지 않는다.
+- MCP 활동 기록에는 방향, 이벤트, 도구명, 상태, 실행 시간, 실행된 SQL, 안전한 오류 요약을 남긴다.
+- 실행 SQL은 연결 비밀번호 등 등록된 secret을 `[redacted]`로 치환한 뒤 저장한다. token, header,
+  environment variable은 MCP 활동 기록에 저장하지 않는다.
 
 ## Audit Log
 
@@ -153,7 +154,7 @@ workspace/user 권한과 audit log를 별도 모델로 분리한다.
 - user id
 - workspace id
 - connection id
-- query fingerprint
+- executed SQL (registered secrets redacted)
 - query type
 - execution time
 - result status
@@ -164,7 +165,7 @@ workspace/user 권한과 audit log를 별도 모델로 분리한다.
 - password
 - token
 - private key
-- secret이 포함된 raw query parameter
+- secret이 포함된 raw query parameter (secret redaction 이전 값)
 
 ## 보안 리뷰가 필요한 변경
 

@@ -353,5 +353,6 @@ MCP activity repository
 MCP는 DB credential을 직접 소유하지 않는다. credential은 기존 keychain 경계를
 유지하고, MCP 요청은 profile MCP 활성화, database/schema/table scope,
 read-only/destructive query policy를 통과해야 한다. Scope와 활동 기록은
-profile metadata 및 local SQLite activity repository에 저장하며 raw SQL이나
-secret은 기록하지 않는다.
+profile metadata 및 local SQLite activity repository에 저장한다. MCP tool-call의
+실행 SQL과 소요 시간은 활동 상세 진단을 위해 기록하되, 등록된 secret은
+`[redacted]`로 치환하고 별도의 credential/header 값은 기록하지 않는다.

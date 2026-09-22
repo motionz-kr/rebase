@@ -64,6 +64,21 @@ type queryResult struct {
 	Truncated bool     `json:"truncated"`
 }
 
+type queryRecorderContextKey struct{}
+
+// WithQueryRecorder attaches a callback used to audit the actual SQL sent to
+// the connector. It is context-scoped so normal tool execution has no shared
+// mutable trace state.
+func WithQueryRecorder(ctx context.Context, record func(string)) context.Context {
+	return context.WithValue(ctx, queryRecorderContextKey{}, record)
+}
+
+func recordQuery(ctx context.Context, sql string) {
+	if record, ok := ctx.Value(queryRecorderContextKey{}).(func(string)); ok && record != nil {
+		record(sql)
+	}
+}
+
 // diagnostic runs a read-only diagnostic query, degrading to an availability
 // note when the source (perf schema / extension) is missing rather than erroring.
 func diagnostic(ctx context.Context, conn sqlReader, p domain.ConnectionProfile, password, sql string) any {
@@ -85,6 +100,7 @@ func runReadQuery(ctx context.Context, conn sqlReader, p domain.ConnectionProfil
 
 func runReadQueryInDatabase(ctx context.Context, conn sqlReader, p domain.ConnectionProfile, password, database, sql string) (queryResult, error) {
 	res := queryResult{Rows: [][]any{}}
+	recordQuery(ctx, sql)
 	queryProfile := p
 	queryProfile.Database = database
 	_, err := conn.ExecuteQueryStream(ctx, queryProfile, password, sql, true,
