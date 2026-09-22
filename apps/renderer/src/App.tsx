@@ -265,9 +265,12 @@ function App() {
   }, []);
 
   useEffect(() => {
-    void refreshMcpActivitySummary();
+    const initialRefresh = window.setTimeout(() => void refreshMcpActivitySummary(), 0);
     const timer = window.setInterval(() => void refreshMcpActivitySummary(), 30_000);
-    return () => window.clearInterval(timer);
+    return () => {
+      window.clearTimeout(initialRefresh);
+      window.clearInterval(timer);
+    };
   }, [refreshMcpActivitySummary]);
 
   const handleDriverChange = (driver: 'mysql' | 'postgres' | 'redis' | 'sqlite' | 'sqlserver' | 'mongodb') => {
