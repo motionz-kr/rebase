@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.31.0](https://github.com/motionz-kr/rebase/compare/v0.30.0...v0.31.0) (2026-09-22)
+
+
+### Features
+
+* optimize MCP activity history ([aff5613](https://github.com/motionz-kr/rebase/commit/aff5613130f4d59923348ecdc911460362598d35))
+* optimize MCP activity history ([344d6ef](https://github.com/motionz-kr/rebase/commit/344d6ef3e3421af55926f514d6d2954d959cf460))
+
 ## [0.30.0](https://github.com/motionz-kr/rebase/compare/v0.29.0...v0.30.0) (2026-09-22)
 
 
