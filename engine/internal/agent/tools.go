@@ -181,6 +181,51 @@ func storageSummaryQueries(driver string, limit int64) (string, string) {
 	}
 }
 
+func sqlLiteral(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
+}
+
+// tableStatsQuery builds the read-only catalog query used by table_stats. The
+// table argument has already passed MCP scope validation, but it can still be
+// qualified (for example, public.orders or analytics.orders). Keep parsing and
+// quoting here so every driver uses the same table-reference semantics.
+func tableStatsQuery(driver, defaultDatabase, rawTable string) (string, error) {
+	ref, err := parseMCPTableRef(driver, defaultDatabase, rawTable)
+	if err != nil {
+		return "", err
+	}
+
+	trimmed := strings.TrimSpace(strings.TrimRight(rawTable, "."))
+	qualified := strings.Contains(trimmed, ".")
+	tableName := sqlLiteral(ref.table)
+	schemaName := sqlLiteral(ref.schema)
+
+	switch driver {
+	case "postgres":
+		schemaPredicate := "n.nspname = current_schema()"
+		if qualified {
+			schemaPredicate = "n.nspname = " + schemaName
+		}
+		return "SELECT c.reltuples::bigint AS rows, pg_total_relation_size(c.oid) AS bytes " +
+			"FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace " +
+			"WHERE c.relname = " + tableName + " AND " + schemaPredicate, nil
+	case "sqlite":
+		from := quoteIdent(driver, ref.table)
+		if qualified {
+			from = quoteIdent(driver, ref.schema) + "." + from
+		}
+		return "SELECT (SELECT COUNT(*) FROM " + from + ") AS rows, 0 AS bytes", nil
+	case "sqlserver":
+		return "SELECT SUM(p.rows) AS rows, 0 AS bytes FROM sys.partitions p " +
+			"JOIN sys.tables t ON t.object_id = p.object_id " +
+			"JOIN sys.schemas s ON s.schema_id = t.schema_id " +
+			"WHERE s.name = " + schemaName + " AND t.name = " + tableName + " AND p.index_id IN (0,1)", nil
+	default:
+		return "SELECT table_rows AS rows, data_length + index_length AS bytes " +
+			"FROM information_schema.tables WHERE table_schema = " + sqlLiteral(ref.database) + " AND table_name = " + tableName, nil
+	}
+}
+
 // NewSQLRegistry builds the read-only tool set bound to one connection profile.
 func NewSQLRegistry(conn sqlReader, p domain.ConnectionProfile, password, database string) *Registry {
 	r := &Registry{tools: map[string]Tool{}}
@@ -481,19 +526,9 @@ func NewSQLRegistry(conn sqlReader, p domain.ConnectionProfile, password, databa
 			if err := authorizeTable(target, table); err != nil {
 				return nil, err
 			}
-			lit := "'" + strings.ReplaceAll(table, "'", "''") + "'"
-			var sql string
-			if p.Driver == "postgres" {
-				sql = "SELECT c.reltuples::bigint AS rows, pg_total_relation_size(c.oid) AS bytes " +
-					"FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace " +
-					"WHERE c.relname = " + lit + " AND n.nspname = current_schema()"
-			} else if p.Driver == "sqlite" {
-				sql = "SELECT (SELECT COUNT(*) FROM " + quoteIdent(p.Driver, table) + ") AS rows, 0 AS bytes"
-			} else if p.Driver == "sqlserver" {
-				sql = "SELECT SUM(p.rows) AS rows, 0 AS bytes FROM sys.partitions p JOIN sys.tables t ON t.object_id = p.object_id WHERE t.name = " + lit + " AND p.index_id IN (0,1)"
-			} else {
-				sql = "SELECT table_rows AS rows, data_length + index_length AS bytes " +
-					"FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = " + lit
+			sql, err := tableStatsQuery(p.Driver, target, table)
+			if err != nil {
+				return nil, err
 			}
 			res, err := runReadQueryInDatabase(ctx, conn, p, password, target, sql)
 			if err != nil {

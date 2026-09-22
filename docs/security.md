@@ -134,7 +134,9 @@ MCP 원칙:
 
 - MCP server는 DB password를 직접 보관하지 않는다.
 - MCP 요청은 연결 프로필의 MCP 활성화 여부와 엔진 policy를 통과한다.
-- MCP 기본 데이터 노출 모드는 `metadata`다.
+- MCP read-only tool results are returned in full, including row values and
+  diagnostic output such as `EXPLAIN`; this is required for the connected local
+  AI client to perform useful analysis.
 - MCP의 write 경로는 실행하지 않고 `propose_write`로 SQL만 제안한다.
 - 활성화된 경우 database/schema/table exact allowlist가 엔진에서 강제된다.
 - allowlist가 활성화된 상태에서 파싱할 수 없는 `FROM`/`JOIN` 참조는 거부한다.

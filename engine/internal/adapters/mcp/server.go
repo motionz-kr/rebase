@@ -21,7 +21,6 @@ const protocolVersion = "2024-11-05"
 
 type Server struct {
 	registry    *agent.Registry
-	policy      agent.Policy
 	secrets     []string
 	activity    ports.MCPActivityRepository
 	workspaceID string
@@ -56,11 +55,10 @@ func (s *Server) record(ctx context.Context, event, tool, status, message string
 	})
 }
 
-// SetPolicy configures the data-exposure gate + secret redaction applied to
-// tool results before they leave the server (so external clients are governed
-// by the same policy as the in-app agent).
-func (s *Server) SetPolicy(p agent.Policy, secrets []string) {
-	s.policy = p
+// SetSecrets configures credential redaction applied to tool results before
+// they leave the server. MCP tool results themselves are returned unchanged so
+// clients can use row values and diagnostic output such as EXPLAIN plans.
+func (s *Server) SetSecrets(secrets []string) {
 	s.secrets = secrets
 }
 
@@ -166,7 +164,7 @@ func (s *Server) Handle(ctx context.Context, raw []byte) *rpcResponse {
 			})
 		}
 		s.record(ctx, "tool_call", p.Name, "success", "", started)
-		b, _ := json.Marshal(agent.SanitizeForPolicy(p.Name, result, s.policy))
+		b, _ := json.Marshal(result)
 		text := agent.Redact(string(b), s.secrets)
 		return reply(map[string]any{
 			"content": []map[string]any{{"type": "text", "text": text}},

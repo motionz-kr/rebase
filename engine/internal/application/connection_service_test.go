@@ -160,3 +160,24 @@ func TestConnectionServiceUpdateProfilePreservesSecretRefWhenPasswordIsOmitted(t
 		t.Errorf("password = %q, want %q", gotPassword, password)
 	}
 }
+
+func TestSetMCPConnectionSettingsUsesFullResultMode(t *testing.T) {
+	ctx := context.Background()
+	repo := ports.NewFakeProfileRepository()
+	service := NewConnectionService(repo, ports.NewFakeSecretStore())
+	p := &domain.ConnectionProfile{Name: "MCP", Driver: "sqlite", Database: "db.sqlite"}
+	if err := service.CreateProfile(ctx, p, ""); err != nil {
+		t.Fatalf("CreateProfile: %v", err)
+	}
+
+	if err := service.SetMCPConnectionSettings(ctx, p.ID, true, "metadata"); err != nil {
+		t.Fatalf("SetMCPConnectionSettings: %v", err)
+	}
+	got, err := service.ListProfiles(ctx)
+	if err != nil {
+		t.Fatalf("ListProfiles: %v", err)
+	}
+	if len(got) != 1 || !got[0].McpEnabled || got[0].McpDataExposure != "unrestricted" {
+		t.Fatalf("MCP settings = %+v, want enabled with unrestricted results", got)
+	}
+}

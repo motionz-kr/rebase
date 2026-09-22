@@ -10,6 +10,7 @@ import {
   Server,
   ChevronRight,
   Bot,
+  Activity,
   Settings,
   BookOpen,
   History,
@@ -21,6 +22,7 @@ import { SchemaExplorer } from './components/SchemaExplorer';
 import { ConnectionTablePrefs } from './components/ConnectionTablePrefs';
 import { McpConnectPanel } from './components/McpConnectPanel';
 import { McpServersPanel } from './components/McpServersPanel';
+import { McpActivityPage } from './components/McpActivityPage';
 import { QueryEditor } from './components/QueryEditor';
 import { RedisKeyspaceExplorer } from './components/RedisKeyspaceExplorer';
 import { RedisValueInspector } from './components/RedisValueInspector';
@@ -141,6 +143,8 @@ function App() {
   const [showAgent, setShowAgent] = useState(shouldStartInAgentMode);
   const [agentPopped, setAgentPopped] = useState(shouldStartInAgentMode);
   const [showSettings, setShowSettings] = useState(false);
+  const [showMcpActivity, setShowMcpActivity] = useState(false);
+  const [mcpActivitySummary, setMcpActivitySummary] = useState({ total: 0, errors: 0 });
 
   const [showCreateForm, setShowCreateForm] = useState(false);
   // Active tab inside the connection modal: basic info / schema (table visibility) / MCP.
@@ -248,6 +252,23 @@ function App() {
       console.error('Failed to load profiles:', e);
     }
   };
+
+  const refreshMcpActivitySummary = useCallback(async () => {
+    if (typeof window.electronAPI === 'undefined') return;
+    try {
+      const res = await window.electronAPI.mcpActivityList({ limit: 100 });
+      const events = res.data ?? [];
+      setMcpActivitySummary({ total: events.length, errors: events.filter((event) => event.status === 'error').length });
+    } catch {
+      // The bottom bar is an optional status surface; keep the rest of the app usable.
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshMcpActivitySummary();
+    const timer = window.setInterval(() => void refreshMcpActivitySummary(), 30_000);
+    return () => window.clearInterval(timer);
+  }, [refreshMcpActivitySummary]);
 
   const handleDriverChange = (driver: 'mysql' | 'postgres' | 'redis' | 'sqlite' | 'sqlserver' | 'mongodb') => {
     setFormDriver(driver);
@@ -666,6 +687,15 @@ function App() {
       </header>
 
       {showSettings && <SettingsPage onClose={() => setShowSettings(false)} />}
+      {showMcpActivity && (
+        <McpActivityPage
+          profiles={profiles}
+          onClose={() => {
+            setShowMcpActivity(false);
+            void refreshMcpActivitySummary();
+          }}
+        />
+      )}
       {renderLibraryPanel()}
       {engineError && (
         <div className="engine-error-bar" role="status">
@@ -896,10 +926,10 @@ function App() {
                         connId={editingId}
                         connName={formName}
                         initialEnabled={profiles.find((p) => p.id === editingId)?.mcpEnabled ?? false}
-                        initialExposure={profiles.find((p) => p.id === editingId)?.mcpDataExposure ?? 'metadata'}
                         initialAllowedDatabases={profiles.find((p) => p.id === editingId)?.mcpAllowedDatabases}
                         initialAllowedSchemas={profiles.find((p) => p.id === editingId)?.mcpAllowedSchemas}
                         initialAllowedTables={profiles.find((p) => p.id === editingId)?.mcpAllowedTables}
+                        onOpenActivity={() => setShowMcpActivity(true)}
                         onSaved={({ enabled, exposure, scope }) => {
                           setProfiles((current) => current.map((profile) => profile.id === editingId ? {
                             ...profile,
@@ -911,7 +941,7 @@ function App() {
                           } : profile));
                         }}
                       />
-                      <McpServersPanel />
+                      <McpServersPanel onOpenActivity={() => setShowMcpActivity(true)} />
                     </>
                   )}
 
@@ -1301,6 +1331,22 @@ function App() {
           </aside>
         )}
       </div>
+
+      <footer className="statusbar">
+        <div className="statusbar-left">
+          <button
+            className={`statusbar-action${mcpActivitySummary.errors > 0 ? ' has-alert' : ''}`}
+            onClick={() => setShowMcpActivity(true)}
+            aria-label="MCP 활동 열기"
+          >
+            <Activity size={13} />
+            <span>MCP 활동</span>
+            {mcpActivitySummary.total > 0 && <span className="statusbar-count">{mcpActivitySummary.total}</span>}
+            {mcpActivitySummary.errors > 0 && <span className="statusbar-alert">{mcpActivitySummary.errors} 실패</span>}
+          </button>
+        </div>
+        <span className="statusbar-hint">호출·핸드셰이크·연결 상태 보기</span>
+      </footer>
 
       {/* Template dialogs */}
       {domainDialogOpen && focusedProfile && (

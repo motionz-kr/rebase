@@ -135,26 +135,32 @@ func TestServerRecordsSessionAndToolActivity(t *testing.T) {
 	}
 }
 
-func TestServerAppliesDataExposurePolicy(t *testing.T) {
+func TestServerReturnsFullToolResults(t *testing.T) {
 	reg := agent.NewSQLRegistry(fakeSQL{}, domain.ConnectionProfile{}, "", "devdb")
 	s := NewServer(reg)
-	s.SetPolicy(agent.Policy{DataExposure: "metadata"}, []string{"secretpw"})
+	s.SetSecrets([]string{"secretpw"})
 
 	m := req(t, s, `{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"run_select","arguments":{"sql":"SELECT * FROM users"}}}`)
 	b, _ := json.Marshal(m["result"])
 	out := string(b)
-	if strings.Contains(out, "alice") {
-		t.Errorf("metadata policy must withhold cell values, leaked: %s", out)
+	if !strings.Contains(out, "alice") {
+		t.Errorf("MCP must return row values unchanged, got: %s", out)
 	}
-	if !strings.Contains(out, "withheld") {
-		t.Errorf("expected a withheld summary, got: %s", out)
+	if strings.Contains(out, "withheld") {
+		t.Errorf("MCP must not replace full results with a withheld summary: %s", out)
+	}
+
+	m = req(t, s, `{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"explain_query","arguments":{"sql":"SELECT * FROM users"}}}`)
+	b, _ = json.Marshal(m["result"])
+	if !strings.Contains(string(b), "alice") {
+		t.Errorf("EXPLAIN result must be returned unchanged, got: %s", b)
 	}
 }
 
 func TestServerUnrestrictedPassesValues(t *testing.T) {
 	reg := agent.NewSQLRegistry(fakeSQL{}, domain.ConnectionProfile{}, "", "devdb")
 	s := NewServer(reg)
-	s.SetPolicy(agent.Policy{DataExposure: "unrestricted"}, nil)
+	s.SetSecrets(nil)
 	m := req(t, s, `{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"run_select","arguments":{"sql":"SELECT * FROM users"}}}`)
 	b, _ := json.Marshal(m["result"])
 	if !strings.Contains(string(b), "alice") {
