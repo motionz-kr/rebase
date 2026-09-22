@@ -348,6 +348,9 @@ External AI client
 
 MCP activity repository
   <- session / test / tool-call lifecycle metadata
+
+MCP write proposal repository
+  <- pending approval and execution outcome
 ```
 
 MCP는 DB credential을 직접 소유하지 않는다. credential은 기존 keychain 경계를
@@ -356,3 +359,5 @@ read-only/destructive query policy를 통과해야 한다. Scope와 활동 기�
 profile metadata 및 local SQLite activity repository에 저장한다. MCP tool-call의
 실행 SQL과 소요 시간은 활동 상세 진단을 위해 기록하되, 등록된 secret은
 `[redacted]`로 치환하고 별도의 credential/header 값은 기록하지 않는다.
+승인 모드의 write는 별도 proposal 저장소를 거치며, normal engine의
+authenticated approval endpoint에서만 SQLConnector로 전달된다.

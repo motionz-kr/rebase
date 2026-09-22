@@ -16,11 +16,12 @@ interface Props {
   connId: string;
   connName: string;
   initialEnabled: boolean;
+  initialWriteMode?: string;
   initialAllowedDatabases?: string;
   initialAllowedSchemas?: string;
   initialAllowedTables?: string;
   onOpenActivity?: () => void;
-  onSaved?: (settings: { enabled: boolean; exposure: string; scope: McpAccessScope }) => void;
+  onSaved?: (settings: { enabled: boolean; exposure: string; scope: McpAccessScope; writeMode: string }) => void;
 }
 
 // Per-connection MCP panel: expose toggle, access scope, and a copy-paste
@@ -29,6 +30,7 @@ export const McpConnectPanel: React.FC<Props> = ({
   connId,
   connName,
   initialEnabled,
+  initialWriteMode,
   initialAllowedDatabases,
   initialAllowedSchemas,
   initialAllowedTables,
@@ -36,6 +38,7 @@ export const McpConnectPanel: React.FC<Props> = ({
   onSaved,
 }) => {
   const [enabled, setEnabled] = useState(initialEnabled);
+  const [writeMode, setWriteMode] = useState(initialWriteMode === 'approval_required' ? 'approval_required' : 'disabled');
   const [enginePath, setEnginePath] = useState('');
   const [copied, setCopied] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -82,9 +85,9 @@ export const McpConnectPanel: React.FC<Props> = ({
 
   const save = async (nextEnabled: boolean, nextScope = scope) => {
     setSaving(true);
-    const res = await window.electronAPI.mcpSetSettings(connId, nextEnabled, 'unrestricted', nextScope);
+    const res = await window.electronAPI.mcpSetSettings(connId, nextEnabled, 'unrestricted', nextScope, writeMode);
     setSaving(false);
-    if (res.success) onSaved?.({ enabled: nextEnabled, exposure: 'unrestricted', scope: nextScope });
+    if (res.success) onSaved?.({ enabled: nextEnabled, exposure: 'unrestricted', scope: nextScope, writeMode });
     else setConnectMsg({ kind: 'err', text: res.error || 'MCP 설정 저장 실패' });
   };
 
@@ -101,11 +104,11 @@ export const McpConnectPanel: React.FC<Props> = ({
 
   const saveScope = async () => {
     setScopeSaving(true);
-    const res = await window.electronAPI.mcpSetSettings(connId, enabled, 'unrestricted', scope);
+    const res = await window.electronAPI.mcpSetSettings(connId, enabled, 'unrestricted', scope, writeMode);
     setScopeSaving(false);
     setScopeMsg(res.success ? '접근 범위를 저장했습니다.' : res.error || '접근 범위 저장 실패');
     if (res.success) {
-      onSaved?.({ enabled, exposure: 'unrestricted', scope });
+      onSaved?.({ enabled, exposure: 'unrestricted', scope, writeMode });
       void refreshActivity();
     }
   };
@@ -160,8 +163,21 @@ export const McpConnectPanel: React.FC<Props> = ({
           )}
 
           <p className="mcp-note">
-            연결된 로컬 AI 클라이언트에는 쿼리 행과 EXPLAIN 실행 계획을 포함한 MCP 도구 결과가 그대로 반환됩니다. 비밀번호·토큰은 반환 전에 제거되며, 쓰기 실행 도구는 제공되지 않습니다.
+            연결된 로컬 AI 클라이언트에는 쿼리 행과 EXPLAIN 실행 계획을 포함한 MCP 도구 결과가 그대로 반환됩니다. 비밀번호·토큰은 반환 전에 제거됩니다.
           </p>
+
+          <div className="mcp-scope">
+            <div className="mcp-snippet-head"><span>쓰기 정책</span></div>
+            <label className="mcp-field">
+              <span>외부 AI 쓰기 실행</span>
+              <select value={writeMode} onChange={(e) => setWriteMode(e.target.value)}>
+                <option value="disabled">사용 안 함 (읽기 전용)</option>
+                <option value="approval_required">승인 후 실행</option>
+              </select>
+            </label>
+            <p className="mcp-note">승인 후 실행을 선택하면 AI가 제안한 SQL은 실행되지 않고 MCP 활동에 대기합니다. 활동 화면에서 승인한 경우에만 실행됩니다.</p>
+            <button className="btn btn-secondary btn-xs" onClick={() => void saveScope()} disabled={scopeSaving}>{scopeSaving ? '저장 중…' : '쓰기 정책 저장'}</button>
+          </div>
 
           <div className="mcp-scope">
             <div className="mcp-snippet-head">

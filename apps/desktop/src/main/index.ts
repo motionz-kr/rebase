@@ -910,13 +910,13 @@ app.whenReady().then(() => {
     const res = applyClient(clientId, `rebase-${profileId}`, entry);
     return res.ok ? { success: true, data: { path: res.path, backup: res.backup } } : { success: false, error: res.error };
   });
-  ipcMain.handle('mcp-set-settings', (_event, profileId: string, enabled: boolean, dataExposure: string, scope?: unknown) => {
+  ipcMain.handle('mcp-set-settings', (_event, profileId: string, enabled: boolean, dataExposure: string, scope?: unknown, writeMode?: string) => {
     return new Promise((resolve) => {
       if (!engineManager || engineManager.getPort() === null) {
         resolve({ success: false, error: 'Engine not started' });
         return;
       }
-      const payload = JSON.stringify({ profileId, enabled, dataExposure, ...(scope ? { scope } : {}) });
+      const payload = JSON.stringify({ profileId, enabled, dataExposure, writeMode, ...(scope ? { scope } : {}) });
       const req = http.request(
         {
           host: '127.0.0.1',
@@ -1025,6 +1025,27 @@ app.whenReady().then(() => {
     try {
       const params = new URLSearchParams({ workspaceId: workspaceId || 'default', id });
       const data = await requestEngine({ method: 'GET', path: `/mcp/activity?${params.toString()}` });
+      return { success: true, data };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('mcp-write-proposals-list', async (_e, profileId?: string, status?: string) => {
+    try {
+      const params = new URLSearchParams({ workspaceId: 'default' });
+      if (profileId) params.set('profileId', profileId);
+      if (status) params.set('status', status);
+      const data = await requestEngine({ method: 'GET', path: `/mcp/write-proposals?${params.toString()}` });
+      return { success: true, data };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('mcp-write-proposal-action', async (_e, id: string, action: 'approve' | 'reject') => {
+    try {
+      const data = await requestEngine({ method: 'POST', path: '/mcp/write-proposals', body: { id, action } });
       return { success: true, data };
     } catch (err: any) {
       return { success: false, error: err.message };

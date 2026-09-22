@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/smlee/database-local-engine/engine/internal/domain"
 	"github.com/smlee/database-local-engine/engine/internal/ports"
 )
@@ -132,6 +134,13 @@ type Registry struct {
 	order []string
 }
 
+type MCPWriteConfig struct {
+	Mode        string
+	WorkspaceID string
+	ProfileID   string
+	Proposals   ports.MCPWriteProposalRepository
+}
+
 func (r *Registry) Specs() []ports.ToolSpec {
 	specs := make([]ports.ToolSpec, 0, len(r.order))
 	for _, name := range r.order {
@@ -244,6 +253,14 @@ func tableStatsQuery(driver, defaultDatabase, rawTable string) (string, error) {
 
 // NewSQLRegistry builds the read-only tool set bound to one connection profile.
 func NewSQLRegistry(conn sqlReader, p domain.ConnectionProfile, password, database string) *Registry {
+	return newSQLRegistry(conn, p, password, database, nil)
+}
+
+func NewSQLRegistryWithMCPWrites(conn sqlReader, p domain.ConnectionProfile, password, database string, writeConfig MCPWriteConfig) *Registry {
+	return newSQLRegistry(conn, p, password, database, &writeConfig)
+}
+
+func newSQLRegistry(conn sqlReader, p domain.ConnectionProfile, password, database string, writeConfig *MCPWriteConfig) *Registry {
 	r := &Registry{tools: map[string]Tool{}}
 	scope := p.MCPAccessScope()
 	targetDatabase := func(args map[string]any) string {
@@ -651,21 +668,62 @@ func NewSQLRegistry(conn sqlReader, p domain.ConnectionProfile, password, databa
 				"Returns the SQL with a safety assessment. This does NOT execute — the user reviews and runs it.",
 			Schema: sqlArgSchema,
 		},
-		Run: func(_ context.Context, args map[string]any) (any, error) {
+		Run: func(ctx context.Context, args map[string]any) (any, error) {
 			sql := strArg(args, "sql")
 			target := targetDatabase(args)
 			if err := authorizeQuery(target, sql); err != nil {
 				return nil, err
 			}
 			c := ClassifyStatement(sql)
-			return map[string]any{
+			out := map[string]any{
 				"proposed": true,
 				"sql":      sql,
 				"risk":     c.Risk,
 				"reasons":  c.Reasons,
-			}, nil
+			}
+			if writeConfig != nil && domain.NormalizeMCPWriteMode(writeConfig.Mode) == domain.MCPWriteModeApproval && writeConfig.Proposals != nil {
+				now := time.Now().UTC()
+				proposal := &domain.MCPWriteProposal{
+					ID: uuid.NewString(), WorkspaceID: writeConfig.WorkspaceID, ProfileID: writeConfig.ProfileID,
+					SQL: sql, Risk: string(c.Risk), Reasons: c.Reasons, Status: domain.MCPWritePending,
+					CreatedAt: now, UpdatedAt: now,
+				}
+				if err := writeConfig.Proposals.Create(ctx, proposal); err != nil {
+					return nil, fmt.Errorf("create MCP write proposal: %w", err)
+				}
+				out["proposalId"] = proposal.ID
+				out["status"] = proposal.Status
+				out["approvalRequired"] = true
+				out["message"] = "Waiting for approval in Rebase MCP activity before execution."
+			}
+			return out, nil
 		},
 	})
+
+	if writeConfig != nil && writeConfig.Proposals != nil {
+		r.add(Tool{
+			Spec: ports.ToolSpec{
+				Name:        "write_proposal_status",
+				Description: "Check whether a proposed write was approved, rejected, executed, or failed.",
+				Schema:      map[string]any{"type": "object", "properties": map[string]any{"proposalId": map[string]any{"type": "string"}}, "required": []string{"proposalId"}},
+			},
+			Run: func(ctx context.Context, args map[string]any) (any, error) {
+				id := strArg(args, "proposalId")
+				proposal, err := writeConfig.Proposals.Get(ctx, writeConfig.WorkspaceID, id)
+				if err != nil {
+					return nil, err
+				}
+				if proposal == nil || proposal.ProfileID != writeConfig.ProfileID {
+					return nil, fmt.Errorf("MCP write proposal not found: %s", id)
+				}
+				return map[string]any{
+					"proposalId": proposal.ID, "status": proposal.Status, "sql": proposal.SQL,
+					"risk": proposal.Risk, "reasons": proposal.Reasons,
+					"rowsAffected": proposal.RowsAffected, "error": proposal.Error,
+				}, nil
+			},
+		})
+	}
 
 	return r
 }

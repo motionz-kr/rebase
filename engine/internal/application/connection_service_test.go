@@ -170,7 +170,7 @@ func TestSetMCPConnectionSettingsUsesFullResultMode(t *testing.T) {
 		t.Fatalf("CreateProfile: %v", err)
 	}
 
-	if err := service.SetMCPConnectionSettings(ctx, p.ID, true, "metadata"); err != nil {
+	if err := service.SetMCPConnectionSettings(ctx, p.ID, true, "metadata", domain.MCPWriteModeApproval); err != nil {
 		t.Fatalf("SetMCPConnectionSettings: %v", err)
 	}
 	got, err := service.ListProfiles(ctx)
@@ -179,5 +179,8 @@ func TestSetMCPConnectionSettingsUsesFullResultMode(t *testing.T) {
 	}
 	if len(got) != 1 || !got[0].McpEnabled || got[0].McpDataExposure != "unrestricted" {
 		t.Fatalf("MCP settings = %+v, want enabled with unrestricted results", got)
+	}
+	if got[0].McpWriteMode != domain.MCPWriteModeApproval {
+		t.Fatalf("MCP write mode = %q", got[0].McpWriteMode)
 	}
 }

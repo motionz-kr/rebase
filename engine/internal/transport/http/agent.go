@@ -156,13 +156,14 @@ func (h *AgentHandler) SetMCPConnection() http.Handler {
 			ProfileID    string                 `json:"profileId"`
 			Enabled      bool                   `json:"enabled"`
 			DataExposure string                 `json:"dataExposure"`
+			WriteMode    string                 `json:"writeMode"`
 			Scope        *domain.MCPAccessScope `json:"scope"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 			http.Error(w, "invalid request body", http.StatusBadRequest)
 			return
 		}
-		if err := h.service.SetMCPConnectionSettings(r.Context(), b.ProfileID, b.Enabled, b.DataExposure); err != nil {
+		if err := h.service.SetMCPConnectionSettings(r.Context(), b.ProfileID, b.Enabled, b.DataExposure, b.WriteMode); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}

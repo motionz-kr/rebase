@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/smlee/database-local-engine/engine/internal/domain"
@@ -18,6 +19,42 @@ type fakeSQL struct {
 	oneRow       []any
 	lastQuery    string
 	lastReadOnly bool
+}
+
+type fakeMCPWriteRepository struct {
+	items map[string]*domain.MCPWriteProposal
+}
+
+func (f *fakeMCPWriteRepository) Create(_ context.Context, proposal *domain.MCPWriteProposal) error {
+	if f.items == nil {
+		f.items = map[string]*domain.MCPWriteProposal{}
+	}
+	copy := *proposal
+	f.items[proposal.ID] = &copy
+	return nil
+}
+
+func (f *fakeMCPWriteRepository) Get(_ context.Context, workspaceID, id string) (*domain.MCPWriteProposal, error) {
+	proposal := f.items[id]
+	if proposal == nil || proposal.WorkspaceID != workspaceID {
+		return nil, fmt.Errorf("not found")
+	}
+	copy := *proposal
+	return &copy, nil
+}
+
+func (f *fakeMCPWriteRepository) List(_ context.Context, workspaceID, profileID, status string, _ int) ([]domain.MCPWriteProposal, error) {
+	var out []domain.MCPWriteProposal
+	for _, proposal := range f.items {
+		if proposal.WorkspaceID == workspaceID && (profileID == "" || proposal.ProfileID == profileID) && (status == "" || proposal.Status == status) {
+			out = append(out, *proposal)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeMCPWriteRepository) Update(_ context.Context, proposal *domain.MCPWriteProposal) error {
+	return f.Create(context.Background(), proposal)
 }
 
 func (f *fakeSQL) ListColumns(_ context.Context, _ domain.ConnectionProfile, _ string, _ string) ([]ports.ColumnRef, error) {
@@ -91,6 +128,42 @@ func TestRegistryDispatchRecordsExecutedSQL(t *testing.T) {
 	}
 	if len(queries) != 1 || queries[0] != "EXPLAIN SELECT * FROM users" {
 		t.Fatalf("recorded queries = %#v", queries)
+	}
+}
+
+func TestRegistryProposeWriteCreatesApprovalWithoutExecuting(t *testing.T) {
+	conn := &fakeSQL{}
+	proposals := &fakeMCPWriteRepository{}
+	reg := NewSQLRegistryWithMCPWrites(conn, domain.ConnectionProfile{ID: "profile-1"}, "", "devdb", MCPWriteConfig{
+		Mode: domain.MCPWriteModeApproval, WorkspaceID: "default", ProfileID: "profile-1", Proposals: proposals,
+	})
+
+	out, err := reg.Dispatch(context.Background(), "propose_write", map[string]any{"sql": "UPDATE users SET name = 'Ada' WHERE id = 1"})
+	if err != nil {
+		t.Fatalf("propose_write: %v", err)
+	}
+	result, ok := out.(map[string]any)
+	if !ok {
+		t.Fatalf("propose_write result type = %T", out)
+	}
+	proposalID, ok := result["proposalId"].(string)
+	if !ok || proposalID == "" || result["status"] != domain.MCPWritePending {
+		t.Fatalf("propose_write result = %#v", result)
+	}
+	if conn.lastQuery != "" {
+		t.Fatalf("proposal must not execute SQL, got %q", conn.lastQuery)
+	}
+
+	status, err := reg.Dispatch(context.Background(), "write_proposal_status", map[string]any{"proposalId": proposalID})
+	if err != nil {
+		t.Fatalf("write_proposal_status: %v", err)
+	}
+	statusMap := status.(map[string]any)
+	if statusMap["status"] != domain.MCPWritePending || statusMap["sql"] != "UPDATE users SET name = 'Ada' WHERE id = 1" {
+		t.Fatalf("proposal status = %#v", statusMap)
+	}
+	if proposals.items[proposalID].CreatedAt.IsZero() {
+		t.Fatal("proposal should have a creation timestamp")
 	}
 }
 

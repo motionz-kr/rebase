@@ -30,6 +30,11 @@ test.describe('query editor diagnostics', () => {
     await expect(connection).toBeVisible();
     await connection.click();
     await expect(win.locator('.conn-panel .editor-toolbar')).toBeVisible({ timeout: 20_000 });
+    await connection.locator('button[title="Edit profile"]').click();
+    await win.locator('.conn-modal-tabs .seg-tab').filter({ hasText: '스키마' }).click();
+    await expect(win.getByTestId('schema-visibility-toggle-all')).toBeVisible({ timeout: 15_000 });
+    await win.getByTestId('schema-visibility-toggle-all').check();
+    await win.locator('.conn-modal .modal-head button[aria-label="닫기"]').click();
     const databaseRow = win.locator(`.tree-row:has(.tree-label:text-is("${path.basename(databaseFile)}"))`).first();
     await expect(databaseRow).toBeVisible({ timeout: 15_000 });
     await databaseRow.click();

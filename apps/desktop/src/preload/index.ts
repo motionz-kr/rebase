@@ -61,8 +61,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   agentCliStatus: (tool: string) => ipcRenderer.invoke('agent-cli-status', tool),
   agentCliLogin: (tool: string) => ipcRenderer.invoke('agent-cli-login', tool),
   mcpEnginePath: () => ipcRenderer.invoke('mcp-engine-path'),
-  mcpSetSettings: (profileId: string, enabled: boolean, dataExposure: string, scope?: unknown) =>
-    ipcRenderer.invoke('mcp-set-settings', profileId, enabled, dataExposure, scope),
+  mcpSetSettings: (profileId: string, enabled: boolean, dataExposure: string, scope?: unknown, writeMode?: string) =>
+    ipcRenderer.invoke('mcp-set-settings', profileId, enabled, dataExposure, scope, writeMode),
   mcpDetectClients: () => ipcRenderer.invoke('mcp-detect-clients'),
   mcpAutoconnect: (clientId: string, profileId: string) => ipcRenderer.invoke('mcp-autoconnect', clientId, profileId),
   mcpServersList: (workspaceId: string) => ipcRenderer.invoke('mcp-servers-list', workspaceId),
@@ -72,6 +72,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   mcpServersCall: (payload: unknown) => ipcRenderer.invoke('mcp-servers-call', payload),
   mcpActivityList: (filter?: unknown) => ipcRenderer.invoke('mcp-activity-list', filter),
   mcpActivityGet: (id: string, workspaceId?: string) => ipcRenderer.invoke('mcp-activity-get', id, workspaceId),
+  mcpWriteProposalsList: (profileId?: string, status?: string) => ipcRenderer.invoke('mcp-write-proposals-list', profileId, status),
+  mcpWriteProposalAction: (id: string, action: 'approve' | 'reject') => ipcRenderer.invoke('mcp-write-proposal-action', id, action),
   updateCheck: () => ipcRenderer.invoke('update-check'),
   updateDownload: () => ipcRenderer.invoke('update-download'),
   updateInstall: () => ipcRenderer.invoke('update-install'),

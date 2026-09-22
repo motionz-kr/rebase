@@ -43,6 +43,7 @@ type ConnectionProfile struct {
 	// MCP exposure for external AI clients (off by default).
 	McpEnabled          bool      `json:"mcpEnabled"`
 	McpDataExposure     string    `json:"mcpDataExposure"`     // legacy compatibility field; MCP results are always unrestricted
+	McpWriteMode        string    `json:"mcpWriteMode"`        // disabled | approval_required
 	McpAllowedDatabases string    `json:"mcpAllowedDatabases"` // JSON string[]; empty = legacy unrestricted
 	McpAllowedSchemas   string    `json:"mcpAllowedSchemas"`   // JSON string[]; empty = legacy unrestricted
 	McpAllowedTables    string    `json:"mcpAllowedTables"`    // JSON string[]; empty = legacy unrestricted
