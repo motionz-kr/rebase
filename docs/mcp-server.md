@@ -2,17 +2,16 @@
 
 Rebase can act as an [MCP](https://modelcontextprotocol.io) server, letting
 external AI clients (Claude Desktop, Codex, Cursor) use a connection's database
-tools — under the same safety policy as the in-app agent.
+tools — under the same access-scope and read-only safety policy as the in-app
+agent.
 
 ## Quick start (60 seconds)
 
 1. In Rebase, click the **pencil** on a MySQL/PostgreSQL connection.
 2. Open **AI 클라이언트 연결 (MCP)** and toggle **이 연결을 외부 AI 클라이언트에 노출** on.
-3. Leave **데이터 노출** at **메타데이터만** (safe default — no cell values leave
-   your machine).
-4. Click **Claude Desktop에 연결** (or **Codex** / **Cursor**). Rebase writes the
+3. Click **Claude Desktop에 연결** (or **Codex** / **Cursor**). Rebase writes the
    server entry into that client's config (backing up the old one first).
-5. **Restart the AI client.** Done — ask it about your database.
+4. **Restart the AI client.** Done — ask it about your database.
 
 > Prefer manual setup? Copy the JSON snippet shown in the panel into the client's
 > MCP config instead of using the buttons.
@@ -34,17 +33,13 @@ guesses.
 
 ## Governance in action
 
-What the AI can see is controlled by the connection's **데이터 노출** level. For a
-table `demo_users(name, email)`:
+MCP returns tool results unchanged so the connected client can use actual rows,
+diagnostic values, and complete `EXPLAIN` plans. For a table
+`demo_users(name, email)`, `run_select` returns the actual values. Credentials
+are still redacted before a response leaves the server.
 
-| 데이터 노출 | The client gets… |
-| --- | --- |
-| **메타데이터만** (default) | columns + row **count** only. `run_select` returns `{columns, rowCount, withheld: true}` — the AI literally cannot read the names/emails. |
-| **요청 시 / 전체** | actual rows, e.g. `Alice / a@x.com`, `Bob / (null)`. |
-
-Switching the toggle takes effect on the client's **next** session. Writes are
-never executed — `propose_write` only returns the SQL for you to run (and
-approve) inside Rebase.
+Writes are never executed — `propose_write` only returns the SQL for you to run
+(and approve) inside Rebase.
 
 ## Scope and activity history
 
@@ -75,13 +70,9 @@ session or call has occurred.
 
 1. Edit a **MySQL or PostgreSQL** connection (the pencil icon).
 2. In **AI 클라이언트 연결 (MCP)**, turn on **이 연결을 외부 AI 클라이언트에 노출**.
-3. Pick a **데이터 노출** level:
-   - **메타데이터만 (default):** schema + row counts only — cell values are never
-     sent to the client.
-   - **요청 시 / 전체:** progressively send row values.
-
 A connection that isn't enabled is **refused** even if a client is configured to
-launch it.
+launch it. Once enabled, read-only MCP tools return their complete results,
+including row values and `EXPLAIN` plans.
 
 ## Connect a client
 
@@ -122,8 +113,8 @@ executes). No tool mutates data.
 - **stdio only** — no network port; the client launches the binary locally. The
   trust boundary is your machine.
 - **Opt-in per connection** — only enabled connections can be served.
-- **Data-exposure policy** decides whether cell values leave the machine
-  (default: none).
+- **Full read results** — row values and diagnostic output are returned to the
+  connected local client so it can answer database questions accurately.
 - **Secret redaction** strips the connection password / secret ref from anything
   returned.
 - **Auto-connect** writes only the `rebase-<connId>` key, backs up the existing

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Plug, Trash2, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Activity, Plug, Trash2, AlertTriangle, RefreshCw } from 'lucide-react';
 import { parseArgs, parseEnv, parseHeaders, validateServer } from '../lib/mcpServerForm';
 import type { McpActivityEvent, McpServer } from '../global';
 
@@ -21,7 +21,7 @@ type TestState =
 // Manages workspace-level external MCP servers that the agent can call.
 // External servers run the given command locally, so adding one is gated on
 // an explicit trust toggle and a visible warning.
-export const McpServersPanel: React.FC = () => {
+export const McpServersPanel: React.FC<{ onOpenActivity?: () => void }> = ({ onOpenActivity }) => {
   const [servers, setServers] = useState<McpServer[]>([]);
 
   // add-form state
@@ -282,9 +282,12 @@ export const McpServersPanel: React.FC = () => {
       <div className="mcp-activity">
         <div className="mcp-snippet-head">
           <span>외부 MCP 활동 기록</span>
-          <button className="btn btn-secondary btn-xs" onClick={() => void refreshActivity()} disabled={activityLoading}>
-            <RefreshCw size={12} /> {activityLoading ? '새로 고침 중…' : '새로 고침'}
-          </button>
+          <div className="mcp-activity-actions">
+            {onOpenActivity && <button className="btn btn-secondary btn-xs" onClick={onOpenActivity}><Activity size={12} /> 전체 활동</button>}
+            <button className="btn btn-secondary btn-xs" onClick={() => void refreshActivity()} disabled={activityLoading}>
+              <RefreshCw size={12} /> {activityLoading ? '새로 고침 중…' : '새로 고침'}
+            </button>
+          </div>
         </div>
         {activity.length === 0 ? (
           <p className="mcp-srv-note">아직 연결 테스트 또는 호출 기록이 없습니다.</p>

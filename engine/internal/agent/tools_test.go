@@ -287,6 +287,51 @@ func TestRegistrySlowQueriesMySQLSource(t *testing.T) {
 	}
 }
 
+func TestTableStatsQueryUsesQualifiedTableReference(t *testing.T) {
+	tests := []struct {
+		driver string
+		table  string
+		want   []string
+	}{
+		{driver: "mysql", table: "analytics.orders", want: []string{"table_schema = 'analytics'", "table_name = 'orders'"}},
+		{driver: "postgres", table: "reporting.orders", want: []string{"n.nspname = 'reporting'", "c.relname = 'orders'"}},
+		{driver: "sqlite", table: "main.orders", want: []string{`FROM "main"."orders"`}},
+		{driver: "sqlserver", table: "reporting.orders", want: []string{"s.name = 'reporting'", "t.name = 'orders'"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.driver, func(t *testing.T) {
+			query, err := tableStatsQuery(tt.driver, "devdb", tt.table)
+			if err != nil {
+				t.Fatalf("tableStatsQuery: %v", err)
+			}
+			for _, want := range tt.want {
+				if !containsSub(query, want) {
+					t.Errorf("query %q does not contain %q", query, want)
+				}
+			}
+		})
+	}
+}
+
+func TestTableStatsQueryUsesDefaultsForUnqualifiedTable(t *testing.T) {
+	mysql, err := tableStatsQuery("mysql", "devdb", "orders")
+	if err != nil || !containsSub(mysql, "table_schema = 'devdb'") || !containsSub(mysql, "table_name = 'orders'") {
+		t.Fatalf("mysql default query = %q, err=%v", mysql, err)
+	}
+
+	postgres, err := tableStatsQuery("postgres", "devdb", "orders")
+	if err != nil || !containsSub(postgres, "n.nspname = current_schema()") {
+		t.Fatalf("postgres default query = %q, err=%v", postgres, err)
+	}
+}
+
+func TestTableStatsQueryRejectsMalformedReference(t *testing.T) {
+	if _, err := tableStatsQuery("postgres", "devdb", "a.b.c.d"); err == nil {
+		t.Fatal("expected malformed table reference to be rejected")
+	}
+}
+
 func TestRegistryUnknownTool(t *testing.T) {
 	reg := NewSQLRegistry(&fakeSQL{}, domainProfile(), "", "devdb")
 	if _, err := reg.Dispatch(context.Background(), "nope", nil); err == nil {

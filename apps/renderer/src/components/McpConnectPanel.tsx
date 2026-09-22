@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Copy, Check, Plug, RefreshCw } from 'lucide-react';
+import { Activity, Copy, Check, Plug, RefreshCw } from 'lucide-react';
 import { buildJsonSnippet } from '../lib/mcpConfig';
 import { parseScopeList, scopeFromProfile, scopeText, type McpAccessScope } from '../lib/mcpScope';
 import type { McpActivityEvent } from '../global';
@@ -16,27 +16,26 @@ interface Props {
   connId: string;
   connName: string;
   initialEnabled: boolean;
-  initialExposure: string;
   initialAllowedDatabases?: string;
   initialAllowedSchemas?: string;
   initialAllowedTables?: string;
+  onOpenActivity?: () => void;
   onSaved?: (settings: { enabled: boolean; exposure: string; scope: McpAccessScope }) => void;
 }
 
-// Per-connection MCP panel: expose toggle, data-exposure level, and a copy-paste
-// client config snippet. Auto-connect buttons are added in P3.
+// Per-connection MCP panel: expose toggle, access scope, and a copy-paste
+// client config snippet. MCP tool results are returned in full.
 export const McpConnectPanel: React.FC<Props> = ({
   connId,
   connName,
   initialEnabled,
-  initialExposure,
   initialAllowedDatabases,
   initialAllowedSchemas,
   initialAllowedTables,
+  onOpenActivity,
   onSaved,
 }) => {
   const [enabled, setEnabled] = useState(initialEnabled);
-  const [exposure, setExposure] = useState(initialExposure || 'metadata');
   const [enginePath, setEnginePath] = useState('');
   const [copied, setCopied] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -81,22 +80,18 @@ export const McpConnectPanel: React.FC<Props> = ({
     }
   };
 
-  const save = async (nextEnabled: boolean, nextExposure: string, nextScope = scope) => {
+  const save = async (nextEnabled: boolean, nextScope = scope) => {
     setSaving(true);
-    const res = await window.electronAPI.mcpSetSettings(connId, nextEnabled, nextExposure, nextScope);
+    const res = await window.electronAPI.mcpSetSettings(connId, nextEnabled, 'unrestricted', nextScope);
     setSaving(false);
-    if (res.success) onSaved?.({ enabled: nextEnabled, exposure: nextExposure, scope: nextScope });
+    if (res.success) onSaved?.({ enabled: nextEnabled, exposure: 'unrestricted', scope: nextScope });
     else setConnectMsg({ kind: 'err', text: res.error || 'MCP 설정 저장 실패' });
   };
 
   const onToggle = () => {
     const next = !enabled;
     setEnabled(next);
-    void save(next, exposure);
-  };
-  const onExposure = (v: string) => {
-    setExposure(v);
-    void save(enabled, v, scope);
+    void save(next);
   };
 
   const changeScope = (key: keyof McpAccessScope, value: string) => {
@@ -106,11 +101,11 @@ export const McpConnectPanel: React.FC<Props> = ({
 
   const saveScope = async () => {
     setScopeSaving(true);
-    const res = await window.electronAPI.mcpSetSettings(connId, enabled, exposure, scope);
+    const res = await window.electronAPI.mcpSetSettings(connId, enabled, 'unrestricted', scope);
     setScopeSaving(false);
     setScopeMsg(res.success ? '접근 범위를 저장했습니다.' : res.error || '접근 범위 저장 실패');
     if (res.success) {
-      onSaved?.({ enabled, exposure, scope });
+      onSaved?.({ enabled, exposure: 'unrestricted', scope });
       void refreshActivity();
     }
   };
@@ -135,15 +130,6 @@ export const McpConnectPanel: React.FC<Props> = ({
 
       {enabled && (
         <>
-          <label className="mcp-field">
-            <span>데이터 노출</span>
-            <select value={exposure} onChange={(e) => onExposure(e.target.value)}>
-              <option value="metadata">메타데이터만 (행 값 미전송)</option>
-              <option value="on_request">요청 시</option>
-              <option value="unrestricted">전체 (행 값 전송)</option>
-            </select>
-          </label>
-
           <div className="mcp-snippet-head">
             <span>클라이언트 설정 (Claude Desktop / Cursor)</span>
             <button className="btn btn-secondary btn-xs" onClick={copy} disabled={!snippet}>
@@ -174,7 +160,7 @@ export const McpConnectPanel: React.FC<Props> = ({
           )}
 
           <p className="mcp-note">
-            노출하면 로컬 AI 클라이언트가 선택한 노출 수준으로 이 DB를 읽을 수 있습니다. 쓰기 실행 도구는 노출되지 않습니다.
+            연결된 로컬 AI 클라이언트에는 쿼리 행과 EXPLAIN 실행 계획을 포함한 MCP 도구 결과가 그대로 반환됩니다. 비밀번호·토큰은 반환 전에 제거되며, 쓰기 실행 도구는 제공되지 않습니다.
           </p>
 
           <div className="mcp-scope">
@@ -220,9 +206,12 @@ export const McpConnectPanel: React.FC<Props> = ({
       <div className="mcp-activity">
         <div className="mcp-snippet-head">
           <span>최근 MCP 활동</span>
-          <button className="btn btn-secondary btn-xs" onClick={() => void refreshActivity()} disabled={activityLoading}>
-            <RefreshCw size={12} /> {activityLoading ? '새로 고침 중…' : '새로 고침'}
-          </button>
+          <div className="mcp-activity-actions">
+            {onOpenActivity && <button className="btn btn-secondary btn-xs" onClick={onOpenActivity}><Activity size={12} /> 전체 활동</button>}
+            <button className="btn btn-secondary btn-xs" onClick={() => void refreshActivity()} disabled={activityLoading}>
+              <RefreshCw size={12} /> {activityLoading ? '새로 고침 중…' : '새로 고침'}
+            </button>
+          </div>
         </div>
         {activity.length === 0 ? (
           <p className="mcp-note">아직 기록된 handshake 또는 도구 호출이 없습니다.</p>

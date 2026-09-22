@@ -523,13 +523,9 @@ func runMCPServer(svc *application.ConnectionService, activity ports.MCPActivity
 		log.Fatalf("mcp: connection %q is not enabled for MCP (enable it in Rebase → connection settings)", profileID)
 	}
 	registry := agent.NewSQLRegistry(conn, *profile, password, profile.Database)
-	exposure := profile.McpDataExposure
-	if exposure == "" {
-		exposure = "metadata"
-	}
 	srv := mcp.NewServer(registry)
 	srv.SetActivity(activity, "default", profileID)
-	srv.SetPolicy(agent.Policy{DataExposure: exposure}, []string{password, profile.SecretRef})
+	srv.SetSecrets([]string{password, profile.SecretRef})
 	if err := srv.Serve(ctx, os.Stdin, os.Stdout); err != nil {
 		log.Fatalf("mcp: server error: %v", err)
 	}
