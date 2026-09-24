@@ -101,11 +101,16 @@ func runReadQuery(ctx context.Context, conn sqlReader, p domain.ConnectionProfil
 }
 
 func runReadQueryInDatabase(ctx context.Context, conn sqlReader, p domain.ConnectionProfile, password, database, sql string) (queryResult, error) {
+	res, _, err := runQueryInDatabase(ctx, conn, p, password, database, sql, true)
+	return res, err
+}
+
+func runQueryInDatabase(ctx context.Context, conn sqlReader, p domain.ConnectionProfile, password, database, sql string, readOnly bool) (queryResult, int64, error) {
 	res := queryResult{Rows: [][]any{}}
 	recordQuery(ctx, sql)
 	queryProfile := p
 	queryProfile.Database = database
-	_, err := conn.ExecuteQueryStream(ctx, queryProfile, password, sql, true,
+	rowsAffected, err := conn.ExecuteQueryStream(ctx, queryProfile, password, sql, readOnly,
 		func(int64) {},
 		func(cols []string) error { res.Columns = cols; return nil },
 		func(row []any) error {
@@ -118,10 +123,10 @@ func runReadQueryInDatabase(ctx context.Context, conn sqlReader, p domain.Connec
 		},
 	)
 	if err != nil {
-		return queryResult{}, err
+		return queryResult{}, 0, err
 	}
 	res.RowCount = len(res.Rows)
-	return res, nil
+	return res, rowsAffected, nil
 }
 
 type Tool struct {
@@ -700,7 +705,45 @@ func newSQLRegistry(conn sqlReader, p domain.ConnectionProfile, password, databa
 		},
 	})
 
-	if writeConfig != nil && writeConfig.Proposals != nil {
+	// Full access is intentionally a separate tool. That makes the capability
+	// explicit to MCP clients and keeps disabled/approval_required proposal
+	// semantics unchanged.
+	if writeConfig != nil && domain.NormalizeMCPWriteMode(writeConfig.Mode) == domain.MCPWriteModeFullAccess && !p.ReadOnly {
+		r.add(Tool{
+			Spec: ports.ToolSpec{
+				Name: "execute_write",
+				Description: "Execute an INSERT/UPDATE/DELETE or DDL statement immediately without approval. " +
+					"The connection's MCP database/schema/table scope still applies.",
+				Schema: sqlArgSchema,
+			},
+			Run: func(ctx context.Context, args map[string]any) (any, error) {
+				sql := strArg(args, "sql")
+				target := targetDatabase(args)
+				if err := authorizeQuery(target, sql); err != nil {
+					return nil, err
+				}
+				classification := domain.ClassifyQuery(sql)
+				if classification.ReadOnly {
+					return nil, fmt.Errorf("execute_write requires a write statement; use run_select or explain_query for read-only SQL")
+				}
+				assessment := ClassifyStatement(sql)
+				result, rowsAffected, err := runQueryInDatabase(ctx, conn, p, password, target, sql, false)
+				if err != nil {
+					return nil, err
+				}
+				return map[string]any{
+					"executed":     true,
+					"sql":          sql,
+					"risk":         string(assessment.Risk),
+					"reasons":      assessment.Reasons,
+					"rowsAffected": rowsAffected,
+					"result":       result,
+				}, nil
+			},
+		})
+	}
+
+	if writeConfig != nil && writeConfig.Proposals != nil && domain.NormalizeMCPWriteMode(writeConfig.Mode) == domain.MCPWriteModeApproval {
 		r.add(Tool{
 			Spec: ports.ToolSpec{
 				Name:        "write_proposal_status",

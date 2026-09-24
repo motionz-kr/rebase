@@ -276,6 +276,42 @@ func TestProposeWriteDoesNotExecute(t *testing.T) {
 	}
 }
 
+func TestRegistryFullAccessExecutesWriteAndRecordsSQL(t *testing.T) {
+	conn := &fakeSQL{oneRow: []any{int64(1)}}
+	p := domain.ConnectionProfile{ID: "profile-1", McpWriteMode: domain.MCPWriteModeFullAccess}
+	reg := NewSQLRegistryWithMCPWrites(conn, p, "", "devdb", MCPWriteConfig{Mode: domain.MCPWriteModeFullAccess, ProfileID: p.ID})
+	var queries []string
+	ctx := WithQueryRecorder(context.Background(), func(query string) { queries = append(queries, query) })
+
+	out, err := reg.Dispatch(ctx, "execute_write", map[string]any{"sql": "UPDATE users SET name = 'Ada' WHERE id = 1"})
+	if err != nil {
+		t.Fatalf("execute_write: %v", err)
+	}
+	if conn.lastReadOnly {
+		t.Fatal("execute_write must use a writable connector session")
+	}
+	if conn.lastQuery != "UPDATE users SET name = 'Ada' WHERE id = 1" {
+		t.Fatalf("executed query = %q", conn.lastQuery)
+	}
+	if len(queries) != 1 || queries[0] != conn.lastQuery {
+		t.Fatalf("recorded queries = %#v", queries)
+	}
+	result, ok := out.(map[string]any)
+	if !ok || result["executed"] != true {
+		t.Fatalf("execute_write result = %#v", out)
+	}
+}
+
+func TestRegistryFullAccessRespectsReadOnlyProfile(t *testing.T) {
+	p := domain.ConnectionProfile{ReadOnly: true}
+	reg := NewSQLRegistryWithMCPWrites(&fakeSQL{}, p, "", "devdb", MCPWriteConfig{Mode: domain.MCPWriteModeFullAccess})
+	for _, spec := range reg.Specs() {
+		if spec.Name == "execute_write" {
+			t.Fatal("read-only profile must not advertise execute_write")
+		}
+	}
+}
+
 func TestRegistryFindColumn(t *testing.T) {
 	conn := &fakeSQL{colRefs: []ports.ColumnRef{
 		{Table: "users", Column: "owner_id", Type: "int"},

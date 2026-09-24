@@ -13,3 +13,9 @@ func TestNormalizeMCPWriteModeDefaultsToDisabled(t *testing.T) {
 		t.Fatalf("approval mode = %q, want %q", got, MCPWriteModeApproval)
 	}
 }
+
+func TestNormalizeMCPWriteModeAllowsFullAccess(t *testing.T) {
+	if got := NormalizeMCPWriteMode(MCPWriteModeFullAccess); got != MCPWriteModeFullAccess {
+		t.Fatalf("full access mode = %q, want %q", got, MCPWriteModeFullAccess)
+	}
+}

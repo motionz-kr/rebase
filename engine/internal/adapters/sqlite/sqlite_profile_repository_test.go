@@ -203,6 +203,26 @@ func TestProfileMCPFieldsRoundTrip(t *testing.T) {
 	}
 }
 
+func TestProfileMCPFullAccessRoundTrip(t *testing.T) {
+	repo := newProfileRepo(t)
+	ctx := context.Background()
+	p := &domain.ConnectionProfile{
+		ID: "p-full", Name: "full", Driver: "sqlite", Database: "d.sqlite",
+		McpEnabled: true, McpWriteMode: domain.MCPWriteModeFullAccess,
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	if err := repo.Create(ctx, p); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	got, err := repo.GetByID(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.McpWriteMode != domain.MCPWriteModeFullAccess {
+		t.Fatalf("MCP full access mode = %q", got.McpWriteMode)
+	}
+}
+
 func TestProfileRepo_DomainGlossaryRoundTrip(t *testing.T) {
 	repo := newProfileRepo(t)
 	ctx := context.Background()

@@ -184,3 +184,24 @@ func TestSetMCPConnectionSettingsUsesFullResultMode(t *testing.T) {
 		t.Fatalf("MCP write mode = %q", got[0].McpWriteMode)
 	}
 }
+
+func TestSetMCPConnectionSettingsAcceptsFullAccess(t *testing.T) {
+	ctx := context.Background()
+	repo := ports.NewFakeProfileRepository()
+	service := NewConnectionService(repo, ports.NewFakeSecretStore())
+	p := &domain.ConnectionProfile{Name: "MCP full access", Driver: "sqlite", Database: "db.sqlite"}
+	if err := service.CreateProfile(ctx, p, ""); err != nil {
+		t.Fatalf("CreateProfile: %v", err)
+	}
+
+	if err := service.SetMCPConnectionSettings(ctx, p.ID, true, "unrestricted", domain.MCPWriteModeFullAccess); err != nil {
+		t.Fatalf("SetMCPConnectionSettings: %v", err)
+	}
+	got, err := service.ListProfiles(ctx)
+	if err != nil {
+		t.Fatalf("ListProfiles: %v", err)
+	}
+	if len(got) != 1 || got[0].McpWriteMode != domain.MCPWriteModeFullAccess {
+		t.Fatalf("MCP write mode = %+v, want full access", got)
+	}
+}

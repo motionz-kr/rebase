@@ -84,6 +84,9 @@ including row values and `EXPLAIN` plans.
    - **사용 안 함 (읽기 전용)** — `propose_write` only returns a safety assessment.
    - **승인 후 실행** — each write becomes a pending request in **MCP 활동** and
      requires an explicit Rebase approval.
+   - **완전 허용 (자동 실행)** — exposes `execute_write`, which executes write
+     and DDL statements immediately. The connection's read-only flag and MCP
+     database/schema/table scope still apply.
 
 ## Connect a client
 
@@ -112,13 +115,15 @@ the desktop HTTP handshake file.
 
 ## Tools exposed
 
-The same 14 read/diagnostic tools the agent uses: `list_tables`,
+The same 14 read/diagnostic tools the agent uses plus the proposal tool:
+`list_tables`,
 `describe_table`, `get_table_ddl`, `list_indexes`, `list_foreign_keys`,
 `find_column`, `profile_table`, `table_stats`, `run_select`, `explain_query`,
 `find_duplicate_indexes`, `slow_queries`, `find_unused_indexes`, and
 `propose_write`. `write_proposal_status` is added when approval mode is enabled.
-No external MCP tool executes a write directly; an approved request is executed
-only by the local Rebase engine after the user clicks approval.
+`execute_write` is added only when full access is enabled on a non-read-only
+connection. `propose_write` remains proposal-only unless the user approves the
+request in the Rebase activity view.
 
 ## Security model
 
