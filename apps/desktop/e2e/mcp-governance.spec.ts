@@ -280,3 +280,83 @@ test('MCP write approval executes the reviewed SQL for the selected connection',
     fs.rmSync(fixtureDir, { recursive: true, force: true });
   }
 });
+
+test('MCP full access executes a write immediately for the selected connection', async ({ app, firstWindow: win }) => {
+  const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rebase-mcp-full-write-'));
+  const databaseFile = path.join(fixtureDir, 'full-write.db');
+  execFileSync('sqlite3', [databaseFile, "CREATE TABLE mcp_full_write_e2e (id INTEGER PRIMARY KEY, value TEXT NOT NULL); INSERT INTO mcp_full_write_e2e VALUES (1, 'before');"]);
+  let profileId = '';
+  let mcpProcess: ChildProcessWithoutNullStreams | undefined;
+
+  try {
+    await win.locator('.sidebar-head button').click();
+    const form = win.locator('.conn-form');
+    await form.locator('select').first().selectOption('sqlite');
+    await form.locator('label:text-is("Profile name") + input').fill('MCP Full Write E2E');
+    await form.locator('label:text-is("Database file")').locator('..').locator('input').fill(databaseFile);
+    await form.locator('button[type="submit"]').click();
+
+    const row = win.locator('.conn-list .conn-row').filter({ hasText: 'MCP Full Write E2E' });
+    await expect(row).toBeVisible();
+    const profiles = await win.evaluate(() => window.electronAPI.listProfiles());
+    profileId = profiles.data?.find((profile) => profile.name === 'MCP Full Write E2E')?.id ?? '';
+    expect(profileId).not.toBe('');
+
+    await row.locator('button[title="Edit profile"]').click();
+    await win.getByRole('button', { name: 'MCP', exact: true }).click();
+    await win.locator('.mcp-toggle input').check();
+    const writePolicy = win.locator('.mcp-scope select');
+    await expect(writePolicy.locator('option[value="full_access"]')).toHaveText('완전 허용 (자동 실행)');
+    await writePolicy.selectOption('full_access');
+    await win.getByRole('button', { name: '쓰기 정책 저장', exact: true }).click();
+    await expect(win.locator('.mcp-scope .mcp-note.ok')).toContainText('접근 범위를 저장했습니다');
+    await expect(win.getByText(/완전 허용은 외부 AI 클라이언트.*승인 없이 즉시 실행/)).toBeVisible();
+
+    const enginePath = await win.evaluate(() => window.electronAPI.mcpEnginePath());
+    const userDataDir = await app.evaluate(({ app: electronApp }) => electronApp.getPath('userData'));
+    mcpProcess = spawn(enginePath, ['-db', path.join(userDataDir, 'metadata.db'), '-mcp', profileId, '-token', 'mcp'], { env: process.env, stdio: 'pipe' });
+    const output = createInterface({ input: mcpProcess.stdout });
+    mcpProcess.stderr.on('data', () => undefined);
+    sendRpc(mcpProcess, {
+      jsonrpc: '2.0', id: 1, method: 'initialize',
+      params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'full-write-e2e', version: '1' } },
+    });
+    await nextRpcLine(output);
+    sendRpc(mcpProcess, { jsonrpc: '2.0', method: 'notifications/initialized', params: {} });
+    sendRpc(mcpProcess, { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
+    const listed = await nextRpcLine(output);
+    expect(listed.result?.tools?.some((tool) => tool.name === 'execute_write')).toBe(true);
+    expect(listed.result?.tools?.some((tool) => tool.name === 'write_proposal_status')).toBe(false);
+
+    const sql = "UPDATE mcp_full_write_e2e SET value = 'after' WHERE id = 1";
+    sendRpc(mcpProcess, {
+      jsonrpc: '2.0', id: 3, method: 'tools/call',
+      params: { name: 'execute_write', arguments: { sql } },
+    });
+    const executed = await nextRpcLine(output);
+    expect(executed.result?.isError).not.toBe(true);
+    expect(executed.result?.content?.[0]?.text).toContain('"executed":true');
+    expect(executed.result?.content?.[0]?.text).toContain(sql);
+
+    await stopProcess(mcpProcess);
+    output.close();
+    mcpProcess = undefined;
+    expect(execFileSync('sqlite3', [databaseFile, 'SELECT value FROM mcp_full_write_e2e WHERE id = 1;'], { encoding: 'utf8' }).trim()).toBe('after');
+
+    await win.locator('.conn-modal .modal-head button[aria-label="닫기"]').click();
+    await win.locator('.statusbar-action[aria-label="MCP 활동 열기"]').click();
+    const activityPage = win.locator('.mcp-activity-page');
+    await expect(activityPage).toBeVisible();
+    const activityRow = activityPage.locator('.mcp-activity-list-row[data-event="tool_call"][data-tool="execute_write"]').first();
+    await expect(activityRow).toBeVisible();
+    await activityRow.click();
+    const detail = activityRow.locator('xpath=following-sibling::div[contains(@class, "mcp-activity-detail")]');
+    await expect(detail).toContainText(sql);
+    await expect(detail).toContainText('소요 시간');
+    await activityPage.getByRole('button', { name: 'MCP 활동 닫기' }).click();
+  } finally {
+    if (mcpProcess) await stopProcess(mcpProcess);
+    if (profileId) await win.evaluate((id) => window.electronAPI.deleteProfile(id), profileId).catch(() => undefined);
+    fs.rmSync(fixtureDir, { recursive: true, force: true });
+  }
+});

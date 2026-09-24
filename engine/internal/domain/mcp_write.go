@@ -3,18 +3,20 @@ package domain
 import "time"
 
 const (
-	MCPWriteModeDisabled = "disabled"
-	MCPWriteModeApproval = "approval_required"
-	MCPWritePending      = "pending_approval"
-	MCPWriteApproved     = "approved"
-	MCPWriteRejected     = "rejected"
-	MCPWriteExecuted     = "executed"
-	MCPWriteFailed       = "failed"
+	MCPWriteModeDisabled   = "disabled"
+	MCPWriteModeApproval   = "approval_required"
+	MCPWriteModeFullAccess = "full_access"
+	MCPWritePending        = "pending_approval"
+	MCPWriteApproved       = "approved"
+	MCPWriteRejected       = "rejected"
+	MCPWriteExecuted       = "executed"
+	MCPWriteFailed         = "failed"
 )
 
 func NormalizeMCPWriteMode(mode string) string {
-	if mode == MCPWriteModeApproval {
-		return MCPWriteModeApproval
+	switch mode {
+	case MCPWriteModeApproval, MCPWriteModeFullAccess:
+		return mode
 	}
 	return MCPWriteModeDisabled
 }

@@ -139,8 +139,10 @@ MCP 원칙:
   AI client to perform useful analysis.
 - MCP의 write 경로는 연결별로 기본 비활성화한다. 승인 모드에서는
   `propose_write`가 원문 SQL을 local SQLite proposal로 저장하고, Rebase UI의
-  명시적 승인 이후에만 엔진이 그 원문을 실행한다. 외부 MCP 프로세스가 직접
-  write를 실행할 수는 없다.
+  명시적 승인 이후에만 엔진이 그 원문을 실행한다. 사용자가 연결별
+  `full_access`를 명시적으로 선택한 경우에만 `execute_write`가 쓰기를 즉시
+  실행한다. 두 모드 모두 연결의 읽기 전용 설정과 MCP
+  database/schema/table 범위를 엔진에서 강제한다.
 - 활성화된 경우 database/schema/table exact allowlist가 엔진에서 강제된다.
 - allowlist가 활성화된 상태에서 파싱할 수 없는 `FROM`/`JOIN` 참조는 거부한다.
 - MCP 활동 기록에는 방향, 이벤트, 도구명, 상태, 실행 시간, 실행된 SQL, 안전한 오류 요약을 남긴다.

@@ -38,7 +38,9 @@ export const McpConnectPanel: React.FC<Props> = ({
   onSaved,
 }) => {
   const [enabled, setEnabled] = useState(initialEnabled);
-  const [writeMode, setWriteMode] = useState(initialWriteMode === 'approval_required' ? 'approval_required' : 'disabled');
+  const [writeMode, setWriteMode] = useState(
+    initialWriteMode === 'approval_required' || initialWriteMode === 'full_access' ? initialWriteMode : 'disabled',
+  );
   const [enginePath, setEnginePath] = useState('');
   const [copied, setCopied] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -173,9 +175,15 @@ export const McpConnectPanel: React.FC<Props> = ({
               <select value={writeMode} onChange={(e) => setWriteMode(e.target.value)}>
                 <option value="disabled">사용 안 함 (읽기 전용)</option>
                 <option value="approval_required">승인 후 실행</option>
+                <option value="full_access">완전 허용 (자동 실행)</option>
               </select>
             </label>
-            <p className="mcp-note">승인 후 실행을 선택하면 AI가 제안한 SQL은 실행되지 않고 MCP 활동에 대기합니다. 활동 화면에서 승인한 경우에만 실행됩니다.</p>
+            {writeMode === 'approval_required' && (
+              <p className="mcp-note">승인 후 실행을 선택하면 AI가 제안한 SQL은 실행되지 않고 MCP 활동에 대기합니다. 활동 화면에서 승인한 경우에만 실행됩니다.</p>
+            )}
+            {writeMode === 'full_access' && (
+              <p className="mcp-note">완전 허용은 외부 AI 클라이언트의 INSERT/UPDATE/DELETE 및 DDL을 승인 없이 즉시 실행합니다. 연결의 읽기 전용 설정과 MCP 접근 허용 범위는 계속 적용됩니다.</p>
+            )}
             <button className="btn btn-secondary btn-xs" onClick={() => void saveScope()} disabled={scopeSaving}>{scopeSaving ? '저장 중…' : '쓰기 정책 저장'}</button>
           </div>
 
