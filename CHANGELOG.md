@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.33.0](https://github.com/motionz-kr/rebase/compare/v0.32.0...v0.33.0) (2026-09-24)
+
+
+### Features
+
+* add per-connection MCP full write access ([a8c1965](https://github.com/motionz-kr/rebase/commit/a8c1965cf30b4f2117854a6487f78c0485ef654b))
+* add per-connection MCP full write access ([73ac0e6](https://github.com/motionz-kr/rebase/commit/73ac0e656ff55728c1ef1427d8e4ba0bd26d9650))
+
 ## [0.32.0](https://github.com/motionz-kr/rebase/compare/v0.31.0...v0.32.0) (2026-09-22)
 
 
