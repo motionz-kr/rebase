@@ -2,7 +2,6 @@ package ports
 
 import (
 	"context"
-	"errors"
 	"sync"
 )
 
@@ -22,7 +21,7 @@ func (s *FakeSecretStore) Get(ctx context.Context, key string) (string, error) {
 	defer s.mu.RUnlock()
 	val, exists := s.secrets[key]
 	if !exists {
-		return "", errors.New("secret not found")
+		return "", ErrSecretNotFound
 	}
 	return val, nil
 }
@@ -38,7 +37,7 @@ func (s *FakeSecretStore) Delete(ctx context.Context, key string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, exists := s.secrets[key]; !exists {
-		return errors.New("secret not found")
+		return ErrSecretNotFound
 	}
 	delete(s.secrets, key)
 	return nil

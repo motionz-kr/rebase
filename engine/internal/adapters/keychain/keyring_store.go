@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os/exec"
 	"runtime"
 	"strings"
+
+	"github.com/smlee/database-local-engine/engine/internal/ports"
 )
 
 type KeyringStore struct {
@@ -25,7 +28,7 @@ func (s *KeyringStore) Get(ctx context.Context, key string) (string, error) {
 	if runtime.GOOS != "darwin" {
 		val, exists := s.mock[key]
 		if !exists {
-			return "", errors.New("secret not found in mock store")
+			return "", ports.ErrSecretNotFound
 		}
 		return val, nil
 	}
@@ -37,8 +40,8 @@ func (s *KeyringStore) Get(ctx context.Context, key string) (string, error) {
 
 	err := cmd.Run()
 	if err != nil {
-		if strings.Contains(stderr.String(), "The specified item could not be found") || strings.Contains(stderr.String(), "code 0xFFFF") {
-			return "", errors.New("secret not found in keychain")
+		if isItemNotFound(stderr.String()) {
+			return "", fmt.Errorf("%w in keychain", ports.ErrSecretNotFound)
 		}
 		return "", errors.New("failed to retrieve secret: " + err.Error() + ", stderr: " + stderr.String())
 	}
@@ -67,7 +70,7 @@ func (s *KeyringStore) Set(ctx context.Context, key string, secret string) error
 func (s *KeyringStore) Delete(ctx context.Context, key string) error {
 	if runtime.GOOS != "darwin" {
 		if _, exists := s.mock[key]; !exists {
-			return errors.New("secret not found in mock store")
+			return ports.ErrSecretNotFound
 		}
 		delete(s.mock, key)
 		return nil
@@ -79,11 +82,15 @@ func (s *KeyringStore) Delete(ctx context.Context, key string) error {
 
 	err := cmd.Run()
 	if err != nil {
-		if strings.Contains(stderr.String(), "The specified item could not be found") || strings.Contains(stderr.String(), "code 0xFFFF") {
-			return errors.New("secret not found in keychain")
+		if isItemNotFound(stderr.String()) {
+			return fmt.Errorf("%w in keychain", ports.ErrSecretNotFound)
 		}
 		return errors.New("failed to delete secret from keychain: " + err.Error() + ", stderr: " + stderr.String())
 	}
 
 	return nil
+}
+
+func isItemNotFound(stderr string) bool {
+	return strings.Contains(stderr, "The specified item could not be found") || strings.Contains(stderr, "code 0xFFFF")
 }

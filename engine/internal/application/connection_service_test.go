@@ -2,11 +2,18 @@ package application
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/smlee/database-local-engine/engine/internal/domain"
 	"github.com/smlee/database-local-engine/engine/internal/ports"
 )
+
+type getErrorSecretStore struct{ err error }
+
+func (s getErrorSecretStore) Get(context.Context, string) (string, error) { return "", s.err }
+func (s getErrorSecretStore) Set(context.Context, string, string) error   { return nil }
+func (s getErrorSecretStore) Delete(context.Context, string) error        { return nil }
 
 func TestAgentKeyRoundTripInSecretStore(t *testing.T) {
 	ctx := context.Background()
@@ -158,6 +165,135 @@ func TestConnectionServiceUpdateProfilePreservesSecretRefWhenPasswordIsOmitted(t
 	}
 	if gotPassword != password {
 		t.Errorf("password = %q, want %q", gotPassword, password)
+	}
+}
+
+func TestConnectionServiceGetProfileRecoversLegacyEmptySecretRef(t *testing.T) {
+	ctx := context.Background()
+	repo := ports.NewFakeProfileRepository()
+	store := ports.NewFakeSecretStore()
+	service := NewConnectionService(repo, store)
+	p := &domain.ConnectionProfile{
+		Name: "Legacy profile", Driver: "mysql", Host: "127.0.0.1",
+		Port: 3306, Database: "mydb", Username: "root", TLSMode: "none",
+	}
+	const password = "legacy-password"
+	if err := service.CreateProfile(ctx, p, password); err != nil {
+		t.Fatalf("CreateProfile: %v", err)
+	}
+
+	// Before the credential-preservation fix, editing a profile with a blank
+	// password could persist an empty reference while leaving this secret behind.
+	legacy, err := repo.GetByID(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	legacy.SecretRef = ""
+	if err := repo.Update(ctx, legacy); err != nil {
+		t.Fatalf("simulate legacy profile: %v", err)
+	}
+
+	got, gotPassword, err := service.GetProfile(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("GetProfile: %v", err)
+	}
+	wantRef := "secret-" + p.ID
+	if got.SecretRef != wantRef {
+		t.Errorf("recovered secretRef = %q, want %q", got.SecretRef, wantRef)
+	}
+	if gotPassword != password {
+		t.Errorf("password = %q, want legacy password", gotPassword)
+	}
+
+	persisted, err := repo.GetByID(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("GetByID after recovery: %v", err)
+	}
+	if persisted.SecretRef != wantRef {
+		t.Errorf("persisted secretRef = %q, want %q", persisted.SecretRef, wantRef)
+	}
+}
+
+func TestConnectionServiceUpdateProfileRepairsLegacyEmptySecretRef(t *testing.T) {
+	ctx := context.Background()
+	repo := ports.NewFakeProfileRepository()
+	store := ports.NewFakeSecretStore()
+	service := NewConnectionService(repo, store)
+	p := &domain.ConnectionProfile{
+		Name: "Legacy profile", Driver: "mysql", Host: "127.0.0.1",
+		Port: 3306, Database: "mydb", Username: "root", TLSMode: "none",
+	}
+	if err := service.CreateProfile(ctx, p, "old-password"); err != nil {
+		t.Fatalf("CreateProfile: %v", err)
+	}
+
+	legacy, err := repo.GetByID(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	legacy.SecretRef = ""
+	if err := repo.Update(ctx, legacy); err != nil {
+		t.Fatalf("simulate legacy profile: %v", err)
+	}
+
+	edited := *p
+	edited.Name = "Repaired profile"
+	edited.SecretRef = ""
+	if err := service.UpdateProfile(ctx, &edited, ""); err != nil {
+		t.Fatalf("UpdateProfile: %v", err)
+	}
+
+	wantRef := "secret-" + p.ID
+	if edited.SecretRef != wantRef {
+		t.Errorf("updated secretRef = %q, want %q", edited.SecretRef, wantRef)
+	}
+	gotPassword, err := store.Get(ctx, wantRef)
+	if err != nil || gotPassword != "old-password" {
+		t.Errorf("password after update = %q, %v; want existing password", gotPassword, err)
+	}
+}
+
+func TestConnectionServiceGetProfileReturnsKeychainReadErrors(t *testing.T) {
+	ctx := context.Background()
+	repo := ports.NewFakeProfileRepository()
+	profile := &domain.ConnectionProfile{
+		ID: "keychain-error", Name: "Profile", Driver: "mysql", Host: "127.0.0.1",
+		Port: 3306, Database: "mydb", Username: "root", SecretRef: "secret-keychain-error", TLSMode: "none",
+	}
+	if err := repo.Create(ctx, profile); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	keychainErr := errors.New("keychain access denied")
+	service := NewConnectionService(repo, getErrorSecretStore{err: keychainErr})
+
+	_, _, err := service.GetProfile(ctx, profile.ID)
+	if !errors.Is(err, keychainErr) {
+		t.Fatalf("GetProfile error = %v, want wrapped keychain error", err)
+	}
+}
+
+func TestConnectionServiceGetProfileAllowsMissingSecretForPasswordlessConnection(t *testing.T) {
+	ctx := context.Background()
+	repo := ports.NewFakeProfileRepository()
+	store := ports.NewFakeSecretStore()
+	service := NewConnectionService(repo, store)
+	p := &domain.ConnectionProfile{
+		Name: "Passwordless profile", Driver: "mysql", Host: "127.0.0.1",
+		Port: 3306, Database: "mydb", Username: "root", TLSMode: "none",
+	}
+	if err := service.CreateProfile(ctx, p, ""); err != nil {
+		t.Fatalf("CreateProfile: %v", err)
+	}
+	if err := store.Delete(ctx, p.SecretRef); err != nil {
+		t.Fatalf("Delete secret: %v", err)
+	}
+
+	gotProfile, gotPassword, err := service.GetProfile(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("GetProfile: %v", err)
+	}
+	if gotProfile == nil || gotPassword != "" {
+		t.Fatalf("GetProfile = (%+v, %q); want profile with empty password", gotProfile, gotPassword)
 	}
 }
 
