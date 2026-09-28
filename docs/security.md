@@ -42,6 +42,8 @@ Secret은 OS keychain에 저장한다.
 - macOS: Keychain
 - Windows: Credential Manager
 
+Connection profile에는 secret 값 대신 Keychain 항목을 가리키는 `secret_ref`만 둔다. 편집 폼은 이 참조를 받지 않으며 engine이 저장된 값을 보존한다. 과거 버전에서 참조가 비워진 경우에는 기존의 `secret-<profile id>` 항목을 찾아 복구한다. 항목이 실제로 없으면 passwordless 연결을 위해 빈 비밀번호를 허용하지만, Keychain 접근 오류는 빈 비밀번호로 바꾸지 않고 호출자에게 전달한다.
+
 ## Renderer Security
 
 Electron renderer는 제한된 preload API만 사용한다.

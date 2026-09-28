@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -24,6 +25,8 @@ func NewConnectionService(repo ports.ProfileRepository, store ports.SecretStore)
 	}
 }
 
+func connectionSecretRef(profileID string) string { return fmt.Sprintf("secret-%s", profileID) }
+
 func (s *ConnectionService) CreateProfile(ctx context.Context, p *domain.ConnectionProfile, password string) error {
 	if p.ID == "" {
 		p.ID = uuid.New().String()
@@ -33,7 +36,7 @@ func (s *ConnectionService) CreateProfile(ctx context.Context, p *domain.Connect
 		return fmt.Errorf("invalid profile: %w", err)
 	}
 
-	p.SecretRef = fmt.Sprintf("secret-%s", p.ID)
+	p.SecretRef = connectionSecretRef(p.ID)
 	p.CreatedAt = time.Now()
 	p.UpdatedAt = time.Now()
 
@@ -58,10 +61,28 @@ func (s *ConnectionService) GetProfile(ctx context.Context, id string) (*domain.
 		return nil, "", err
 	}
 
-	password, err := s.store.Get(ctx, p.SecretRef)
+	secretRef := p.SecretRef
+	if secretRef == "" {
+		// Older profile-edit flows could persist an empty reference even though
+		// CreateProfile always stored the secret under this deterministic key.
+		secretRef = connectionSecretRef(p.ID)
+	}
+	password, err := s.store.Get(ctx, secretRef)
 	if err != nil {
-		// Secret missing (e.g. Keychain cleared). Return empty password instead of failing usecase
-		return p, "", nil
+		if errors.Is(err, ports.ErrSecretNotFound) {
+			// Passwordless connections and profiles whose Keychain item was removed
+			// remain usable. Access/lock errors must surface instead of becoming a
+			// misleading database authentication failure.
+			return p, "", nil
+		}
+		return nil, "", fmt.Errorf("failed to retrieve connection secret: %w", err)
+	}
+
+	if p.SecretRef == "" {
+		p.SecretRef = secretRef
+		if err := s.repo.Update(ctx, p); err != nil {
+			return nil, "", fmt.Errorf("failed to repair connection secret reference: %w", err)
+		}
 	}
 
 	return p, password, nil
@@ -84,6 +105,9 @@ func (s *ConnectionService) UpdateProfile(ctx context.Context, p *domain.Connect
 		return fmt.Errorf("failed to load existing profile: %w", err)
 	}
 	p.SecretRef = existing.SecretRef
+	if p.SecretRef == "" {
+		p.SecretRef = connectionSecretRef(p.ID)
+	}
 
 	p.UpdatedAt = time.Now()
 

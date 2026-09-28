@@ -160,7 +160,13 @@ func (h *ProfileHandler) TestConnection() http.Handler {
 		// If password is empty and profile ID is present, resolve it from the Keychain/DB
 		if profile.ID != "" && password == "" {
 			dbProfile, keyPassword, getErr := h.service.GetProfile(r.Context(), profile.ID)
-			if getErr == nil && keyPassword != "" {
+			if getErr != nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusInternalServerError)
+				json.NewEncoder(w).Encode(map[string]string{"error": getErr.Error()})
+				return
+			}
+			if keyPassword != "" {
 				password = keyPassword
 				profile = *dbProfile
 			}
