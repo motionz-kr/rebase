@@ -11,6 +11,8 @@ func TestClassifyQuery(t *testing.T) {
 		verb        string
 	}{
 		{"select", "SELECT * FROM users", true, false, "SELECT"},
+		{"select star without whitespace", "select* from AlimtalkTemplate where id = 7888", true, false, "SELECT"},
+		{"select-like identifier is not a keyword", "SELECTED * FROM users", false, false, "SELECTED"},
 		{"lowercase select", "select id from users where id = 1", true, false, "SELECT"},
 		{"select with leading whitespace", "   \n  SELECT 1", true, false, "SELECT"},
 		{"show", "SHOW TABLES", true, false, "SHOW"},

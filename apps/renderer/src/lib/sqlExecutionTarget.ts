@@ -15,6 +15,21 @@ export interface SqlCaretSelection {
 
 const clampOffset = (offset: number, length: number): number => Math.min(Math.max(offset, 0), length);
 
+function withoutSqlComments(sql: string): string {
+  return sql
+    .replace(/\/\*[\s\S]*?(?:\*\/|$)/g, ' ')
+    .replace(/--[^\r\n]*(?:\r?\n|$)/g, ' ')
+    .replace(/#[^\r\n]*(?:\r?\n|$)/g, ' ');
+}
+
+function isCommentOnly(sql: string): boolean {
+  return withoutSqlComments(sql).trim() === '';
+}
+
+function isTrailingTrivia(sql: string): boolean {
+  return withoutSqlComments(sql).replace(/;/g, '').trim() === '';
+}
+
 /**
  * Resolve Cmd/Ctrl+Enter's execution target. A non-empty selection takes
  * precedence; otherwise only the statement containing the caret is returned.
@@ -38,8 +53,22 @@ export function resolveSqlExecutionTarget(sql: string, position: SqlCaretSelecti
     return ranges.length > 0 ? { sql: selectedSql, ranges } : null;
   }
 
-  const range = splitStatementRanges(sql).find(
+  const ranges = splitStatementRanges(sql);
+  const rangeIndex = ranges.findIndex(
     (statement) => cursorOffset >= statement.start && cursorOffset <= statement.end
   );
-  return range ? { sql: range.statement, ranges: [range] } : null;
+  if (rangeIndex >= 0 && !isCommentOnly(ranges[rangeIndex].statement)) {
+    const range = ranges[rangeIndex];
+    return { sql: range.statement, ranges: [range] };
+  }
+
+  // Statement ranges exclude terminators and may include a trailing comment as
+  // its own range. Keep the last real statement runnable from that tail, while
+  // leaving gaps between statements intentionally idle.
+  const last = [...ranges].reverse().find((statement) => !isCommentOnly(statement.statement));
+  if (last && cursorOffset > last.end && isTrailingTrivia(sql.slice(last.end, cursorOffset))) {
+    return { sql: last.statement, ranges: [last] };
+  }
+
+  return null;
 }

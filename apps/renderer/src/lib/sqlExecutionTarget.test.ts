@@ -53,6 +53,29 @@ describe('resolveSqlExecutionTarget', () => {
     });
   });
 
+  it('targets the final statement when the caret is after its trailing semicolon and whitespace', () => {
+    const query = 'SELECT 1 AS value;  \n';
+    const end = query.indexOf(';');
+
+    expect(resolveSqlExecutionTarget(query, { cursorOffset: query.length })).toEqual({
+      sql: 'SELECT 1 AS value',
+      ranges: [{ statement: 'SELECT 1 AS value', start: 0, end }],
+    });
+  });
+
+  it.each([
+    ['line comment', 'SELECT 1 AS value; -- trailing note'],
+    ['block comment', 'SELECT 1 AS value; /* trailing note */'],
+    ['hash comment', 'SELECT 1 AS value; # trailing note'],
+  ])('targets the final SQL before a trailing %s', (_name, query) => {
+    const end = query.indexOf(';');
+
+    expect(resolveSqlExecutionTarget(query, { cursorOffset: query.length })).toEqual({
+      sql: 'SELECT 1 AS value',
+      ranges: [{ statement: 'SELECT 1 AS value', start: 0, end }],
+    });
+  });
+
   it('returns null for empty input and treats a zero-width selection as a caret', () => {
     expect(resolveSqlExecutionTarget('   ;  ', { cursorOffset: 2 })).toBeNull();
     expect(resolveSqlExecutionTarget(sql, { cursorOffset: 0, selectionStart: 2, selectionEnd: 2 })).toEqual({
