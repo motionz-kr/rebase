@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.34.1](https://github.com/motionz-kr/rebase/compare/v0.34.0...v0.34.1) (2026-09-28)
+
+
+### Bug Fixes
+
+* **query:** repair SELECT* policy and rerun targeting ([2933cff](https://github.com/motionz-kr/rebase/commit/2933cff96f94f93c58a80e2fd4ad61bf60a3e77e))
+* **query:** resolve SELECT* and Cmd+Enter edge cases ([53fdb81](https://github.com/motionz-kr/rebase/commit/53fdb81522bba24a153ac6c4c0b4154fd101657f))
+* recover legacy connection credentials ([c61f90e](https://github.com/motionz-kr/rebase/commit/c61f90e44de94196429b18dc8e1f1a936e610390))
+* recover legacy connection credentials ([86b3fb8](https://github.com/motionz-kr/rebase/commit/86b3fb81e10e5cf0e52ade6db5d462fb5cebe98d))
+
 ## [0.34.0](https://github.com/motionz-kr/rebase/compare/v0.33.0...v0.34.0) (2026-09-28)
 
 
