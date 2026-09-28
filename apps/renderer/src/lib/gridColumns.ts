@@ -14,3 +14,8 @@ export function columnWidth(name: string, widths: Record<string, number>, fallba
   const w = widths[name];
   return Number.isFinite(w) && w > 0 ? w : fallback;
 }
+
+// Apply a pointer delta to the rendered width at the start of the drag.
+export function resizedColumnWidth(startWidth: number, delta: number, minWidth = 60): number {
+  return Math.max(minWidth, Math.round(startWidth + delta));
+}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { reorderUnpinned, columnWidth } from './gridColumns';
+import { reorderUnpinned, columnWidth, resizedColumnWidth } from './gridColumns';
 
 describe('reorderUnpinned', () => {
   it('moves an item within the array', () => {
@@ -21,5 +21,16 @@ describe('columnWidth', () => {
     expect(columnWidth('x', {}, 200)).toBe(200);
     expect(columnWidth('x', { x: 0 }, 200)).toBe(200);
     expect(columnWidth('x', { x: -5 }, 200)).toBe(200);
+  });
+});
+
+describe('resizedColumnWidth', () => {
+  it('applies the pointer delta to the width the user started from', () => {
+    expect(resizedColumnWidth(312, 12)).toBe(324);
+    expect(resizedColumnWidth(312, -12)).toBe(300);
+  });
+
+  it('keeps the column at or above the minimum width', () => {
+    expect(resizedColumnWidth(70, -20)).toBe(60);
   });
 });
