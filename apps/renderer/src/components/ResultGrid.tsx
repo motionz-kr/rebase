@@ -5,7 +5,7 @@ import { sortRows, filterRows, type SortDir } from '../lib/gridView';
 import { cellText, tsTimestamp, download } from '../lib/gridFormat';
 import { nextCell } from '../lib/gridNav';
 import { pinLayout, PIN_W, COL_W } from '../lib/pinLayout';
-import { columnWidth, reorderUnpinned } from '../lib/gridColumns';
+import { columnWidth, reorderUnpinned, resizedColumnWidth } from '../lib/gridColumns';
 
 const COL_W_KEY = 'rebase.ui.colWidths';
 const loadColWidths = (): Record<string, number> => {
@@ -95,8 +95,22 @@ export const ResultGrid: React.FC<Props> = ({ columns, rows, rowHeight = 32 }) =
     e.preventDefault();
     e.stopPropagation();
     const startX = e.clientX;
-    const startW = columnWidth(name, colWidths, COL_W);
-    const onMove = (ev: MouseEvent) => setColWidths((w) => ({ ...w, [name]: Math.max(60, Math.round(startW + (ev.clientX - startX))) }));
+    const startW = e.currentTarget.parentElement?.getBoundingClientRect().width ?? columnWidth(name, colWidths, COL_W);
+    // Switching from flexible to fixed widths must preserve every column's
+    // current rendered size; otherwise the first resize would reset its peers.
+    const headerCells = e.currentTarget.parentElement?.parentElement?.querySelectorAll<HTMLElement>('.grid-head-cell');
+    const widthsAtDragStart: Record<string, number> = {};
+    displayOrder.forEach((idx, position) => {
+      const renderedWidth = headerCells?.[position]?.getBoundingClientRect().width;
+      widthsAtDragStart[columns[idx]] = renderedWidth && renderedWidth > 0
+        ? renderedWidth
+        : columnWidth(columns[idx], colWidths, COL_W);
+    });
+    const onMove = (ev: MouseEvent) => setColWidths((w) => ({
+      ...w,
+      ...widthsAtDragStart,
+      [name]: resizedColumnWidth(startW, ev.clientX - startX),
+    }));
     const onUp = () => {
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
