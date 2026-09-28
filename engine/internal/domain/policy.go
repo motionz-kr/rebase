@@ -1,6 +1,9 @@
 package domain
 
-import "strings"
+import (
+	"strings"
+	"unicode"
+)
 
 // QueryClass is the advisory classification of a SQL statement. It is NOT a
 // security boundary on its own — SQL parsing is imperfect, so the engine treats
@@ -96,12 +99,15 @@ func containsWriteVerb(upper string) bool {
 	return false
 }
 
-// firstWord returns the leading identifier of a statement, skipping a leading
+// firstWord returns the leading SQL token of a statement, skipping a leading
 // open paren (e.g. "(SELECT ...)").
 func firstWord(s string) string {
 	s = strings.TrimLeft(s, "( \t\r\n")
 	end := strings.IndexFunc(s, func(r rune) bool {
-		return r == ' ' || r == '\t' || r == '\r' || r == '\n' || r == '(' || r == ';'
+		// SQL keywords end at punctuation, so `SELECT*` is still a SELECT.
+		// Keep identifier characters attached: `SELECTED` must not be treated
+		// as the SELECT keyword.
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' && r != '$'
 	})
 	if end < 0 {
 		return s
