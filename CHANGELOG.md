@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.34.0](https://github.com/motionz-kr/rebase/compare/v0.33.0...v0.34.0) (2026-09-28)
+
+
+### Features
+
+* **ui:** resize query result columns independently ([1f65890](https://github.com/motionz-kr/rebase/commit/1f65890e4bf394eba6a73b01f158749e6ec8bd6b))
+* **ui:** resize query result columns independently ([#202](https://github.com/motionz-kr/rebase/issues/202)) ([bb99a9b](https://github.com/motionz-kr/rebase/commit/bb99a9ba82884620de690202331b29d2bca0d57c))
+* **ui:** resize query result columns independently ([#202](https://github.com/motionz-kr/rebase/issues/202)) ([bb99a9b](https://github.com/motionz-kr/rebase/commit/bb99a9ba82884620de690202331b29d2bca0d57c))
+
 ## [0.33.0](https://github.com/motionz-kr/rebase/compare/v0.32.0...v0.33.0) (2026-09-24)
 
 
