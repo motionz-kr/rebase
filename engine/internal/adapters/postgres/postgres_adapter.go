@@ -15,14 +15,21 @@ import (
 	"github.com/smlee/database-local-engine/engine/internal/ports"
 )
 
-type PostgreSQLConnector struct{ querySessions *sqlsession.Manager }
+type PostgreSQLConnector struct {
+	querySessions *sqlsession.Manager
+	endpoints     ports.ConnectionEndpointResolver
+}
 
-func NewPostgreSQLConnector() *PostgreSQLConnector {
-	return &PostgreSQLConnector{querySessions: sqlsession.NewManager(15 * time.Minute)}
+func NewPostgreSQLConnector(resolvers ...ports.ConnectionEndpointResolver) *PostgreSQLConnector {
+	c := &PostgreSQLConnector{querySessions: sqlsession.NewManager(15 * time.Minute)}
+	if len(resolvers) > 0 {
+		c.endpoints = resolvers[0]
+	}
+	return c
 }
 
 func (c *PostgreSQLConnector) TestConnection(ctx context.Context, p domain.ConnectionProfile, password string) error {
-	db, err := c.connect(p, password, p.Database)
+	db, err := c.connect(ctx, p, password, p.Database)
 	if err != nil {
 		return err
 	}
@@ -30,7 +37,16 @@ func (c *PostgreSQLConnector) TestConnection(ctx context.Context, p domain.Conne
 	return c.normalizeError(db.PingContext(ctx))
 }
 
-func (c *PostgreSQLConnector) connect(p domain.ConnectionProfile, password string, database string) (*sql.DB, error) {
+func (c *PostgreSQLConnector) connect(ctx context.Context, p domain.ConnectionProfile, password string, database string) (*sql.DB, error) {
+	if c.endpoints != nil {
+		endpoint, err := c.endpoints.ResolveEndpoint(ctx, p)
+		if err != nil {
+			return nil, err
+		}
+		p.Host, p.Port = endpoint.Host, endpoint.Port
+	} else if p.ConnectionMode == "ssm" {
+		return nil, fmt.Errorf("AWS SSM endpoint resolver is unavailable")
+	}
 	// libpq native sslmode values. "require" forces encryption, "prefer" uses
 	// TLS opportunistically with plaintext fallback. Certificate verification
 	// (verify-ca/verify-full) needs a configurable CA bundle, which is an
@@ -60,7 +76,7 @@ func (c *PostgreSQLConnector) connect(p domain.ConnectionProfile, password strin
 }
 
 func (c *PostgreSQLConnector) ListDatabases(ctx context.Context, p domain.ConnectionProfile, password string) ([]ports.DatabaseInfo, error) {
-	db, err := c.connect(p, password, "postgres")
+	db, err := c.connect(ctx, p, password, "postgres")
 	if err != nil {
 		return nil, err
 	}
@@ -84,7 +100,7 @@ func (c *PostgreSQLConnector) ListDatabases(ctx context.Context, p domain.Connec
 }
 
 func (c *PostgreSQLConnector) ListTables(ctx context.Context, p domain.ConnectionProfile, password string, database string) ([]ports.TableInfo, error) {
-	db, err := c.connect(p, password, database)
+	db, err := c.connect(ctx, p, password, database)
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +128,7 @@ func (c *PostgreSQLConnector) ListTables(ctx context.Context, p domain.Connectio
 }
 
 func (c *PostgreSQLConnector) DescribeTable(ctx context.Context, p domain.ConnectionProfile, password string, database string, table string) (ports.TableDescription, error) {
-	db, err := c.connect(p, password, database)
+	db, err := c.connect(ctx, p, password, database)
 	if err != nil {
 		return ports.TableDescription{}, err
 	}
@@ -170,7 +186,7 @@ func (c *PostgreSQLConnector) DescribeTable(ctx context.Context, p domain.Connec
 }
 
 func (c *PostgreSQLConnector) ListColumns(ctx context.Context, p domain.ConnectionProfile, password string, database string) ([]ports.ColumnRef, error) {
-	db, err := c.connect(p, password, database)
+	db, err := c.connect(ctx, p, password, database)
 	if err != nil {
 		return nil, err
 	}
@@ -199,7 +215,7 @@ func (c *PostgreSQLConnector) ListColumns(ctx context.Context, p domain.Connecti
 }
 
 func (c *PostgreSQLConnector) GetTableDDL(ctx context.Context, p domain.ConnectionProfile, password string, database string, table string) (string, error) {
-	db, err := c.connect(p, password, database)
+	db, err := c.connect(ctx, p, password, database)
 	if err != nil {
 		return "", err
 	}
@@ -266,7 +282,7 @@ func (c *PostgreSQLConnector) ExecuteQueryStream(
 	onHeader func(columns []string) error,
 	onRow func(row []any) error,
 ) (int64, error) {
-	db, err := c.connect(p, password, p.Database)
+	db, err := c.connect(ctx, p, password, p.Database)
 	if err != nil {
 		return 0, err
 	}
@@ -348,7 +364,7 @@ func (c *PostgreSQLConnector) OpenQuerySession(ctx context.Context, p domain.Con
 	if database == "" {
 		database = p.Database
 	}
-	db, err := c.connect(p, password, database)
+	db, err := c.connect(ctx, p, password, database)
 	if err != nil {
 		return "", err
 	}
@@ -395,7 +411,7 @@ func (c *PostgreSQLConnector) CloseQuerySession(ownerID, sessionID string) error
 }
 
 func (c *PostgreSQLConnector) CancelSession(ctx context.Context, p domain.ConnectionProfile, password string, sessionID int64) error {
-	db, err := c.connect(p, password, "postgres")
+	db, err := c.connect(ctx, p, password, "postgres")
 	if err != nil {
 		return err
 	}
@@ -409,7 +425,7 @@ func (c *PostgreSQLConnector) CancelSession(ctx context.Context, p domain.Connec
 // failure it rolls back and returns the 0-based index of the failed statement;
 // on success it commits and returns the total rows affected with failedIndex -1.
 func (c *PostgreSQLConnector) ExecuteBatch(ctx context.Context, p domain.ConnectionProfile, password string, statements []string) (int64, int, error) {
-	db, err := c.connect(p, password, p.Database)
+	db, err := c.connect(ctx, p, password, p.Database)
 	if err != nil {
 		return 0, -1, err
 	}
@@ -438,7 +454,7 @@ func (c *PostgreSQLConnector) ExecuteBatch(ctx context.Context, p domain.Connect
 }
 
 func (c *PostgreSQLConnector) ListViews(ctx context.Context, p domain.ConnectionProfile, password string, database string) ([]ports.TableInfo, error) {
-	db, err := c.connect(p, password, database)
+	db, err := c.connect(ctx, p, password, database)
 	if err != nil {
 		return nil, err
 	}
@@ -460,7 +476,7 @@ func (c *PostgreSQLConnector) ListViews(ctx context.Context, p domain.Connection
 }
 
 func (c *PostgreSQLConnector) GetViewDDL(ctx context.Context, p domain.ConnectionProfile, password string, database string, view string) (string, error) {
-	db, err := c.connect(p, password, database)
+	db, err := c.connect(ctx, p, password, database)
 	if err != nil {
 		return "", err
 	}
@@ -479,7 +495,7 @@ func quoteViewIdent(s string) string {
 // GetSchemaGraph returns every table (with columns + PK flags) and all FK
 // relationships in the database, using two information_schema queries.
 func (c *PostgreSQLConnector) GetSchemaGraph(ctx context.Context, p domain.ConnectionProfile, password string, database string) (ports.SchemaGraph, error) {
-	db, err := c.connect(p, password, database)
+	db, err := c.connect(ctx, p, password, database)
 	if err != nil {
 		return ports.SchemaGraph{}, err
 	}
@@ -601,7 +617,7 @@ func (c *PostgreSQLConnector) GetSchemaGraph(ctx context.Context, p domain.Conne
 }
 
 func (c *PostgreSQLConnector) ListForeignKeys(ctx context.Context, p domain.ConnectionProfile, password string, database string, table string) ([]ports.ForeignKey, error) {
-	db, err := c.connect(p, password, database)
+	db, err := c.connect(ctx, p, password, database)
 	if err != nil {
 		return nil, err
 	}
@@ -632,7 +648,7 @@ func (c *PostgreSQLConnector) ListForeignKeys(ctx context.Context, p domain.Conn
 // ListIndexes returns the table's indexes (schema public), one entry per index
 // with its columns in definition order.
 func (c *PostgreSQLConnector) ListIndexes(ctx context.Context, p domain.ConnectionProfile, password string, database string, table string) ([]ports.Index, error) {
-	db, err := c.connect(p, password, database)
+	db, err := c.connect(ctx, p, password, database)
 	if err != nil {
 		return nil, err
 	}

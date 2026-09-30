@@ -143,6 +143,16 @@ request in the Rebase activity view.
 
 ## Notes
 
+- MySQL/PostgreSQL profiles using **AWS SSM (EC2 경유)** work with the same MCP
+  config. The local MCP engine starts its own tunnel lazily from saved AWS
+  profile/region/EC2 settings; Electron does not need to be running for reads.
+  AWS CLI and Session Manager plugin must be installed, and AWS authentication
+  must be available to the local MCP process. Logs never mix with JSON-RPC stdout.
+  Saved custom SSM documents and document-owned destinations also apply, including
+  documents accepting only `localPortNumber`. Each engine allocates its own port.
+  See [SSM connections](ssm-connections.md). Existing UI approval requirements
+  still apply to approval-mode writes.
+
 - Codex's TOML config is round-tripped on merge (data preserved; comments and
   ordering are not). Back up manually first if you keep hand-formatted comments.
 - The config embeds the **absolute** path to the bundled engine. If you move the

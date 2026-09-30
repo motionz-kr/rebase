@@ -108,6 +108,8 @@ export interface ConnectionProfile {
   connectionUri?: string;
   secretRef?: string;
   tlsMode: 'none' | 'prefer' | 'require';
+  connectionMode?: 'direct' | 'ssm';
+  ssm?: import('./lib/connectionRoute').SSMConfig;
   readOnly?: boolean;
   safeMode?: boolean;
   tenantColumns?: string;

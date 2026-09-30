@@ -15,14 +15,21 @@ import (
 	"github.com/smlee/database-local-engine/engine/internal/ports"
 )
 
-type MySQLConnector struct{ querySessions *sqlsession.Manager }
+type MySQLConnector struct {
+	querySessions *sqlsession.Manager
+	endpoints     ports.ConnectionEndpointResolver
+}
 
-func NewMySQLConnector() *MySQLConnector {
-	return &MySQLConnector{querySessions: sqlsession.NewManager(15 * time.Minute)}
+func NewMySQLConnector(resolvers ...ports.ConnectionEndpointResolver) *MySQLConnector {
+	c := &MySQLConnector{querySessions: sqlsession.NewManager(15 * time.Minute)}
+	if len(resolvers) > 0 {
+		c.endpoints = resolvers[0]
+	}
+	return c
 }
 
 func (c *MySQLConnector) TestConnection(ctx context.Context, p domain.ConnectionProfile, password string) error {
-	db, err := c.connect(p, password, p.Database)
+	db, err := c.connect(ctx, p, password, p.Database)
 	if err != nil {
 		return err
 	}
@@ -30,16 +37,29 @@ func (c *MySQLConnector) TestConnection(ctx context.Context, p domain.Connection
 	return c.normalizeError(db.PingContext(ctx))
 }
 
-func (c *MySQLConnector) connect(p domain.ConnectionProfile, password string, database string) (*sql.DB, error) {
+func (c *MySQLConnector) connect(ctx context.Context, p domain.ConnectionProfile, password string, database string) (*sql.DB, error) {
+	return c.connectWithTimeout(ctx, p, password, database, 5*time.Second)
+}
+
+func (c *MySQLConnector) connectWithTimeout(ctx context.Context, p domain.ConnectionProfile, password, database string, ioTimeout time.Duration) (*sql.DB, error) {
+	if c.endpoints != nil {
+		endpoint, err := c.endpoints.ResolveEndpoint(ctx, p)
+		if err != nil {
+			return nil, err
+		}
+		p.Host, p.Port = endpoint.Host, endpoint.Port
+	} else if p.ConnectionMode == "ssm" {
+		return nil, fmt.Errorf("AWS SSM endpoint resolver is unavailable")
+	}
 	cfg := mysqlDriver.NewConfig()
 	cfg.User = p.Username
 	cfg.Passwd = password
 	cfg.Net = "tcp"
-	cfg.Addr = fmt.Sprintf("%s:%d", p.Host, p.Port)
+	cfg.Addr = net.JoinHostPort(p.Host, fmt.Sprint(p.Port))
 	cfg.DBName = database
 	cfg.Timeout = 5 * time.Second
-	cfg.ReadTimeout = 5 * time.Second
-	cfg.WriteTimeout = 5 * time.Second
+	cfg.ReadTimeout = ioTimeout
+	cfg.WriteTimeout = ioTimeout
 	cfg.AllowNativePasswords = true
 
 	// Use the driver's built-in TLS modes so we don't mutate the driver's
@@ -67,7 +87,7 @@ func (c *MySQLConnector) connect(p domain.ConnectionProfile, password string, da
 }
 
 func (c *MySQLConnector) ListDatabases(ctx context.Context, p domain.ConnectionProfile, password string) ([]ports.DatabaseInfo, error) {
-	db, err := c.connect(p, password, "")
+	db, err := c.connect(ctx, p, password, "")
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +111,7 @@ func (c *MySQLConnector) ListDatabases(ctx context.Context, p domain.ConnectionP
 }
 
 func (c *MySQLConnector) ListTables(ctx context.Context, p domain.ConnectionProfile, password string, database string) ([]ports.TableInfo, error) {
-	db, err := c.connect(p, password, database)
+	db, err := c.connect(ctx, p, password, database)
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +135,7 @@ func (c *MySQLConnector) ListTables(ctx context.Context, p domain.ConnectionProf
 }
 
 func (c *MySQLConnector) DescribeTable(ctx context.Context, p domain.ConnectionProfile, password string, database string, table string) (ports.TableDescription, error) {
-	db, err := c.connect(p, password, database)
+	db, err := c.connect(ctx, p, password, database)
 	if err != nil {
 		return ports.TableDescription{}, err
 	}
@@ -151,7 +171,7 @@ func (c *MySQLConnector) DescribeTable(ctx context.Context, p domain.ConnectionP
 }
 
 func (c *MySQLConnector) ListColumns(ctx context.Context, p domain.ConnectionProfile, password string, database string) ([]ports.ColumnRef, error) {
-	db, err := c.connect(p, password, database)
+	db, err := c.connect(ctx, p, password, database)
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +200,7 @@ func (c *MySQLConnector) ListColumns(ctx context.Context, p domain.ConnectionPro
 }
 
 func (c *MySQLConnector) GetTableDDL(ctx context.Context, p domain.ConnectionProfile, password string, database string, table string) (string, error) {
-	db, err := c.connect(p, password, database)
+	db, err := c.connect(ctx, p, password, database)
 	if err != nil {
 		return "", err
 	}
@@ -201,7 +221,7 @@ func escapeMySQLIdent(s string) string {
 }
 
 func (c *MySQLConnector) ListViews(ctx context.Context, p domain.ConnectionProfile, password string, database string) ([]ports.TableInfo, error) {
-	db, err := c.connect(p, password, database)
+	db, err := c.connect(ctx, p, password, database)
 	if err != nil {
 		return nil, err
 	}
@@ -223,7 +243,7 @@ func (c *MySQLConnector) ListViews(ctx context.Context, p domain.ConnectionProfi
 }
 
 func (c *MySQLConnector) GetViewDDL(ctx context.Context, p domain.ConnectionProfile, password string, database string, view string) (string, error) {
-	db, err := c.connect(p, password, database)
+	db, err := c.connect(ctx, p, password, database)
 	if err != nil {
 		return "", err
 	}
@@ -236,40 +256,10 @@ func (c *MySQLConnector) GetViewDDL(ctx context.Context, p domain.ConnectionProf
 	return ddl, nil
 }
 
-func (c *MySQLConnector) connectForQuery(p domain.ConnectionProfile, password string) (*sql.DB, error) {
-	cfg := mysqlDriver.NewConfig()
-	cfg.User = p.Username
-	cfg.Passwd = password
-	cfg.Net = "tcp"
-	cfg.Addr = fmt.Sprintf("%s:%d", p.Host, p.Port)
-	cfg.DBName = p.Database
-	cfg.Timeout = 5 * time.Second
-	cfg.ReadTimeout = 0  // Unlimited for queries
-	cfg.WriteTimeout = 0 // Unlimited for queries
-	cfg.AllowNativePasswords = true
-
-	// Use the driver's built-in TLS modes so we don't mutate the driver's
-	// global TLS-config registry on every connect (which is racy). "skip-verify"
-	// forces encryption; "preferred" uses TLS opportunistically with plaintext
-	// fallback. Certificate verification needs a configurable CA bundle, which
-	// is an explicitly deferred "advanced certificate profile" (see product-brief).
-	switch p.TLSMode {
-	case "require":
-		cfg.TLSConfig = "skip-verify"
-	case "prefer":
-		cfg.TLSConfig = "preferred"
-	}
-
-	// go-sql-driver v1.10 auto-requests the server's public key for
-	// caching_sha2_password over a non-TLS connection (MySQL 8 default), so no
-	// allowPublicKeyRetrieval flag is needed — and that flag is not a recognized
-	// DSN param in this version, so appending it would be sent to the server as
-	// an unknown system variable and rejected (Error 1193) after auth.
-	db, err := sql.Open("mysql", cfg.FormatDSN())
-	if err != nil {
-		return nil, c.normalizeError(err)
-	}
-	return db, nil
+func (c *MySQLConnector) connectForQuery(ctx context.Context, p domain.ConnectionProfile, password string) (*sql.DB, error) {
+	// Long-running queries keep unlimited I/O deadlines, but share the same
+	// endpoint resolution and authentication configuration as metadata calls.
+	return c.connectWithTimeout(ctx, p, password, p.Database, 0)
 }
 
 func (c *MySQLConnector) ExecuteQueryStream(
@@ -282,7 +272,7 @@ func (c *MySQLConnector) ExecuteQueryStream(
 	onHeader func(columns []string) error,
 	onRow func(row []any) error,
 ) (int64, error) {
-	db, err := c.connectForQuery(p, password)
+	db, err := c.connectForQuery(ctx, p, password)
 	if err != nil {
 		return 0, err
 	}
@@ -365,7 +355,7 @@ func (c *MySQLConnector) OpenQuerySession(ctx context.Context, p domain.Connecti
 	if database != "" {
 		p.Database = database
 	}
-	db, err := c.connectForQuery(p, password)
+	db, err := c.connectForQuery(ctx, p, password)
 	if err != nil {
 		return "", err
 	}
@@ -412,7 +402,7 @@ func (c *MySQLConnector) CloseQuerySession(ownerID, sessionID string) error {
 }
 
 func (c *MySQLConnector) CancelSession(ctx context.Context, p domain.ConnectionProfile, password string, sessionID int64) error {
-	db, err := c.connect(p, password, "")
+	db, err := c.connect(ctx, p, password, "")
 	if err != nil {
 		return err
 	}
@@ -426,7 +416,7 @@ func (c *MySQLConnector) CancelSession(ctx context.Context, p domain.ConnectionP
 // failure it rolls back and returns the 0-based index of the failed statement;
 // on success it commits and returns the total rows affected with failedIndex -1.
 func (c *MySQLConnector) ExecuteBatch(ctx context.Context, p domain.ConnectionProfile, password string, statements []string) (int64, int, error) {
-	db, err := c.connectForQuery(p, password)
+	db, err := c.connectForQuery(ctx, p, password)
 	if err != nil {
 		return 0, -1, err
 	}
@@ -457,7 +447,7 @@ func (c *MySQLConnector) ExecuteBatch(ctx context.Context, p domain.ConnectionPr
 // GetSchemaGraph returns every table (with columns + PK flags) and all FK
 // relationships in the database, using two information_schema queries.
 func (c *MySQLConnector) GetSchemaGraph(ctx context.Context, p domain.ConnectionProfile, password string, database string) (ports.SchemaGraph, error) {
-	db, err := c.connect(p, password, database)
+	db, err := c.connect(ctx, p, password, database)
 	if err != nil {
 		return ports.SchemaGraph{}, err
 	}
@@ -565,7 +555,7 @@ func (c *MySQLConnector) GetSchemaGraph(ctx context.Context, p domain.Connection
 }
 
 func (c *MySQLConnector) ListForeignKeys(ctx context.Context, p domain.ConnectionProfile, password string, database string, table string) ([]ports.ForeignKey, error) {
-	db, err := c.connect(p, password, database)
+	db, err := c.connect(ctx, p, password, database)
 	if err != nil {
 		return nil, err
 	}
@@ -592,7 +582,7 @@ func (c *MySQLConnector) ListForeignKeys(ctx context.Context, p domain.Connectio
 // ListIndexes returns the table's indexes, one entry per index with its columns
 // in order. PRIMARY is reported with Primary=true.
 func (c *MySQLConnector) ListIndexes(ctx context.Context, p domain.ConnectionProfile, password string, database string, table string) ([]ports.Index, error) {
-	db, err := c.connect(p, password, database)
+	db, err := c.connect(ctx, p, password, database)
 	if err != nil {
 		return nil, err
 	}

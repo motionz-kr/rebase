@@ -25,8 +25,8 @@ func NewIntrospectionHandler(token string, service *application.ConnectionServic
 	return &IntrospectionHandler{
 		token:              token,
 		service:            service,
-		mysqlConnector:     mysql.NewMySQLConnector(),
-		postgresConnector:  postgres.NewPostgreSQLConnector(),
+		mysqlConnector:     mysql.NewMySQLConnector(service),
+		postgresConnector:  postgres.NewPostgreSQLConnector(service),
 		sqliteConnector:    sqlite.NewSQLiteConnector(),
 		sqlserverConnector: sqlserver.NewSQLServerConnector(),
 	}

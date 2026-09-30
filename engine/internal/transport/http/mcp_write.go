@@ -32,7 +32,7 @@ type MCPWriteHandler struct {
 func NewMCPWriteHandler(token string, service *application.ConnectionService, proposals ports.MCPWriteProposalRepository, activity ports.MCPActivityRepository) *MCPWriteHandler {
 	return &MCPWriteHandler{
 		token: token, service: service, proposals: proposals, activity: activity,
-		mysql: mysql.NewMySQLConnector(), postgres: postgres.NewPostgreSQLConnector(),
+		mysql: mysql.NewMySQLConnector(service), postgres: postgres.NewPostgreSQLConnector(service),
 		sqlite: sqlite.NewSQLiteConnector(), sqlserver: sqlserver.NewSQLServerConnector(),
 	}
 }

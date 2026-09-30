@@ -317,6 +317,26 @@ Secret은 OS keychain에 저장한다.
 
 SQLite schema 변경은 ADR 0005의 migration 정책을 따른다. 앱 시작 시 migration을 적용하기 전 schema version을 확인하고, migration 실패 시 기존 user data를 덮어쓰지 않는다.
 
+## AWS SSM connection routing
+
+MySQL/PostgreSQL profiles can store `connectionMode: ssm` and non-secret
+`ssm` metadata (AWS profile name, region, EC2 instance ID, optional document name
+and destination mode). With the default `remote-host` mode, profile host/port
+remain the destination DB endpoint; `document` mode uses a custom document's
+destination and sends only the engine-allocated `localPortNumber`. Unused host/port
+are empty/zero in the form. Both modes still require relational database settings.
+Before opening a DB connection, both
+SQL adapters call the application's `ConnectionEndpointResolver`; the service
+delegates SSM profiles to the `TunnelManager` port. The SSM adapter owns AWS CLI
+processes, readiness and loopback endpoint allocation. Composition injects one
+manager per engine into UI and MCP connector paths, including introspection,
+query sessions and cancellation. Engine shutdown and profile changes clean up
+owned process trees. No credentials or temporary endpoints are persisted.
+
+MCP stdio engines start their own tunnels on demand and can run independently
+of Electron. They share saved routing metadata, not ports or process ownership.
+See [SSM connections](ssm-connections.md).
+
 ## Future Cloud Architecture
 
 Cloud 기능은 local engine 위에 sync adapter로 추가한다.

@@ -29,8 +29,8 @@ func NewProfileHandler(token string, service *application.ConnectionService) *Pr
 	return &ProfileHandler{
 		token:              token,
 		service:            service,
-		mysqlConnector:     mysql.NewMySQLConnector(),
-		postgresConnector:  postgres.NewPostgreSQLConnector(),
+		mysqlConnector:     mysql.NewMySQLConnector(service),
+		postgresConnector:  postgres.NewPostgreSQLConnector(service),
 		redisConnector:     redis.NewRedisConnector(),
 		sqliteConnector:    sqlite.NewSQLiteConnector(),
 		sqlserverConnector: sqlserver.NewSQLServerConnector(),
@@ -159,7 +159,7 @@ func (h *ProfileHandler) TestConnection() http.Handler {
 
 		// If password is empty and profile ID is present, resolve it from the Keychain/DB
 		if profile.ID != "" && password == "" {
-			dbProfile, keyPassword, getErr := h.service.GetProfile(r.Context(), profile.ID)
+			_, keyPassword, getErr := h.service.GetProfile(r.Context(), profile.ID)
 			if getErr != nil {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusInternalServerError)
@@ -168,10 +168,12 @@ func (h *ProfileHandler) TestConnection() http.Handler {
 			}
 			if keyPassword != "" {
 				password = keyPassword
-				profile = *dbProfile
 			}
 		}
 
+		if profile.ID == "" {
+			defer h.service.CloseProfileTunnel("")
+		}
 		var err error
 		switch profile.Driver {
 		case "mysql":

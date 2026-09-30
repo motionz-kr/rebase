@@ -89,8 +89,8 @@ func NewAgentHandler(token string, service *application.ConnectionService) *Agen
 	return &AgentHandler{
 		token:              token,
 		service:            service,
-		mysqlConnector:     mysql.NewMySQLConnector(),
-		postgresConnector:  postgres.NewPostgreSQLConnector(),
+		mysqlConnector:     mysql.NewMySQLConnector(service),
+		postgresConnector:  postgres.NewPostgreSQLConnector(service),
 		sqliteConnector:    sqlite.NewSQLiteConnector(),
 		sqlserverConnector: sqlserver.NewSQLServerConnector(),
 		redisConnector:     redis.NewRedisConnector(),

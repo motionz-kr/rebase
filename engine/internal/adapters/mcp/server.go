@@ -83,32 +83,68 @@ type rpcResponse struct {
 	Error   *rpcError        `json:"error,omitempty"`
 }
 
-// Serve runs the JSON-RPC loop until the input closes.
-func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
-	sc := bufio.NewScanner(in)
-	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
+// Serve runs until EOF or cancellation, including while input is idle. The
+// caller owns the reader and closes it when finished; stdin's blocking OS read
+// cannot always be interrupted by File.Close, so reading must not block shutdown.
+func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) (serveErr error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	defer func() {
+		status, message := "success", ""
+		if serveErr != nil {
+			status, message = "error", serveErr.Error()
+		}
+		recordCtx, recordCancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
+		defer recordCancel()
+		s.record(recordCtx, "session_ended", "", status, message, "", time.Now())
+	}()
+	type inputMessage struct {
+		line []byte
+		err  error
+		done bool
+	}
+	messages := make(chan inputMessage)
+	go func() {
+		sc := bufio.NewScanner(in)
+		sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
+		for sc.Scan() {
+			// Scanner reuses its buffer; the handler owns this message's bytes.
+			msg := inputMessage{line: append([]byte(nil), sc.Bytes()...)}
+			select {
+			case messages <- msg:
+			case <-ctx.Done():
+				return
+			}
+		}
+		select {
+		case messages <- inputMessage{done: true, err: sc.Err()}:
+		case <-ctx.Done():
+		}
+	}()
 	enc := json.NewEncoder(out)
-	for sc.Scan() {
-		line := sc.Bytes()
-		if len(line) == 0 {
-			continue
-		}
-		resp := s.Handle(ctx, line)
-		if resp == nil {
-			continue // notification: no reply
-		}
-		if err := enc.Encode(resp); err != nil {
-			return err
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case msg := <-messages:
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if msg.done {
+				return msg.err
+			}
+			if len(msg.line) == 0 {
+				continue
+			}
+			resp := s.Handle(ctx, msg.line)
+			if resp == nil {
+				continue
+			} // notification: no reply
+			if err := enc.Encode(resp); err != nil {
+				return err
+			}
 		}
 	}
-	status := "success"
-	message := ""
-	if err := sc.Err(); err != nil {
-		status = "error"
-		message = err.Error()
-	}
-	s.record(ctx, "session_ended", "", status, message, "", time.Now())
-	return sc.Err()
 }
 
 // Handle processes one JSON-RPC message and returns the response, or nil for

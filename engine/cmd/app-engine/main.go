@@ -20,6 +20,7 @@ import (
 	"github.com/smlee/database-local-engine/engine/internal/adapters/postgres"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/sqlite"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/sqlserver"
+	"github.com/smlee/database-local-engine/engine/internal/adapters/ssm"
 	"github.com/smlee/database-local-engine/engine/internal/agent"
 	"github.com/smlee/database-local-engine/engine/internal/application"
 	"github.com/smlee/database-local-engine/engine/internal/ports"
@@ -333,6 +334,7 @@ func main() {
 			Checksum: "mcp-write-approval-v1",
 		},
 	}
+	migrations = append(migrations, sqlite.SSMProfileMigration)
 	if err := migrationRunner.Run(migrations); err != nil {
 		log.Fatalf("failed to run migrations: %v", err)
 	}
@@ -341,6 +343,9 @@ func main() {
 	profileRepo := sqlite.NewSQLiteProfileRepository(db)
 	secretStore := keychain.NewKeyringStore("AntigravityDBDesktop")
 	connectionService := application.NewConnectionService(profileRepo, secretStore)
+	tunnels := ssm.NewManager()
+	defer tunnels.Close()
+	connectionService.SetTunnelManager(tunnels)
 	mcpActivityRepo := sqlite.NewSQLiteMCPActivityRepository(db)
 	mcpWriteRepo := sqlite.NewSQLiteMCPWriteProposalRepository(db)
 
@@ -533,6 +538,7 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	tunnels.Close()
 	if err := server.Shutdown(ctx); err != nil {
 		log.Printf("Server shutdown error: %v", err)
 	}
@@ -544,7 +550,8 @@ func main() {
 // runMCPServer serves the agent's DB tool registry over stdio as an MCP server
 // for the given profile, then returns when stdin closes.
 func runMCPServer(svc *application.ConnectionService, activity ports.MCPActivityRepository, proposals ports.MCPWriteProposalRepository, profileID string) {
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 	profile, password, err := svc.GetProfile(ctx, profileID)
 	if err != nil {
 		log.Fatalf("mcp: failed to load profile %s: %v", profileID, err)
@@ -552,9 +559,9 @@ func runMCPServer(svc *application.ConnectionService, activity ports.MCPActivity
 	var conn ports.SQLConnector
 	switch profile.Driver {
 	case "mysql":
-		conn = mysql.NewMySQLConnector()
+		conn = mysql.NewMySQLConnector(svc)
 	case "postgres":
-		conn = postgres.NewPostgreSQLConnector()
+		conn = postgres.NewPostgreSQLConnector(svc)
 	case "sqlite":
 		conn = sqlite.NewSQLiteConnector()
 	case "sqlserver":
@@ -572,6 +579,6 @@ func runMCPServer(svc *application.ConnectionService, activity ports.MCPActivity
 	srv.SetActivity(activity, "default", profileID)
 	srv.SetSecrets([]string{password, profile.SecretRef})
 	if err := srv.Serve(ctx, os.Stdin, os.Stdout); err != nil {
-		log.Fatalf("mcp: server error: %v", err)
+		log.Printf("mcp: server error: %v", err)
 	}
 }
