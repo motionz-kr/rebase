@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.35.0](https://github.com/motionz-kr/rebase/compare/v0.34.1...v0.35.0) (2026-09-30)
+
+
+### Features
+
+* **ssm:** automate EC2 tunnels for database and MCP connections ([95ec8f2](https://github.com/motionz-kr/rebase/commit/95ec8f267842aeebe4f9f59b4d6156ebefa65775))
+* **ssm:** automate EC2 tunnels for database and MCP connections ([#208](https://github.com/motionz-kr/rebase/issues/208)) ([cbf4660](https://github.com/motionz-kr/rebase/commit/cbf466030e8a05ad3ad57de6ddd20c6862d21057))
+
 ## [0.34.1](https://github.com/motionz-kr/rebase/compare/v0.34.0...v0.34.1) (2026-09-28)
 
 
