@@ -15,6 +15,29 @@ type ConnectionService struct {
 	repo           ports.ProfileRepository
 	store          ports.SecretStore
 	CancelRegistry *CancellationRegistry
+	tunnels        ports.TunnelManager
+}
+
+func (s *ConnectionService) CloseProfileTunnel(id string) {
+	if s.tunnels != nil {
+		s.tunnels.CloseProfile(id)
+	}
+}
+
+// SetTunnelManager is configured once in engine composition before serving.
+func (s *ConnectionService) SetTunnelManager(manager ports.TunnelManager) { s.tunnels = manager }
+
+func (s *ConnectionService) ResolveEndpoint(ctx context.Context, p domain.ConnectionProfile) (ports.ConnectionEndpoint, error) {
+	if err := p.ValidateConnectionRoute(); err != nil {
+		return ports.ConnectionEndpoint{}, err
+	}
+	if p.ConnectionMode != "ssm" {
+		return ports.ConnectionEndpoint{Host: p.Host, Port: p.Port}, nil
+	}
+	if s.tunnels == nil {
+		return ports.ConnectionEndpoint{}, errors.New("AWS SSM tunnel manager is unavailable")
+	}
+	return s.tunnels.ResolveEndpoint(ctx, p)
 }
 
 func NewConnectionService(repo ports.ProfileRepository, store ports.SecretStore) *ConnectionService {
@@ -121,6 +144,9 @@ func (s *ConnectionService) UpdateProfile(ctx context.Context, p *domain.Connect
 	if err := s.repo.Update(ctx, p); err != nil {
 		return fmt.Errorf("failed to update profile: %w", err)
 	}
+	if s.tunnels != nil {
+		s.tunnels.CloseProfile(p.ID)
+	}
 
 	return nil
 }
@@ -137,6 +163,9 @@ func (s *ConnectionService) DeleteProfile(ctx context.Context, id string) error 
 	// Delete profile from repo
 	if err := s.repo.Delete(ctx, id); err != nil {
 		return fmt.Errorf("failed to delete profile: %w", err)
+	}
+	if s.tunnels != nil {
+		s.tunnels.CloseProfile(id)
 	}
 
 	return nil

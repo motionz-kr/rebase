@@ -6,10 +6,11 @@ import * as fs from 'fs';
 // Launches the built Electron app with an isolated, throwaway user-data dir so the
 // real connection store is never read or mutated. ELECTRON_IS_DEV=0 forces the
 // main process to load the built renderer (no vite dev server needed).
-type Fixtures = { app: ElectronApplication; firstWindow: Page };
+type Fixtures = { app: ElectronApplication; firstWindow: Page; launchEnv: Record<string, string> };
 
 export const test = base.extend<Fixtures>({
-  app: async ({}, use) => {
+  launchEnv: [{}, { option: true }],
+  app: async ({ launchEnv }, use) => {
     const desktopRoot = path.resolve(__dirname, '..');
     const mainEntry = path.join(desktopRoot, 'dist', 'main', 'index.js');
     const enginePath = path.join(desktopRoot, 'bin', 'app-engine');
@@ -22,6 +23,7 @@ export const test = base.extend<Fixtures>({
       // ~/.antigravity/metadata.db and each run starts with zero connections.
       env: {
         ...process.env,
+        ...launchEnv,
         ELECTRON_IS_DEV: '0',
         ENGINE_BINARY_PATH: enginePath,
         ENGINE_DB_PATH: path.join(userDataDir, 'metadata.db'),

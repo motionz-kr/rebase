@@ -31,8 +31,8 @@ func NewQueryHandler(token string, service *application.ConnectionService) *Quer
 	return &QueryHandler{
 		token:              token,
 		service:            service,
-		mysqlConnector:     mysql.NewMySQLConnector(),
-		postgresConnector:  postgres.NewPostgreSQLConnector(),
+		mysqlConnector:     mysql.NewMySQLConnector(service),
+		postgresConnector:  postgres.NewPostgreSQLConnector(service),
 		sqliteConnector:    sqlite.NewSQLiteConnector(),
 		sqlserverConnector: sqlserver.NewSQLServerConnector(),
 	}

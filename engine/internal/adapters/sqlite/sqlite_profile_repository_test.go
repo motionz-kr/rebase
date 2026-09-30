@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"reflect"
 	"testing"
 	"time"
 
@@ -55,6 +56,7 @@ func newProfileRepo(t *testing.T) *SQLiteProfileRepository {
 			Checksum: "profiles-v1",
 		},
 	}
+	migrations = append(migrations, SSMProfileMigration)
 	if err := runner.Run(migrations); err != nil {
 		t.Fatalf("failed to run profiles migration: %v", err)
 	}
@@ -254,5 +256,102 @@ func TestProfileRepo_DomainGlossaryRoundTrip(t *testing.T) {
 	again, _ := repo.GetByID(ctx, "p1")
 	if again.DomainNotes != "변경됨" {
 		t.Errorf("after update notes: got %q", again.DomainNotes)
+	}
+}
+
+func TestSSMProfileRoundTrip(t *testing.T) {
+	repo := newProfileRepo(t)
+	ctx := context.Background()
+	p := &domain.ConnectionProfile{ID: "ssm", Name: "prod", Driver: "mysql", Host: "private.db", Port: 3306, Database: "app", ConnectionMode: "ssm", SSM: &domain.SSMConfig{Profile: "prod", Region: "ap-northeast-2", InstanceID: "i-0123456789abcdef0"}, CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	if err := repo.Create(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	got, err := repo.GetByID(ctx, p.ID)
+	if err != nil || got.ConnectionMode != "ssm" || got.SSM == nil || *got.SSM != *p.SSM {
+		t.Fatal(got, err)
+	}
+	list, err := repo.List(ctx)
+	if err != nil || len(list) != 1 || list[0].SSM == nil || list[0].SSM.Profile != "prod" {
+		t.Fatal(list, err)
+	}
+	got.SSM.Region = "us-east-1"
+	got.SSM.DocumentName = "Revisit-RdsPortForwarding"
+	got.SSM.DestinationMode = "document"
+	got.Host, got.Port = "", 0
+	if err = repo.Update(ctx, got); err != nil {
+		t.Fatal(err)
+	}
+	got, err = repo.GetByID(ctx, p.ID)
+	if err != nil || got.SSM.Region != "us-east-1" || got.SSM.DocumentName != "Revisit-RdsPortForwarding" || got.SSM.DestinationMode != "document" || got.Host != "" || got.Port != 0 {
+		t.Fatal(got, err)
+	}
+	got.ConnectionMode = "direct"
+	got.SSM = nil
+	if err = repo.Update(ctx, got); err != nil {
+		t.Fatal(err)
+	}
+	got, err = repo.GetByID(ctx, p.ID)
+	if err != nil || got.SSM != nil || got.ConnectionMode != "direct" {
+		t.Fatal(got, err)
+	}
+}
+
+func TestSSMMigrationPreservesLegacyProfileAndPolicies(t *testing.T) {
+	repo := newProfileRepo(t)
+	ctx := context.Background()
+	p := &domain.ConnectionProfile{
+		ID: "legacy", Name: "existing production", Driver: "mysql", Host: "db.internal", Port: 3306, Database: "app", Username: "readonly", SecretRef: "existing-keychain-ref", TLSMode: "require",
+		McpEnabled: true, McpDataExposure: "unrestricted", McpWriteMode: domain.MCPWriteModeApproval,
+		McpAllowedDatabases: "app", McpAllowedSchemas: "public", McpAllowedTables: "users",
+		ReadOnly: true, SafeMode: true, TenantColumns: "orgId", DomainBindings: `{"tenant":"orgId"}`,
+		DomainGlossary: `[{"kind":"table","table":"users","meaning":"사용자"}]`, DomainNotes: "preserve existing policies",
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	if err := repo.Create(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	// Restore the pre-v18 schema in an isolated in-memory DB with an existing row.
+	for _, query := range []string{"ALTER TABLE connection_profiles DROP COLUMN connection_mode", "ALTER TABLE connection_profiles DROP COLUMN ssm_config", "DELETE FROM schema_migrations WHERE version = 18"} {
+		if _, err := repo.db.Exec(query); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runner := NewMigrationRunner(repo.db)
+	for i := 0; i < 2; i++ {
+		if err := runner.Run([]Migration{SSMProfileMigration}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := repo.GetByID(ctx, p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.CreatedAt.Equal(p.CreatedAt) || !got.UpdatedAt.Equal(p.UpdatedAt) {
+		t.Fatal("migration changed timestamps")
+	}
+	got.CreatedAt, got.UpdatedAt = p.CreatedAt, p.UpdatedAt
+	if !reflect.DeepEqual(got, p) {
+		t.Fatalf("legacy profile was altered: got %+v; want %+v", got, p)
+	}
+	if err := got.ValidateConnectionRoute(); err != nil {
+		t.Fatal("legacy direct route must remain usable:", err)
+	}
+}
+
+func TestCorruptStoredSSMConfigurationFailsClosed(t *testing.T) {
+	repo := newProfileRepo(t)
+	ctx := context.Background()
+	p := &domain.ConnectionProfile{ID: "corrupt", Name: "SSM", Driver: "mysql", Host: "db.internal", Port: 3306, Database: "app", ConnectionMode: "ssm", CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	if err := repo.Create(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.db.Exec("UPDATE connection_profiles SET ssm_config = '{broken' WHERE id = ?", p.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := repo.GetByID(ctx, p.ID); err == nil || got != nil {
+		t.Fatal("corrupt route must not become a direct profile", got, err)
+	}
+	if list, err := repo.List(ctx); err == nil || list != nil {
+		t.Fatal("corrupt route must not be silently omitted or defaulted", list, err)
 	}
 }

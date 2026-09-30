@@ -44,6 +44,26 @@ Secret은 OS keychain에 저장한다.
 
 Connection profile에는 secret 값 대신 Keychain 항목을 가리키는 `secret_ref`만 둔다. 편집 폼은 이 참조를 받지 않으며 engine이 저장된 값을 보존한다. 과거 버전에서 참조가 비워진 경우에는 기존의 `secret-<profile id>` 항목을 찾아 복구한다. 항목이 실제로 없으면 passwordless 연결을 위해 빈 비밀번호를 허용하지만, Keychain 접근 오류는 빈 비밀번호로 바꾸지 않고 호출자에게 전달한다.
 
+## AWS SSM credentials and process boundary
+
+SSM profile metadata contains AWS profile name, region, EC2 instance ID and
+optional document name/destination mode, never credential values.
+AWS CLI resolves credentials from the user's existing credential chain/SSO;
+Rebase does not store AWS access keys or SSO tokens. DB passwords retain the
+existing Keychain boundary. Shell interpolation is not used: region, instance
+and destination parameters are validated and passed as argv/JSON.
+Custom document names follow the StartSession API pattern and cannot begin with
+an option prefix. Document-owned destinations send only `localPortNumber`; no
+arbitrary shell command or free-form parameter map is accepted. The selected
+document must provide a port forwarding session and honor the allocated port.
+The adapter exposes only loopback endpoints after readiness, bounds its output
+buffer, converts CLI output to curated errors and never forwards CLI logs to
+renderer/MCP stdout or activity storage. An SSM error never falls back to a
+direct DB connection or replays SQL. Existing MCP/query policies still apply.
+
+SSM transport does not introduce IAM DB authentication or stronger DB certificate
+verification. See [SSM connections](ssm-connections.md) for supported scope.
+
 ## Renderer Security
 
 Electron renderer는 제한된 preload API만 사용한다.

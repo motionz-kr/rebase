@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/smlee/database-local-engine/engine/internal/adapters/mysql"
 	"github.com/smlee/database-local-engine/engine/internal/application"
 	"github.com/smlee/database-local-engine/engine/internal/domain"
 	"github.com/smlee/database-local-engine/engine/internal/ports"
@@ -43,5 +44,32 @@ func TestProfileTestConnectionSurfacesCredentialStoreErrors(t *testing.T) {
 	}
 	if !strings.Contains(response.Body.String(), "keychain access denied") {
 		t.Errorf("body = %q, want credential store error", response.Body.String())
+	}
+}
+
+type captureTestEndpoint struct{ host string }
+
+func (c *captureTestEndpoint) ResolveEndpoint(_ context.Context, p domain.ConnectionProfile) (ports.ConnectionEndpoint, error) {
+	c.host = p.Host
+	return ports.ConnectionEndpoint{}, errors.New("captured endpoint")
+}
+func TestProfileTestConnectionUsesEditedRouteWithStoredPassword(t *testing.T) {
+	ctx := context.Background()
+	repo := ports.NewFakeProfileRepository()
+	store := ports.NewFakeSecretStore()
+	svc := application.NewConnectionService(repo, store)
+	p := &domain.ConnectionProfile{ID: "edit", Name: "prod", Driver: "mysql", Host: "old.internal", Port: 3306, Database: "app"}
+	if err := svc.CreateProfile(ctx, p, "saved-password"); err != nil {
+		t.Fatal(err)
+	}
+	handler := NewProfileHandler("token", svc)
+	capture := &captureTestEndpoint{}
+	handler.mysqlConnector = mysql.NewMySQLConnector(capture)
+	request := httptest.NewRequest(http.MethodPost, "/connection-test", strings.NewReader(`{"profile":{"id":"edit","name":"prod","driver":"mysql","host":"new.internal","port":3306,"database":"app"}}`))
+	request.Header.Set("X-App-Engine-Token", "token")
+	response := httptest.NewRecorder()
+	handler.TestConnection().ServeHTTP(response, request)
+	if capture.host != "new.internal" {
+		t.Fatalf("tested stored host instead of edited host: %q", capture.host)
 	}
 }

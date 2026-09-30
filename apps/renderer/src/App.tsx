@@ -46,6 +46,7 @@ import type { TemplateDef } from './lib/templateTypes';
 import { loadAgentSettings } from './lib/agentSettings';
 import { createSqlQueryRequest, type SqlQueryRequest } from './lib/queryRequest';
 import { connectionsReducer, initialConnectionsState } from './state/connections';
+import { connectionRouteFromForm, type SSMConfig } from './lib/connectionRoute';
 import './App.css';
 
 export interface ConnectionProfile {
@@ -59,6 +60,8 @@ export interface ConnectionProfile {
   connectionUri?: string;
   secretRef?: string;
   tlsMode: 'none' | 'prefer' | 'require';
+  connectionMode?: 'direct' | 'ssm';
+  ssm?: SSMConfig;
   readOnly?: boolean;
   safeMode?: boolean;
   tenantColumns?: string;
@@ -192,6 +195,17 @@ function App() {
   const [formUsername, setFormUsername] = useState('');
   const [formPassword, setFormPassword] = useState('');
   const [formTlsMode, setFormTlsMode] = useState<'none' | 'prefer' | 'require'>('none');
+  const [formConnectionMode, setFormConnectionMode] = useState<'direct' | 'ssm'>('direct');
+  const [formSSM, setFormSSM] = useState<SSMConfig>({ profile: '', region: '', instanceId: '' });
+  const formUsesDocumentDestination = formConnectionMode === 'ssm' && (formDriver === 'mysql' || formDriver === 'postgres') && formSSM.destinationMode === 'document';
+  const [testingConnection, setTestingConnection] = useState(false);
+  const connectionTestSettings = JSON.stringify([formDriver, formHost, formPort, formDatabase, formUsername, formPassword, formTlsMode, formConnectionMode, formSSM]);
+  const [testedConnectionSettings, setTestedConnectionSettings] = useState<string | null>(null);
+  const connectionTestSuccess = testedConnectionSettings === connectionTestSettings;
+  const connectionFeedbackRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (connectionError || connectionTestSuccess) connectionFeedbackRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [connectionError, connectionTestSuccess]);
   const [formReadOnly, setFormReadOnly] = useState(false);
   const [formSafeMode, setFormSafeMode] = useState(false);
   const [formTenantColumns, setFormTenantColumns] = useState('');
@@ -276,6 +290,7 @@ function App() {
 
   const handleDriverChange = (driver: 'mysql' | 'postgres' | 'redis' | 'sqlite' | 'sqlserver' | 'mongodb') => {
     setFormDriver(driver);
+    if (driver !== 'mysql' && driver !== 'postgres') setFormConnectionMode('direct');
     if (driver === 'mysql') {
       setFormPort(3306);
       setFormDatabase('dev-mysql');
@@ -305,6 +320,9 @@ function App() {
 
   const resetForm = () => {
     setFormName('');
+    setFormConnectionMode('direct');
+    setFormSSM({ profile: '', region: '', instanceId: '' });
+    setTestedConnectionSettings(null);
     handleDriverChange('mysql');
     setFormConnectionUri('');
     setFormPassword('');
@@ -326,6 +344,9 @@ function App() {
     setFormConnectionUri(p.connectionUri ?? '');
     setFormPassword(''); // blank keeps the existing password
     setFormTlsMode(p.tlsMode);
+    setFormConnectionMode(p.connectionMode === 'ssm' ? 'ssm' : 'direct');
+    setFormSSM(p.ssm ?? { profile: '', region: '', instanceId: '' });
+    setTestedConnectionSettings(null);
     setFormReadOnly(p.readOnly ?? false);
     setFormSafeMode(p.safeMode ?? false);
     setFormTenantColumns(p.tenantColumns ?? '');
@@ -337,11 +358,16 @@ function App() {
 
   const handleTestConnection = async () => {
     setConnectionError(null);
+    setTestedConnectionSettings(null);
+    setTestingConnection(true);
     const profile: ConnectionProfile = {
+      ...(editingId ? profiles.find((p) => p.id === editingId) : {}),
+      secretRef: undefined, // The engine owns this reference; the edit form never sends it.
+      ...connectionRouteFromForm(formDriver, formConnectionMode, formSSM),
       name: formName || 'Test Profile',
       driver: formDriver,
-      host: formDriver === 'sqlite' ? '' : formHost,
-      port: formDriver === 'sqlite' ? 0 : formPort,
+      host: formDriver === 'sqlite' || formUsesDocumentDestination ? '' : formHost,
+      port: formDriver === 'sqlite' || formUsesDocumentDestination ? 0 : formPort,
       database: formDatabase,
       username: formDriver === 'sqlite' ? '' : formUsername,
       connectionUri: formConnectionUri,
@@ -352,11 +378,11 @@ function App() {
     };
     try {
       const res = await window.electronAPI.testConnection(profile, formPassword);
-      if (res.success) alert('Connection test succeeded.');
+      if (res.success) setTestedConnectionSettings(connectionTestSettings);
       else setConnectionError(res.error || 'Connection failed');
     } catch (e) {
       setConnectionError(e instanceof Error ? e.message : 'Error during connection test');
-    }
+    } finally { setTestingConnection(false); }
   };
 
   const handleCreateProfile = async (e: React.FormEvent) => {
@@ -367,10 +393,13 @@ function App() {
     }
     setConnectionError(null);
     const profile: ConnectionProfile = {
+      ...(editingId ? profiles.find((p) => p.id === editingId) : {}),
+      secretRef: undefined, // The engine owns this reference; the edit form never sends it.
+      ...connectionRouteFromForm(formDriver, formConnectionMode, formSSM),
       name: formName,
       driver: formDriver,
-      host: formDriver === 'sqlite' ? '' : formHost,
-      port: formDriver === 'sqlite' ? 0 : formPort,
+      host: formDriver === 'sqlite' || formUsesDocumentDestination ? '' : formHost,
+      port: formDriver === 'sqlite' || formUsesDocumentDestination ? 0 : formPort,
       database: formDatabase,
       username: formDriver === 'sqlite' ? '' : formUsername,
       connectionUri: formConnectionUri,
@@ -824,7 +853,43 @@ function App() {
                 </>
               ) : (
                 <>
-              <div className="field-row">
+              {(formDriver === 'mysql' || formDriver === 'postgres') && (
+                <div>
+                  <label htmlFor="connection-mode">접속 경로</label>
+                  <select id="connection-mode" value={formConnectionMode} onChange={(e) => { setFormConnectionMode(e.target.value as 'direct' | 'ssm'); setTestedConnectionSettings(null); }}>
+                    <option value="direct">직접 연결</option>
+                    <option value="ssm">AWS SSM (EC2 경유)</option>
+                  </select>
+                </div>
+              )}
+              {formConnectionMode === 'ssm' && (formDriver === 'mysql' || formDriver === 'postgres') && (
+                <fieldset className="ssm-settings">
+                  <legend>AWS SSM</legend>
+                  <div><label htmlFor="ssm-profile">AWS profile (선택)</label>
+                    <input type="text" id="ssm-profile" value={formSSM.profile} placeholder="예: production" onChange={(e) => setFormSSM({ ...formSSM, profile: e.target.value })} />
+                  </div>
+                  <div className="field-row">
+                    <div className="field-grow"><label htmlFor="ssm-region">AWS region</label>
+                      <input type="text" id="ssm-region" value={formSSM.region} placeholder="ap-northeast-2" onChange={(e) => setFormSSM({ ...formSSM, region: e.target.value })} required />
+                    </div>
+                    <div className="field-grow"><label htmlFor="ssm-instance">EC2 instance ID</label>
+                      <input type="text" id="ssm-instance" value={formSSM.instanceId} placeholder="i-0123456789abcdef0" onChange={(e) => setFormSSM({ ...formSSM, instanceId: e.target.value })} required />
+                    </div>
+                  </div>
+                  <div><label htmlFor="ssm-document">{formUsesDocumentDestination ? 'SSM document' : 'SSM document (선택)'}</label>
+                    <input type="text" id="ssm-document" value={formSSM.documentName ?? ''} placeholder="AWS-StartPortForwardingSessionToRemoteHost" maxLength={128} onChange={(e) => setFormSSM({ ...formSSM, documentName: e.target.value })} required={formUsesDocumentDestination} />
+                  </div>
+                  <div><label htmlFor="ssm-destination-mode">DB 목적지 설정</label>
+                    <select id="ssm-destination-mode" value={formSSM.destinationMode ?? 'remote-host'} onChange={(e) => setFormSSM({ ...formSSM, destinationMode: e.target.value as 'remote-host' | 'document' })}>
+                      <option value="remote-host">DB Host·Port 직접 지정</option>
+                      <option value="document">SSM 문서에서 지정</option>
+                    </select>
+                  </div>
+                  <p className="ssm-note">{formUsesDocumentDestination ? 'DB 목적지는 선택한 SSM 문서에서 가져옵니다. localPortNumber만 전달하며, 로컬 포트는 자동으로 할당합니다.' : '아래 Host·Port에는 EC2에서 접근할 DB 주소를 입력하세요. 문서를 비우면 AWS 표준 문서를 사용합니다. 로컬 포트는 자동으로 할당합니다.'}</p>
+                  <p className="ssm-note">AWS CLI와 Session Manager 플러그인이 필요합니다. 기존 AWS profile·SSO를 사용하며, profile을 비우면 기본 AWS 인증 설정을 사용합니다.</p>
+                </fieldset>
+              )}
+              {!formUsesDocumentDestination && <div className="field-row">
                 <div className="field-grow">
                   <label>Host</label>
                   <input type="text" value={formHost} onChange={(e) => setFormHost(e.target.value)} required />
@@ -833,7 +898,7 @@ function App() {
                   <label>Port</label>
                   <input type="number" value={formPort} onChange={(e) => setFormPort(parseInt(e.target.value))} required />
                 </div>
-              </div>
+              </div>}
               {formDriver !== 'redis' ? (
                 <div>
                   <label>Database</label>
@@ -908,19 +973,17 @@ function App() {
                 </>
               )}
               <div className="form-actions">
-                <button type="button" className="btn btn-secondary btn-sm" onClick={handleTestConnection}>
-                  Test
+                <button type="button" className="btn btn-secondary btn-sm" onClick={handleTestConnection} disabled={testingConnection}>
+                  {testingConnection ? '연결 중…' : 'Test'}
                 </button>
-                <button type="submit" className="btn btn-primary btn-sm">
+                <button type="submit" className="btn btn-primary btn-sm" disabled={testingConnection}>
                   {editingId ? 'Update' : 'Save'}
                 </button>
               </div>
-              {connectionError && (
-                <div className="alert error">
-                  <AlertTriangle size={14} />
-                  <span>{connectionError}</span>
-                </div>
-              )}
+              {(connectionTestSuccess || connectionError) && <div ref={connectionFeedbackRef} aria-live="polite">
+                {connectionTestSuccess && <div className="ssm-test-success" role="status">연결 테스트에 성공했습니다.</div>}
+                {connectionError && <div className="alert error"><AlertTriangle size={14} /><span>{connectionError}</span></div>}
+              </div>}
                   </form>
                   )}
 
@@ -1005,7 +1068,7 @@ function App() {
                       <div className="conn-row-text">
                         <span className="conn-row-name">{p.name}</span>
                         <span className="conn-row-host">
-                          {p.driver === 'sqlite' ? (p.database.split('/').pop() || p.database) : `${p.host}:${p.port}`}
+                          {p.driver === 'sqlite' ? (p.database.split('/').pop() || p.database) : p.connectionMode === 'ssm' && p.ssm?.destinationMode === 'document' ? `SSM · ${p.ssm.documentName}` : `${p.connectionMode === 'ssm' ? 'SSM · ' : ''}${p.host}:${p.port}`}
                         </span>
                       </div>
                       <span className="conn-row-actions">
