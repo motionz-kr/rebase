@@ -155,7 +155,11 @@ MCP Request
 MCP 원칙:
 
 - MCP server는 DB password를 직접 보관하지 않는다.
-- MCP 요청은 연결 프로필의 MCP 활성화 여부와 엔진 policy를 통과한다.
+- MCP 클라이언트는 단일 로컬 stdio 서버에 연결한다. 서버는 MCP가 켜진
+  연결 프로필만 노출하고, 각 도구 호출은 선택한 프로필의 MCP 활성화 여부와
+  해당 프로필의 엔진 policy를 통과한다.
+- stdio 실행 인자는 bearer 인증 토큰이 아니다. 실제 권한 경계는 프로필별
+  MCP 노출 설정, DB/schema/table allowlist, read-only 및 write policy다.
 - MCP read-only tool results are returned in full, including row values and
   diagnostic output such as `EXPLAIN`; this is required for the connected local
   AI client to perform useful analysis.

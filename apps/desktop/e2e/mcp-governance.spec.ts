@@ -8,7 +8,7 @@ import * as path from 'path';
 
 type RpcResponse = {
   id?: number;
-  result?: { tools?: Array<{ name: string }>; content?: Array<{ text?: string }>; isError?: boolean };
+  result?: { tools?: Array<{ name: string; inputSchema?: Record<string, unknown> }>; content?: Array<{ text?: string }>; isError?: boolean };
   error?: { message: string };
 };
 
@@ -358,5 +358,111 @@ test('MCP full access executes a write immediately for the selected connection',
     if (mcpProcess) await stopProcess(mcpProcess);
     if (profileId) await win.evaluate((id) => window.electronAPI.deleteProfile(id), profileId).catch(() => undefined);
     fs.rmSync(fixtureDir, { recursive: true, force: true });
+  }
+});
+
+test('one MCP stdio server discovers three enabled profiles and enforces each policy', async ({ app, firstWindow: win }) => {
+  const profileIds: string[] = [];
+  const createdProfileIds: string[] = [];
+  let mcpProcess: ChildProcessWithoutNullStreams | undefined;
+
+  try {
+    const fixtures = [
+      { name: 'Unified MCP Alpha', database: 'alpha_db', allowedTable: 'alpha_only', exposed: true },
+      { name: 'Unified MCP Beta', database: 'beta_db', allowedTable: 'beta_only', exposed: true },
+      { name: 'Unified MCP Gamma', database: 'gamma_db', allowedTable: 'gamma_only', exposed: true },
+      { name: 'Unified MCP Hidden', database: 'hidden_db', allowedTable: '', exposed: false },
+    ];
+
+    for (const fixture of fixtures) {
+      await win.locator('.sidebar-head button').click();
+      const form = win.locator('.conn-form');
+      await form.locator('label:text-is("Profile name") + input').fill(fixture.name);
+      await form.locator('label:text-is("Host") + input').fill('127.0.0.1');
+      await form.locator('label:text-is("Port") + input').fill('1');
+      await form.locator('label:text-is("Database") + input').fill(fixture.database);
+      await form.locator('label:text-is("Username") + input').fill('e2e');
+      await form.locator('label:text-is("Password (OS keychain)") + input').fill('');
+      await form.locator('button[type="submit"]').click();
+
+      const row = win.locator('.conn-list .conn-row').filter({ hasText: fixture.name });
+      await expect(row).toBeVisible();
+      const profiles = await win.evaluate(() => window.electronAPI.listProfiles());
+      const profileId = profiles.data?.find((profile) => profile.name === fixture.name)?.id ?? '';
+      expect(profileId).not.toBe('');
+      createdProfileIds.push(profileId);
+      if (!fixture.exposed) continue;
+      profileIds.push(profileId);
+
+      await row.locator('button[title="Edit profile"]').click();
+      await win.getByRole('button', { name: 'MCP', exact: true }).click();
+      await win.locator('.mcp-toggle input').check();
+      await expect(win.locator('.mcp-snippet')).toContainText('rebase-databases');
+      await expect(win.locator('.mcp-snippet')).toContainText('"all"');
+      const allowedTables = win.locator('label.mcp-field').filter({ hasText: '허용 테이블' }).locator('textarea');
+      await allowedTables.fill(fixture.allowedTable);
+      await win.getByRole('button', { name: '범위 저장', exact: true }).click();
+      await expect(win.locator('.mcp-scope .mcp-note.ok')).toContainText('접근 범위를 저장했습니다');
+      await win.locator('.conn-modal .modal-head button[aria-label="닫기"]').click();
+    }
+
+    const enginePath = await win.evaluate(() => window.electronAPI.mcpEnginePath());
+    const userDataDir = await app.evaluate(({ app: electronApp }) => electronApp.getPath('userData'));
+    mcpProcess = spawn(enginePath, ['-db', path.join(userDataDir, 'metadata.db'), '-mcp', 'all'], {
+      env: process.env,
+      stdio: 'pipe',
+    });
+    const output = createInterface({ input: mcpProcess.stdout });
+    mcpProcess.stderr.on('data', () => undefined);
+
+    sendRpc(mcpProcess, {
+      jsonrpc: '2.0', id: 1, method: 'initialize',
+      params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'unified-e2e', version: '1' } },
+    });
+    await nextRpcLine(output);
+    sendRpc(mcpProcess, { jsonrpc: '2.0', method: 'notifications/initialized', params: {} });
+    sendRpc(mcpProcess, { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
+    const toolList = await nextRpcLine(output);
+    const tools = toolList.result?.tools ?? [];
+    expect(tools.some((tool) => tool.name === 'list_connections')).toBe(true);
+    expect(tools.some((tool) => tool.name === 'run_select')).toBe(true);
+    const runSelectSchema = tools.find((tool) => tool.name === 'run_select')?.inputSchema;
+    expect(runSelectSchema?.required).toContain('connectionId');
+
+    sendRpc(mcpProcess, {
+      jsonrpc: '2.0', id: 3, method: 'tools/call',
+      params: { name: 'list_connections', arguments: {} },
+    });
+    const listed = await nextRpcLine(output);
+    const connections = JSON.parse(listed.result?.content?.[0]?.text ?? '[]') as Array<{ connectionId: string; name: string }>;
+    expect(connections.map((connection) => connection.name)).toEqual(fixtures.filter((fixture) => fixture.exposed).map((fixture) => fixture.name));
+    expect(connections.map((connection) => connection.connectionId)).toEqual(profileIds);
+
+    sendRpc(mcpProcess, {
+      jsonrpc: '2.0', id: 4, method: 'tools/call',
+      params: { name: 'run_select', arguments: { connectionId: profileIds[0], sql: 'SELECT * FROM beta_only' } },
+    });
+    const alphaDenied = await nextRpcLine(output);
+    expect(alphaDenied.result?.isError).toBe(true);
+    expect(alphaDenied.result?.content?.[0]?.text).toContain('MCP table access denied');
+
+    sendRpc(mcpProcess, {
+      jsonrpc: '2.0', id: 5, method: 'tools/call',
+      params: { name: 'run_select', arguments: { connectionId: profileIds[1], sql: 'SELECT * FROM alpha_only' } },
+    });
+    const betaDenied = await nextRpcLine(output);
+    expect(betaDenied.result?.isError).toBe(true);
+    expect(betaDenied.result?.content?.[0]?.text).toContain('MCP table access denied');
+
+    await stopProcess(mcpProcess);
+    output.close();
+    mcpProcess = undefined;
+    const betaActivity = await win.evaluate((id) => window.electronAPI.mcpActivityList({ profileId: id, limit: 10 }), profileIds[1]);
+    expect(betaActivity.data?.some((event) => event.tool === 'run_select' && event.status === 'error')).toBe(true);
+  } finally {
+    if (mcpProcess) await stopProcess(mcpProcess);
+    for (const profileId of createdProfileIds) {
+      await win.evaluate((id) => window.electronAPI.deleteProfile(id), profileId).catch(() => undefined);
+    }
   }
 });

@@ -155,6 +155,20 @@ func TestServerRecordsSessionAndToolActivity(t *testing.T) {
 	}
 }
 
+func TestServerAttributesUnifiedToolActivityToSelectedConnection(t *testing.T) {
+	activity := &fakeActivity{}
+	connections := agent.NewMultiProfileRegistry([]agent.MCPConnectionTarget{{
+		ID: "profile-1", Name: "Primary", Driver: "mysql", Database: "primary_db",
+		Registry: agent.NewSQLRegistry(fakeSQL{}, domain.ConnectionProfile{Driver: "mysql"}, "", "primary_db"),
+	}})
+	s := NewServer(connections)
+	s.SetActivity(activity, "default", "all")
+	_ = req(t, s, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_tables","arguments":{"connectionId":"profile-1"}}}`)
+	if len(activity.events) != 1 || activity.events[0].ProfileID != "profile-1" {
+		t.Fatalf("unified tool activity should be attributed to the selected profile: %+v", activity.events)
+	}
+}
+
 func TestServerRecordsFinalExecutedSQLAndRedactsSecrets(t *testing.T) {
 	activity := &fakeActivity{}
 	s := newServer()

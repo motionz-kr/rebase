@@ -15,6 +15,23 @@ describe('mergeJsonMcp', () => {
     expect(b.mcpServers['rebase-abc'].command).toBe('/e2');
     expect(Object.keys(b.mcpServers)).toEqual(['rebase-abc']);
   });
+
+  it('replaces old profile entries with one unified Rebase entry', () => {
+    const existing = {
+      mcpServers: {
+        'rebase-profile-1': { command: '/old-engine', args: ['-mcp', 'profile-1', '-token', 'mcp'] },
+        'rebase-profile-2': { command: '/old-engine', args: ['-mcp', 'profile-2', '-token', 'mcp'] },
+        'rebase-custom': { command: 'custom', args: ['--config'] },
+        other: { command: 'x' },
+      },
+    };
+    const out = mergeJsonMcp(existing, 'rebase-databases', { command: '/e', args: ['-mcp', 'all'] });
+    expect(out.mcpServers['rebase-profile-1']).toBeUndefined();
+    expect(out.mcpServers['rebase-profile-2']).toBeUndefined();
+    expect(out.mcpServers['rebase-custom']).toEqual({ command: 'custom', args: ['--config'] });
+    expect(out.mcpServers.other).toEqual({ command: 'x' });
+    expect(out.mcpServers['rebase-databases']).toEqual({ command: '/e', args: ['-mcp', 'all'] });
+  });
 });
 
 describe('mergeTomlMcp', () => {
@@ -32,5 +49,26 @@ describe('mergeTomlMcp', () => {
   it('starts from empty when there is no existing config', () => {
     const out = mergeTomlMcp('', 'rebase-x', { command: '/e', args: [] });
     expect(out).toContain('rebase-x');
+  });
+
+  it('replaces old profile entries in Codex TOML while preserving other servers', async () => {
+    const existing = [
+      '[mcp_servers."rebase-profile-1"]',
+      'command = "/old-engine"',
+      'args = ["-mcp", "profile-1", "-token", "mcp"]',
+      '',
+      '[mcp_servers.other]',
+      'command = "x"',
+      '',
+      '[settings]',
+      'model = "gpt"',
+      '',
+    ].join('\n');
+    const out = mergeTomlMcp(existing, 'rebase-databases', { command: '/e', args: ['-mcp', 'all'] });
+    const parsed: any = (await import('@iarna/toml')).default.parse(out);
+    expect(parsed.mcp_servers['rebase-profile-1']).toBeUndefined();
+    expect(parsed.mcp_servers['rebase-databases'].args).toEqual(['-mcp', 'all']);
+    expect(parsed.mcp_servers.other.command).toBe('x');
+    expect(parsed.settings.model).toBe('gpt');
   });
 });

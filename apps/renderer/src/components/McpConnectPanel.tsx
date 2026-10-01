@@ -77,7 +77,7 @@ export const McpConnectPanel: React.FC<Props> = ({
 
   const autoconnect = async (clientId: string, label: string) => {
     setConnectMsg(null);
-    const res = await window.electronAPI.mcpAutoconnect(clientId, connId);
+    const res = await window.electronAPI.mcpAutoconnect(clientId);
     if (res.success) {
       setConnectMsg({ kind: 'ok', text: `${label} 연결 설정을 저장했습니다${res.data?.backup ? ' (기존 설정 백업함)' : ''}. 클라이언트를 재시작하세요.` });
     } else {
@@ -115,7 +115,7 @@ export const McpConnectPanel: React.FC<Props> = ({
     }
   };
 
-  const snippet = enginePath ? buildJsonSnippet(enginePath, connId) : '';
+  const snippet = enginePath ? buildJsonSnippet(enginePath) : '';
   const copy = async () => {
     await navigator.clipboard.writeText(snippet);
     setCopied(true);
@@ -136,7 +136,7 @@ export const McpConnectPanel: React.FC<Props> = ({
       {enabled && (
         <>
           <div className="mcp-snippet-head">
-            <span>클라이언트 설정 (Claude Desktop / Cursor)</span>
+            <span>통합 클라이언트 설정 (활성화된 Rebase 연결 전체)</span>
             <button className="btn btn-secondary btn-xs" onClick={copy} disabled={!snippet}>
               {copied ? <Check size={12} /> : <Copy size={12} />} {copied ? '복사됨' : '복사'}
             </button>
@@ -144,7 +144,7 @@ export const McpConnectPanel: React.FC<Props> = ({
           <pre className="mcp-snippet">{snippet || '엔진 경로 로딩 중…'}</pre>
 
           <div className="mcp-snippet-head">
-            <span>또는 자동 연결</span>
+            <span>또는 통합 서버 자동 연결</span>
           </div>
           <div className="mcp-clients">
             {clients.map((c) => (
@@ -165,7 +165,7 @@ export const McpConnectPanel: React.FC<Props> = ({
           )}
 
           <p className="mcp-note">
-            연결된 로컬 AI 클라이언트에는 쿼리 행과 EXPLAIN 실행 계획을 포함한 MCP 도구 결과가 그대로 반환됩니다. 비밀번호·토큰은 반환 전에 제거됩니다.
+            이 서버 하나에서 MCP 노출이 켜진 Rebase 연결을 선택해 사용할 수 있습니다. 각 연결의 접근 범위와 쓰기 정책은 별도로 적용됩니다. 쿼리 결과는 반환되며 연결 비밀번호와 토큰은 제거됩니다. 연결 설정 변경 후 AI 클라이언트를 재시작하세요.
           </p>
 
           <div className="mcp-scope">

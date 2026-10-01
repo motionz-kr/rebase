@@ -317,7 +317,7 @@ declare global {
       mcpEnginePath: () => Promise<string>;
       mcpSetSettings: (profileId: string, enabled: boolean, dataExposure: string, scope?: McpAccessScope, writeMode?: string) => Promise<ResultWrapper<unknown>>;
       mcpDetectClients: () => Promise<Array<{ id: string; label: string; present: boolean }>>;
-      mcpAutoconnect: (clientId: string, profileId: string) => Promise<ResultWrapper<{ path?: string; backup?: string }>>;
+      mcpAutoconnect: (clientId: string) => Promise<ResultWrapper<{ path?: string; backup?: string }>>;
       mcpServersList: (workspaceId: string) => Promise<ResultWrapper<McpServer[]>>;
       mcpServersSave: (server: McpServerInput) => Promise<ResultWrapper<{ id: string }>>;
       mcpServersDelete: (id: string) => Promise<ResultWrapper<{ ok: boolean }>>;
