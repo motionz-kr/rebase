@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.36.0](https://github.com/motionz-kr/rebase/compare/v0.35.0...v0.36.0) (2026-10-01)
+
+
+### Features
+
+* **mcp:** unify database profiles in one MCP connection ([2107c05](https://github.com/motionz-kr/rebase/commit/2107c05951d40aa95b67e4d19b37adb7d48175ba))
+* **mcp:** use one MCP server for all enabled database profiles ([#210](https://github.com/motionz-kr/rebase/issues/210)) ([bd55b89](https://github.com/motionz-kr/rebase/commit/bd55b896095a05ec3a86f6f1d76fade74f724157))
+
 ## [0.35.0](https://github.com/motionz-kr/rebase/compare/v0.34.1...v0.35.0) (2026-09-30)
 
 
