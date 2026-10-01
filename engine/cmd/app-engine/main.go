@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"syscall"
 	"time"
 
@@ -53,14 +54,14 @@ func main() {
 	token := flag.String("token", "", "launch token for API authentication")
 	handshakePath := flag.String("handshake", "", "file path to write handshake information")
 	dbPath := flag.String("db", "", "SQLite database file path")
-	mcpProfile := flag.String("mcp", "", "run as an MCP stdio server exposing DB tools for this profile id")
+	mcpProfile := flag.String("mcp", "", "run as an MCP stdio server for a profile id or 'all' MCP-enabled SQL profiles")
 	flag.Parse()
 
-	if *token == "" {
-		log.Fatal("token flag is required")
-	}
 	if *handshakePath == "" && *mcpProfile == "" {
 		log.Fatal("handshake flag is required")
+	}
+	if *mcpProfile == "" && *token == "" {
+		log.Fatal("token flag is required")
 	}
 
 	// 1. Initialize SQLite Database
@@ -552,6 +553,17 @@ func main() {
 func runMCPServer(svc *application.ConnectionService, activity ports.MCPActivityRepository, proposals ports.MCPWriteProposalRepository, profileID string) {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	if profileID == "all" {
+		registry, secrets := buildUnifiedMCPRegistry(ctx, svc, proposals)
+		srv := mcp.NewServer(registry)
+		srv.SetActivity(activity, "default", "all")
+		srv.SetSecrets(secrets)
+		if err := srv.Serve(ctx, os.Stdin, os.Stdout); err != nil {
+			log.Printf("mcp: server error: %v", err)
+		}
+		return
+	}
+
 	profile, password, err := svc.GetProfile(ctx, profileID)
 	if err != nil {
 		log.Fatalf("mcp: failed to load profile %s: %v", profileID, err)
@@ -581,4 +593,54 @@ func runMCPServer(svc *application.ConnectionService, activity ports.MCPActivity
 	if err := srv.Serve(ctx, os.Stdin, os.Stdout); err != nil {
 		log.Printf("mcp: server error: %v", err)
 	}
+}
+
+func buildUnifiedMCPRegistry(ctx context.Context, svc *application.ConnectionService, proposals ports.MCPWriteProposalRepository) (*agent.Registry, []string) {
+	profiles, err := svc.ListProfiles(ctx)
+	if err != nil {
+		log.Printf("mcp: unable to list Rebase connections")
+		return agent.NewMultiProfileRegistry(nil), nil
+	}
+	sort.Slice(profiles, func(i, j int) bool {
+		if profiles[i].Name == profiles[j].Name {
+			return profiles[i].ID < profiles[j].ID
+		}
+		return profiles[i].Name < profiles[j].Name
+	})
+
+	targets := make([]agent.MCPConnectionTarget, 0, len(profiles))
+	secrets := make([]string, 0, len(profiles)*2)
+	for _, listed := range profiles {
+		if !listed.McpEnabled {
+			continue
+		}
+		profile, password, err := svc.GetProfile(ctx, listed.ID)
+		if err != nil || profile == nil || !profile.McpEnabled {
+			log.Printf("mcp: omitting an enabled connection that could not be loaded")
+			continue
+		}
+
+		var conn ports.SQLConnector
+		switch profile.Driver {
+		case "mysql":
+			conn = mysql.NewMySQLConnector(svc)
+		case "postgres":
+			conn = postgres.NewPostgreSQLConnector(svc)
+		case "sqlite":
+			conn = sqlite.NewSQLiteConnector()
+		case "sqlserver":
+			conn = sqlserver.NewSQLServerConnector()
+		default:
+			continue
+		}
+
+		registry := agent.NewSQLRegistryWithMCPWrites(conn, *profile, password, profile.Database, agent.MCPWriteConfig{
+			Mode: profile.McpWriteMode, WorkspaceID: "default", ProfileID: profile.ID, Proposals: proposals,
+		})
+		secrets = append(secrets, password, profile.SecretRef)
+		targets = append(targets, agent.MCPConnectionTarget{
+			ID: profile.ID, Name: profile.Name, Driver: profile.Driver, Database: profile.Database, Registry: registry,
+		})
+	}
+	return agent.NewMultiProfileRegistry(targets), secrets
 }

@@ -2,17 +2,20 @@ import { describe, it, expect } from 'vitest';
 import { buildMcpEntry, mcpServerKey, buildJsonSnippet } from './mcpConfig';
 
 describe('mcpConfig', () => {
-  it('namespaces the server key by connection id', () => {
-    expect(mcpServerKey('abc')).toBe('rebase-abc');
+  it('uses one shared server key for all exposed profiles', () => {
+    expect(mcpServerKey()).toBe('rebase-databases');
   });
-  it('builds a stdio entry with engine path + profile args', () => {
-    const e = buildMcpEntry('/Apps/Rebase/bin/app-engine', 'abc');
-    expect(e.command).toBe('/Apps/Rebase/bin/app-engine');
-    expect(e.args).toEqual(['-mcp', 'abc', '-token', 'mcp']);
+
+  it('builds one unified stdio entry without a placeholder auth token', () => {
+    const entry = buildMcpEntry('/Apps/Rebase/bin/app-engine');
+    expect(entry.command).toBe('/Apps/Rebase/bin/app-engine');
+    expect(entry.args).toEqual(['-mcp', 'all']);
   });
-  it('builds a JSON snippet under mcpServers', () => {
-    const snip = JSON.parse(buildJsonSnippet('/e', 'abc'));
-    expect(snip.mcpServers['rebase-abc'].command).toBe('/e');
-    expect(snip.mcpServers['rebase-abc'].args[1]).toBe('abc');
+
+  it('builds a JSON snippet with one Rebase entry', () => {
+    const snippet = JSON.parse(buildJsonSnippet('/e'));
+    expect(Object.keys(snippet.mcpServers)).toEqual(['rebase-databases']);
+    expect(snippet.mcpServers['rebase-databases'].command).toBe('/e');
+    expect(snippet.mcpServers['rebase-databases'].args).toEqual(['-mcp', 'all']);
   });
 });

@@ -905,9 +905,8 @@ app.whenReady().then(() => {
   // --- MCP server (expose connections to external AI clients) ---
   ipcMain.handle('mcp-engine-path', () => binaryPath);
   ipcMain.handle('mcp-detect-clients', () => detectClients());
-  ipcMain.handle('mcp-autoconnect', (_event, clientId: string, profileId: string) => {
-    const entry = { command: binaryPath, args: ['-mcp', profileId, '-token', 'mcp'] };
-    const res = applyClient(clientId, `rebase-${profileId}`, entry);
+  ipcMain.handle('mcp-autoconnect', (_event, clientId: string) => {
+    const res = applyClient(clientId, 'rebase-databases', { command: binaryPath, args: ['-mcp', 'all'] });
     return res.ok ? { success: true, data: { path: res.path, backup: res.backup } } : { success: false, error: res.error };
   });
   ipcMain.handle('mcp-set-settings', (_event, profileId: string, enabled: boolean, dataExposure: string, scope?: unknown, writeMode?: string) => {

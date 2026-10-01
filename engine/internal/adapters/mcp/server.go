@@ -39,13 +39,17 @@ func (s *Server) SetActivity(repo ports.MCPActivityRepository, workspaceID, prof
 }
 
 func (s *Server) record(ctx context.Context, event, tool, status, message, queryText string, started time.Time) {
+	s.recordForProfile(ctx, s.profileID, event, tool, status, message, queryText, started)
+}
+
+func (s *Server) recordForProfile(ctx context.Context, profileID, event, tool, status, message, queryText string, started time.Time) {
 	if s.activity == nil {
 		return
 	}
 	_ = s.activity.Append(ctx, &domain.MCPActivityEvent{
 		ID:          uuid.NewString(),
 		WorkspaceID: s.workspaceID,
-		ProfileID:   s.profileID,
+		ProfileID:   profileID,
 		Direction:   "inbound",
 		Event:       event,
 		Tool:        tool,
@@ -197,14 +201,20 @@ func (s *Server) Handle(ctx context.Context, raw []byte) *rpcResponse {
 		traceCtx := agent.WithQueryRecorder(ctx, func(query string) { queries = append(queries, query) })
 		result, err := s.registry.Dispatch(traceCtx, p.Name, p.Arguments)
 		queryText := strings.Join(queries, "\n\n")
+		profileID := s.profileID
+		if profileID == "all" {
+			if selected, ok := p.Arguments["connectionId"].(string); ok && selected != "" {
+				profileID = selected
+			}
+		}
 		if err != nil {
-			s.record(ctx, "tool_call", p.Name, "error", err.Error(), queryText, started)
+			s.recordForProfile(ctx, profileID, "tool_call", p.Name, "error", err.Error(), queryText, started)
 			return reply(map[string]any{
 				"content": []map[string]any{{"type": "text", "text": err.Error()}},
 				"isError": true,
 			})
 		}
-		s.record(ctx, "tool_call", p.Name, "success", "", queryText, started)
+		s.recordForProfile(ctx, profileID, "tool_call", p.Name, "success", "", queryText, started)
 		b, _ := json.Marshal(result)
 		text := agent.Redact(string(b), s.secrets)
 		return reply(map[string]any{

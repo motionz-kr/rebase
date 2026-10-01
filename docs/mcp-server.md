@@ -7,19 +7,23 @@ agent.
 
 ## Quick start (60 seconds)
 
-1. In Rebase, click the **pencil** on a MySQL/PostgreSQL connection.
-2. Open **AI 클라이언트 연결 (MCP)** and toggle **이 연결을 외부 AI 클라이언트에 노출** on.
-3. Click **Claude Desktop에 연결** (or **Codex** / **Cursor**). Rebase writes the
-   server entry into that client's config (backing up the old one first).
-4. **Restart the AI client.** Done — ask it about your database.
+1. In Rebase, open the **MCP** tab on each SQL connection you want to expose and
+   toggle **이 연결을 외부 AI 클라이언트에 노출** on.
+2. From any enabled connection, click **Claude Desktop에 연결** (or **Codex** /
+   **Cursor**) once. Rebase installs one shared server entry and backs up the
+   existing client config first.
+3. **Restart the AI client.** Ask it to list the available Rebase connections,
+   then use the connection you want.
 
 > Prefer manual setup? Copy the JSON snippet shown in the panel into the client's
-> MCP config instead of using the buttons.
+> MCP config. If the client already has profile-specific Rebase entries, remove
+> those manually; Auto-connect migrates them automatically.
 
 ## Example prompts (to your AI client)
 
 Once connected, ask the client things like:
 
+- "List the Rebase connections I can use and inspect the analytics database."
 - "What tables are in the database, and how are they related?"
 - "Describe the `orders` table — columns, types, indexes."
 - "Find slow queries and tell me which indexes are missing."
@@ -47,6 +51,11 @@ request without touching the database.
 
 ## Scope and activity history
 
+Each connection keeps its own engine-enforced **접근 허용 범위** and write
+policy. The shared MCP server can select only profiles whose **이 연결을 외부
+AI 클라이언트에 노출** setting is enabled. Every database tool call must pass
+the selected connection's `connectionId` returned by `list_connections`.
+
 The MCP tab also has an engine-enforced **접근 허용 범위** section:
 
 - **허용 데이터베이스** — exact database names. For MySQL this is also the
@@ -56,15 +65,16 @@ The MCP tab also has an engine-enforced **접근 허용 범위** section:
   `public.orders`.
 
 Each value is entered one per line. An empty list preserves the legacy
-unrestricted behavior for that dimension. These lists are persisted with the
+unrestricted behavior for that dimension. These lists are persisted with each
 connection profile and enforced in the engine for metadata tools,
 `run_select`, and `explain_query`; the Schema tab's hidden-table setting only
 changes local display and is not a security control. When an allowlist is
 active, an ambiguous table reference is rejected conservatively.
 
-The MCP activity page shows recent inbound handshakes, sessions, tool calls,
-errors, and pending write approvals for the profile. The external-server
-section shows test/call activity. Tool-call activity includes the SQL actually
+The MCP activity page shows shared-server handshakes, tool calls, errors, and
+pending write approvals. Each tool call is recorded against its selected
+connection profile. The external-server section shows test/call activity.
+Tool-call activity includes the SQL actually
 sent to the connector (including generated `EXPLAIN` and diagnostic queries)
 and elapsed time; expand an event to inspect the exact query.
 Registered connection secrets are replaced with `[redacted]` before SQL is
@@ -75,7 +85,7 @@ session or call has occurred.
 
 ## Enable a connection
 
-1. Edit a **MySQL or PostgreSQL** connection (the pencil icon).
+1. Edit a supported SQL connection (the pencil icon).
 2. In **AI 클라이언트 연결 (MCP)**, turn on **이 연결을 외부 AI 클라이언트에 노출**.
 A connection that isn't enabled is **refused** even if a client is configured to
 launch it. Once enabled, read-only MCP tools return their complete results,
@@ -93,8 +103,9 @@ including row values and `EXPLAIN` plans.
 The panel shows a ready-to-paste config snippet and one-click buttons:
 
 - **Auto-connect** — click **Claude Desktop / Codex / Cursor** (enabled when the
-  client is detected). Rebase merges its server entry into that client's config,
-  **backing up the existing file first** and preserving every other entry.
+  client is detected). Rebase adds the single `rebase-databases` entry,
+  **backs up the existing file first**, preserves unrelated entries, and removes
+  older Rebase entries that were bound to individual profiles.
 - **Copy snippet** — paste the JSON into the client's MCP config manually.
 
 Auto-connect reports that the configuration was saved; it does not claim that
@@ -109,27 +120,36 @@ Config locations:
 | Cursor | `~/.cursor/mcp.json` | JSON |
 | Codex | `~/.codex/config.toml` | TOML |
 
-Restart the client after connecting. The entry runs the bundled engine in MCP
-stdio mode: `app-engine -mcp <profileId> -token mcp`. MCP stdio does not use
-the desktop HTTP handshake file.
+Restart the client after connecting or changing which profiles are exposed. The
+entry runs the bundled engine in unified MCP stdio mode:
+`app-engine -mcp all`. The process discovers MCP-enabled SQL profiles from
+Rebase's local profile store. Stdio uses local process pipes and does not use a
+bearer token or the desktop HTTP handshake file; the old literal `-token mcp`
+argument was not an authentication credential.
 
 ## Tools exposed
 
-The same 14 read/diagnostic tools the agent uses plus the proposal tool:
-`list_tables`,
+The 14 read/diagnostic tools plus the proposal tool:
+`list_connections`, `list_tables`,
 `describe_table`, `get_table_ddl`, `list_indexes`, `list_foreign_keys`,
 `find_column`, `profile_table`, `table_stats`, `run_select`, `explain_query`,
 `find_duplicate_indexes`, `slow_queries`, `find_unused_indexes`, and
 `propose_write`. `write_proposal_status` is added when approval mode is enabled.
-`execute_write` is added only when full access is enabled on a non-read-only
-connection. `propose_write` remains proposal-only unless the user approves the
-request in the Rebase activity view.
+Every database tool requires the `connectionId` returned by `list_connections`;
+database tools may also accept a `database` argument to select another exact
+allowed database within that profile. `execute_write` is added when at least one
+exposed profile allows full access; the selected connection's own write mode
+and read-only setting still decide whether execution is allowed. A tool enabled
+for one profile can return “not enabled for selected connection” on another.
+`propose_write` remains proposal-only unless that profile uses approval mode and
+the user approves the request in the Rebase activity view.
 
 ## Security model
 
 - **stdio only** — no network port; the client launches the binary locally. The
   trust boundary is your machine.
-- **Opt-in per connection** — only enabled connections can be served.
+- **One client entry, opt-in per connection** — one local MCP process lists only
+  profiles individually enabled for MCP.
 - **Write policy per connection** — writes remain disabled unless the profile is
   explicitly set to approval mode; profile-level read-only still overrides it.
 - **Explicit approval** — the approval UI executes the stored SQL, not a newly
@@ -138,8 +158,9 @@ request in the Rebase activity view.
   connected local client so it can answer database questions accurately.
 - **Secret redaction** strips the connection password / secret ref from anything
   returned.
-- **Auto-connect** writes only the `rebase-<connId>` key, backs up the existing
-  config, and never clobbers other servers.
+- **Auto-connect** writes the `rebase-databases` key, backs up the existing
+  config, preserves unrelated servers, and removes Rebase's old profile-bound
+  entries.
 
 ## Notes
 
