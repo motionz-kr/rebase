@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.37.0](https://github.com/motionz-kr/rebase/compare/v0.36.0...v0.37.0) (2026-10-02)
+
+
+### Features
+
+* **ui:** add query tab close context menu ([07e3c8d](https://github.com/motionz-kr/rebase/commit/07e3c8d27689379842221a3681b017661e40063f))
+* **ui:** add query tab close context menu ([11b0811](https://github.com/motionz-kr/rebase/commit/11b0811fa31829856eb9fc3bacab85d9c8b6f35a))
+
+
+### Bug Fixes
+
+* **ssm:** terminate owned remote sessions during tunnel cleanup ([9a33b18](https://github.com/motionz-kr/rebase/commit/9a33b1884e4b0135200a13a712664cc8334d0f83))
+* **ssm:** terminate owned remote sessions during tunnel cleanup ([#214](https://github.com/motionz-kr/rebase/issues/214)) ([7c63b3f](https://github.com/motionz-kr/rebase/commit/7c63b3f97dd0af930cb95d4a0d5ad8c497dc36a6))
+
 ## [0.36.0](https://github.com/motionz-kr/rebase/compare/v0.35.0...v0.36.0) (2026-10-01)
 
 
