@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { EngineManager } from './engine_manager';
+import { EventEmitter } from 'events';
 
 vi.mock('child_process', () => {
   return {
@@ -27,6 +28,7 @@ describe('EngineManager', () => {
       fs.unlinkSync(handshakePath);
     }
     vi.restoreAllMocks();
+    vi.useRealTimers();
   });
 
   it('should start Go engine, write/read handshake, and stop Go engine', async () => {
@@ -56,5 +58,30 @@ describe('EngineManager', () => {
 
     await manager.stop();
     expect(manager.getPid()).toBeNull();
+  });
+
+  it('allows remote SSM cleanup to finish before escalating shutdown', async () => {
+    vi.useFakeTimers();
+    const manager = new EngineManager({ binaryPath: 'fake', handshakePath, token: 'test' });
+    const proc = Object.assign(new EventEmitter(), { exitCode: null, killed: false, kill: vi.fn() });
+    Object.assign(manager, { process: proc });
+    const stopped = manager.stop();
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(proc.kill.mock.calls).toEqual([['SIGTERM']]);
+    proc.emit('exit', 0);
+    await stopped;
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(proc.kill.mock.calls).toEqual([['SIGTERM']]);
+  });
+
+  it('still force-kills an engine that never finishes cleanup', async () => {
+    vi.useFakeTimers();
+    const manager = new EngineManager({ binaryPath: 'fake', handshakePath, token: 'test' });
+    const proc = Object.assign(new EventEmitter(), { exitCode: null, killed: false, kill: vi.fn() });
+    Object.assign(manager, { process: proc });
+    const stopped = manager.stop();
+    await vi.advanceTimersByTimeAsync(10000);
+    await stopped;
+    expect(proc.kill.mock.calls).toEqual([['SIGTERM'], ['SIGKILL']]);
   });
 });

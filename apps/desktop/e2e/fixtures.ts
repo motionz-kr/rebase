@@ -31,7 +31,7 @@ export const test = base.extend<Fixtures>({
     });
     await use(app);
     // Graceful close can hang (engine child shutdown); cap it and force-kill.
-    await Promise.race([app.close().catch(() => {}), new Promise((r) => setTimeout(r, 5000))]);
+    await Promise.race([app.close().catch(() => {}), new Promise((r) => setTimeout(r, 12000))]);
     try {
       app.process()?.kill('SIGKILL');
     } catch {

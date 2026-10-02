@@ -24,6 +24,9 @@ func TestSSMProcessHelper(t *testing.T) {
 	if os.Getenv("REBASE_SSM_HELPER") != "1" {
 		return
 	}
+	if id := os.Getenv("REBASE_SSM_SESSION_ID"); id != "" {
+		fmt.Printf("\nStarting session with SessionId: %s\n", id)
+	}
 	if os.Getenv("REBASE_SSM_HELPER_FAIL") == "1" {
 		fmt.Fprintln(os.Stderr, "AccessDeniedException secret-token")
 		os.Exit(1)

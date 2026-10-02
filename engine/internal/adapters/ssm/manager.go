@@ -26,11 +26,12 @@ type entry struct {
 	err       error
 }
 type session struct {
-	cmd      *exec.Cmd
-	done     chan struct{}
-	output   *sessionOutput
-	endpoint ports.ConnectionEndpoint
-	once     sync.Once
+	cmd             *exec.Cmd
+	done            chan struct{}
+	output          *sessionOutput
+	endpoint        ports.ConnectionEndpoint
+	once            sync.Once
+	terminateRemote func(string)
 }
 
 func (s *session) alive() bool {
@@ -55,21 +56,32 @@ func (s *session) stop() {
 		case <-s.done:
 		case <-time.After(time.Second):
 		}
+		// Killing the client only closes its channel; AWS may still retain an
+		// active session. Output has drained now, including startup failures.
+		if id := s.output.sessionID(); id != "" && s.terminateRemote != nil {
+			s.terminateRemote(id)
+		}
 	})
 }
 
 // sessionOutput is bounded, concurrency-safe and never forwarded to stderr/stdout.
 // Readiness must come from the plugin, not an unrelated listener occupying a port.
 type sessionOutput struct {
-	mu    sync.Mutex
-	text  string
-	ready chan struct{}
-	once  sync.Once
+	mu             sync.Mutex
+	text           string
+	ready          chan struct{}
+	once           sync.Once
+	ownedSessionID string
 }
 
 func (o *sessionOutput) Write(p []byte) (int, error) {
 	o.mu.Lock()
 	o.text += string(p)
+	if o.ownedSessionID == "" {
+		if match := sessionIDLine.FindStringSubmatch(o.text); match != nil {
+			o.ownedSessionID = match[1]
+		}
+	}
 	if len(o.text) > 16384 {
 		o.text = o.text[len(o.text)-16384:]
 	}
@@ -82,16 +94,23 @@ func (o *sessionOutput) Write(p []byte) (int, error) {
 }
 func (o *sessionOutput) diagnostic() string { o.mu.Lock(); defer o.mu.Unlock(); return o.text }
 
+func (o *sessionOutput) sessionID() string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.ownedSessionID
+}
+
 type Manager struct {
-	mu       sync.Mutex
-	entries  map[string]*entry
-	closed   bool
-	lookPath func(string) (string, error)
-	command  func(string, ...string) *exec.Cmd
+	mu               sync.Mutex
+	entries          map[string]*entry
+	closed           bool
+	lookPath         func(string) (string, error)
+	command          func(string, ...string) *exec.Cmd
+	terminateCommand func(context.Context, string, ...string) *exec.Cmd
 }
 
 func NewManager() *Manager {
-	return &Manager{entries: make(map[string]*entry), lookPath: findExecutable, command: exec.Command}
+	return &Manager{entries: make(map[string]*entry), lookPath: findExecutable, command: exec.Command, terminateCommand: exec.CommandContext}
 }
 
 // findExecutable also handles desktop launch environments with a minimal PATH.
@@ -201,7 +220,16 @@ func (m *Manager) start(ctx context.Context, p domain.ConnectionProfile) (*sessi
 		return nil, errors.New("AWS SSM: AWS CLI를 실행하지 못했습니다. 설치 경로와 실행 권한을 확인하세요")
 	}
 	s := &session{cmd: cmd, done: make(chan struct{}), output: output, endpoint: ports.ConnectionEndpoint{Host: "127.0.0.1", Port: port}}
-	go func() { _ = cmd.Wait(); close(s.done) }()
+	// Snapshot the route and command factory: profile edits must never retarget
+	// cleanup, and request cancellation must not cancel the cleanup API call.
+	config, terminateCommand := *p.SSM, m.terminateCommand
+	s.terminateRemote = func(id string) { terminateRemoteSession(terminateCommand, awsPath, config, id) }
+	go func() {
+		_ = cmd.Wait()
+		close(s.done)
+		// Clean up unexpected exits immediately, even if no more queries arrive.
+		s.stop()
+	}()
 	select {
 	case <-ctx.Done():
 		s.stop()

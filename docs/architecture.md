@@ -331,7 +331,10 @@ delegates SSM profiles to the `TunnelManager` port. The SSM adapter owns AWS CLI
 processes, readiness and loopback endpoint allocation. Composition injects one
 manager per engine into UI and MCP connector paths, including introspection,
 query sessions and cancellation. Engine shutdown and profile changes clean up
-owned process trees. No credentials or temporary endpoints are persisted.
+owned process trees and explicitly terminate their remote SSM sessions. The
+adapter retains the plugin's SessionId in memory, uses the original AWS route
+for bounded cleanup, and also cleans up startup failures and unexpected CLI
+exits. No credentials or temporary endpoints are persisted.
 
 MCP stdio engines start their own tunnels on demand and can run independently
 of Electron. They share saved routing metadata, not ports or process ownership.

@@ -7,8 +7,9 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-type TunnelRecord = { pid: number; port: number; profile: string; region: string; host: string; documentName: string; parameterNames: string[] };
-type FakeSSM = { dir: string; log: string; env: Record<string, string>; records(): TunnelRecord[] };
+type TunnelRecord = { sessionId: string; pid: number; port: number; profile: string; region: string; host: string; documentName: string; parameterNames: string[] };
+type TerminationRecord = { sessionId: string; profile: string; region: string };
+type FakeSSM = { dir: string; log: string; env: Record<string, string>; records(): TunnelRecord[]; terminations(): TerminationRecord[]; activeSessions(): string[] };
 const test = base.extend<{ fakeSSM: FakeSSM; customDocumentPort: number }>({
   customDocumentPort: [MYSQL.port, { option: true }],
   fakeSSM: async ({ customDocumentPort }, use) => {
@@ -21,6 +22,21 @@ const fs = require('fs');
 const args = process.argv.slice(2);
 const option = (name) => args[args.indexOf(name) + 1];
 const profile = args.includes('--profile') ? option('--profile') : '';
+// Remote state survives tunnel SIGTERM/SIGKILL. Only an explicit API call clears it.
+if (args[0] === 'ssm' && args[1] === 'terminate-session') {
+  const sessionId = option('--session-id');
+  if (!/^e2e-[0-9]+$/.test(sessionId)) process.exit(1);
+  const stateFile = require('path').join(process.env.REBASE_E2E_SSM_DIR, 'active-' + sessionId);
+  const record = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+  if (record.profile !== profile || record.region !== option('--region')) process.exit(1);
+  if (fs.existsSync(require('path').join(process.env.REBASE_E2E_SSM_DIR, 'delay-termination'))) {
+    // Model API latency beyond the old three-second Desktop shutdown grace.
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 3500);
+  }
+  fs.appendFileSync(process.env.REBASE_E2E_SSM_LOG + '.terminated', JSON.stringify({ sessionId, profile, region: option('--region') }) + '\n');
+  fs.unlinkSync(stateFile);
+  process.exit(0);
+}
 if (profile === 'expired') { console.error('SSO token has expired secret-e2e-token'); process.exit(1); }
 if (profile === 'denied') { console.error('AccessDeniedException User: arn:aws:sts::123:assumed-role/AWSReservedSSO_readonly secret-e2e-token'); process.exit(1); }
 if (profile === 'missing-plugin') { console.error('SessionManagerPlugin is not found'); process.exit(1); }
@@ -35,6 +51,12 @@ if (documentName === 'AWS-StartPortForwardingSessionToRemoteHost') {
   if (JSON.stringify(Object.keys(params)) !== JSON.stringify(['localPortNumber'])) { console.error('InvalidParameters: document accepts localPortNumber only'); process.exit(1); }
   remotePort = Number(process.env.REBASE_E2E_CUSTOM_SSM_PORT); host = 'document.destination';
 } else process.exit(1);
+const sessionId = 'e2e-' + process.pid;
+const record = { sessionId, pid: process.pid, port, profile, region: option('--region'), host, documentName, parameterNames: Object.keys(params).sort() };
+fs.appendFileSync(process.env.REBASE_E2E_SSM_LOG, JSON.stringify(record) + '\n');
+fs.writeFileSync(require('path').join(process.env.REBASE_E2E_SSM_DIR, 'active-' + sessionId), JSON.stringify(record));
+console.log('\nStarting session with SessionId: ' + sessionId);
+if (profile === 'startup-failure') { console.error('failed to establish data channel secret-e2e-token'); process.exit(1); }
 const sockets = new Set();
 const server = net.createServer((client) => {
   const upstream = net.connect(remotePort, '127.0.0.1');
@@ -44,8 +66,7 @@ const server = net.createServer((client) => {
   client.on('error', close); upstream.on('error', close); client.on('close', close); upstream.on('close', close);
 });
 server.listen(port, '127.0.0.1', () => {
-  fs.appendFileSync(process.env.REBASE_E2E_SSM_LOG, JSON.stringify({ pid: process.pid, port, profile, region: option('--region'), host, documentName, parameterNames: Object.keys(params).sort() }) + '\n');
-  console.log('Port ' + port + ' opened for sessionId e2e.');
+  console.log('Port ' + port + ' opened for sessionId ' + sessionId + '.');
   console.log('Waiting for connections...');
 });
 process.on('SIGTERM', () => { for (const socket of sockets) socket.destroy(); server.close(() => process.exit(0)); });
@@ -54,8 +75,10 @@ process.on('SIGTERM', () => { for (const socket of sockets) socket.destroy(); se
     fs.writeFileSync(path.join(dir, 'session-manager-plugin'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
     const fake: FakeSSM = {
       dir, log,
-      env: { PATH: `${dir}${path.delimiter}${process.env.PATH ?? ''}`, REBASE_E2E_SSM_LOG: log, REBASE_E2E_CUSTOM_SSM_PORT: String(customDocumentPort) },
+      env: { PATH: `${dir}${path.delimiter}${process.env.PATH ?? ''}`, REBASE_E2E_SSM_DIR: dir, REBASE_E2E_SSM_LOG: log, REBASE_E2E_CUSTOM_SSM_PORT: String(customDocumentPort) },
       records: () => fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map((line) => JSON.parse(line)) : [],
+      terminations: () => fs.existsSync(log + '.terminated') ? fs.readFileSync(log + '.terminated', 'utf8').trim().split('\n').filter(Boolean).map((line) => JSON.parse(line)) : [],
+      activeSessions: () => fs.readdirSync(dir).filter((name) => name.startsWith('active-')).map((name) => name.slice('active-'.length)).sort(),
     };
     try { await use(fake); } finally {
       for (const record of fake.records()) { try { process.kill(record.pid, 'SIGKILL'); } catch {} }
@@ -81,7 +104,7 @@ async function fillSSM(win: import('@playwright/test').Page, profile = 'e2e') {
 async function stopMCP(child: ChildProcessWithoutNullStreams, signal?: NodeJS.Signals) {
   if (child.exitCode !== null || child.signalCode !== null) return;
   await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => { child.kill('SIGKILL'); reject(new Error('MCP engine did not shut down gracefully')); }, 5000);
+    const timer = setTimeout(() => { child.kill('SIGKILL'); reject(new Error('MCP engine did not shut down gracefully')); }, 10000);
     child.once('exit', () => { clearTimeout(timer); resolve(); });
     if (signal) child.kill(signal); else child.stdin.end();
   });
@@ -133,6 +156,19 @@ test('SSM settings and actionable connection errors in the real app', async ({ f
   await expect(win.locator('.ssm-settings')).toHaveCount(0);
 });
 
+test('failed SSM startups terminate remote sessions on every connection test', async ({ firstWindow: win, fakeSSM }) => {
+  const form = await fillSSM(win, 'startup-failure');
+  for (let i = 1; i <= 3; i++) {
+    await form.getByRole('button', { name: 'Test', exact: true }).click();
+    await expect(form.locator('.alert.error')).toContainText('AWS SSM');
+    await expect(form.locator('.alert.error')).not.toContainText('secret-e2e-token');
+    await expect.poll(() => fakeSSM.records().length).toBe(i);
+    await expect.poll(() => fakeSSM.terminations().length).toBe(i);
+    expect(fakeSSM.activeSessions()).toEqual([]);
+  }
+  await win.screenshot({ path: test.info().outputPath('ssm-failed-startup-cleanup.png') });
+});
+
 for (const db of [
   { driver: 'mysql', ...MYSQL },
   { driver: 'postgres', host: '127.0.0.1', port: Number(process.env.E2E_SSM_POSTGRES_PORT ?? 5432), database: 'postgres', username: 'postgres', password: process.env.E2E_SSM_POSTGRES_PASSWORD ?? 'postgres' },
@@ -165,6 +201,8 @@ for (const db of [
       await win.screenshot({ path: test.info().outputPath('ssm-config.png') });
       // Unsaved connection-test tunnels are released immediately.
       await expect.poll(async () => isPortOpen('127.0.0.1', fakeSSM.records()[0]?.port ?? 0)).toBe(false);
+      expect(fakeSSM.activeSessions()).toEqual([]);
+      expect(fakeSSM.terminations()).toHaveLength(1);
       await form.locator('button[type="submit"]').click();
       const row = win.locator('.conn-row').filter({ hasText: 'SSM E2E' });
       await expect(row).toContainText(mode === 'document' ? 'SSM · Revisit-RdsPortForwarding' : 'SSM · db.e2e.invalid');
@@ -197,6 +235,7 @@ for (const db of [
       // Simulate a dropped SSM process: the next new DB operation starts a tunnel.
       process.kill(fakeSSM.records()[1].pid, 'SIGKILL');
       await expect.poll(async () => isPortOpen('127.0.0.1', fakeSSM.records()[1].port)).toBe(false);
+      await expect.poll(() => fakeSSM.activeSessions()).toEqual([]);
       const broken = await sessionQuery(win, id, db.database, sessionId, 'SELECT 999 AS must_not_replay');
       expect(broken.some((chunk) => chunk.type === 'error')).toBe(true);
       expect(broken.some((chunk) => chunk.type === 'row')).toBe(false);
@@ -227,6 +266,7 @@ for (const db of [
       const updated = (await win.evaluate(() => window.electronAPI.listProfiles())).data!.find((p) => p.id === id)!;
       expect(updated.mcpEnabled).toBe(true); expect(updated.ssm!.region).toBe('us-east-1');
       await expect.poll(async () => isPortOpen('127.0.0.1', fakeSSM.records()[2].port)).toBe(false);
+      await expect.poll(() => fakeSSM.activeSessions()).toEqual([]);
       const engine = await win.evaluate(() => window.electronAPI.mcpEnginePath());
       const userDir = await app.evaluate(({ app }) => app.getPath('userData'));
       child = spawn(engine, ['-db', path.join(userDir, 'metadata.db'), '-mcp', id, '-token', 'mcp'], { env: { ...process.env, ...fakeSSM.env }, stdio: 'pipe' });
@@ -240,6 +280,12 @@ for (const db of [
       expect(fakeSSM.records()[3].region).toBe('us-east-1');
       const again = await rpc(3, 'tools/call', { name: 'run_select', arguments: { sql: 'SELECT 76 AS ssm_mcp_value' } });
       expect(again.result.content[0].text).toContain('76'); expect(fakeSSM.records()).toHaveLength(4);
+      for (let i = 0; i < 8; i++) {
+        const repeated = await rpc(10 + i, 'tools/call', { name: 'run_select', arguments: { sql: 'SELECT 76 AS ssm_mcp_value' } });
+        expect(repeated.result.isError).not.toBe(true);
+      }
+      expect(fakeSSM.records()).toHaveLength(4);
+      expect(fakeSSM.activeSessions()).toEqual([fakeSSM.records()[3].sessionId]);
       // Both engines hold live tunnels at the same time and must use distinct ports.
       await typeQuery(win, 'SELECT 78 AS ssm_parallel_desktop');
       await win.locator('.conn-panel .editor-toolbar button', { hasText: 'Run' }).first().click();
@@ -250,6 +296,7 @@ for (const db of [
       expect(await isPortOpen('127.0.0.1', fakeSSM.records()[4].port)).toBe(true);
       await stopMCP(child);
       await expect.poll(async () => isPortOpen('127.0.0.1', fakeSSM.records()[3].port)).toBe(false);
+      expect(fakeSSM.activeSessions()).toEqual([fakeSSM.records()[4].sessionId]);
       expect(await isPortOpen('127.0.0.1', fakeSSM.records()[4].port)).toBe(true);
       await typeQuery(win, 'SELECT 77 AS ssm_after_mcp');
       await win.locator('.conn-panel .editor-toolbar button', { hasText: 'Run' }).first().click();
@@ -267,10 +314,14 @@ for (const db of [
       await stopMCP(child, 'SIGTERM');
       expect(child.signalCode).not.toBe('SIGKILL');
       await expect.poll(async () => isPortOpen('127.0.0.1', fakeSSM.records()[5].port)).toBe(false);
+      expect(fakeSSM.activeSessions()).toEqual([fakeSSM.records()[4].sessionId]);
       expect(await isPortOpen('127.0.0.1', fakeSSM.records()[4].port)).toBe(true);
       // Desktop shutdown also cleans its own live tunnel, independently of MCP.
+      fs.writeFileSync(path.join(fakeSSM.dir, 'delay-termination'), '');
       await app.close(); appClosed = true;
       await expect.poll(async () => isPortOpen('127.0.0.1', fakeSSM.records()[4].port)).toBe(false);
+      expect(fakeSSM.activeSessions()).toEqual([]);
+      expect(fakeSSM.terminations().map((r) => r.sessionId).sort()).toEqual(fakeSSM.records().map((r) => r.sessionId).sort());
     } finally {
       if (child) await stopMCP(child);
       if (id && !appClosed) await win.evaluate((profileId) => window.electronAPI.deleteProfile(profileId), id);
