@@ -2802,6 +2802,16 @@
 .ctx-item:hover svg {
   color: var(--accent);
 }
+.query-tab-menu .ctx-item:disabled {
+  color: var(--text-3);
+  background: transparent;
+  cursor: default;
+  opacity: 0.5;
+}
+.query-tab-menu .ctx-item:focus-visible {
+  outline: 1px solid var(--accent);
+  background: var(--accent-soft);
+}
 
 /* Modal */
 .modal-overlay {
