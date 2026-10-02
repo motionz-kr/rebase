@@ -70,8 +70,8 @@ export class EngineManager {
 
     if (proc && proc.exitCode === null && !proc.killed) {
       await new Promise<void>((resolve) => {
-        // Escalate to SIGKILL if the engine doesn't exit promptly on SIGTERM,
-        // so it can't survive as an orphan holding DB connections.
+        // Allow local process cleanup (2s) and the bounded SSM TerminateSession
+        // call (5s) to finish before escalating to SIGKILL.
         const timer = setTimeout(() => {
           try {
             proc.kill('SIGKILL');
@@ -79,7 +79,7 @@ export class EngineManager {
             // already gone
           }
           resolve();
-        }, 3000);
+        }, 10000);
         proc.once('exit', () => {
           clearTimeout(timer);
           resolve();

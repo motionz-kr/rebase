@@ -60,6 +60,13 @@ The adapter exposes only loopback endpoints after readiness, bounds its output
 buffer, converts CLI output to curated errors and never forwards CLI logs to
 renderer/MCP stdout or activity storage. An SSM error never falls back to a
 direct DB connection or replays SQL. Existing MCP/query policies still apply.
+The adapter retains the first complete SessionId from the plugin's startup
+output in memory and explicitly terminates only that owned session, using the
+original AWS profile and region. It never enumerates or bulk-terminates sessions.
+Cleanup has an independent, bounded context; failed termination emits a curated
+stderr warning without CLI output. IAM must allow `ssm:TerminateSession` for the
+caller's own sessions. Hard process termination or unavailable AWS credentials/
+network can still leave remote sessions requiring operator cleanup.
 
 SSM transport does not introduce IAM DB authentication or stronger DB certificate
 verification. See [SSM connections](ssm-connections.md) for supported scope.

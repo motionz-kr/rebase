@@ -1495,9 +1495,20 @@ app.on('activate', () => {
   }
 });
 
-app.on('will-quit', async () => {
-  if (engineManager) {
-    console.log('Stopping Go engine...');
-    await engineManager.stop();
-  }
+let engineShutdownPending = false;
+app.on('will-quit', (event) => {
+  if (cleanedUp || !engineManager) return;
+  // Electron does not await async event handlers. Keep the app alive until
+  // the engine has finished its bounded remote SSM session cleanup.
+  event.preventDefault();
+  if (engineShutdownPending) return;
+  engineShutdownPending = true;
+  abortAllStreams();
+  console.log('Stopping Go engine...');
+  void engineManager.stop().catch((error) => {
+    console.error('Failed to stop Go engine:', error);
+  }).finally(() => {
+    cleanedUp = true;
+    app.quit();
+  });
 });
