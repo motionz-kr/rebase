@@ -15,6 +15,7 @@ import { TableDataView } from './TableDataView';
 import { ExecStatusBar, type ExecInfo } from './ExecStatusBar';
 import { ResultNarrator } from './ResultNarrator';
 import { QuerySessionManager, type QuerySessionClient } from './QuerySessionManager';
+import { QueryTabContextMenu } from './QueryTabContextMenu';
 import type { SchemaInfo } from '../lib/sqlCompletion';
 import type { AnalyzeResult } from '../global';
 import { clampEditorHeight, EDITOR_DEFAULT, loadNum, saveNum } from '../lib/uiPrefs';
@@ -30,6 +31,7 @@ import { getDisconnectTransactionTabs } from '../lib/connectionLifecycle';
 import { canEnableTabWrite, resolveQueryAllowWrite, resolveTabWriteMode } from '../lib/queryTabPolicy';
 import { readQueryTabs, writeQueryTabs, type PersistedQueryTab } from '../lib/queryTabPersistence';
 import { createMultiStatementResumePlan } from '../lib/multiStatementResume';
+import { canCloseQueryTabs, getQueryTabCloseIds, getRemainingActiveTabId, type QueryTabCloseScope } from '../lib/queryTabClose';
 
 loader.config({ monaco });
 
@@ -244,6 +246,10 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
   // an editable table view (add/edit/delete) instead of the read-only grid.
   const [editView, setEditView] = useState<EditableQuery | null>(null);
   const [showSessionManager, setShowSessionManager] = useState(false);
+  const [tabMenu, setTabMenu] = useState<{ tabId: string; x: number; y: number } | null>(null);
+  const closingTabsRef = useRef(false);
+  const [closingTabs, setClosingTabs] = useState(false);
+  const dismissTabMenu = useCallback(() => setTabMenu(null), []);
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [saveQueryName, setSaveQueryName] = useState('');
   const [saveNameTouched, setSaveNameTouched] = useState(false);
@@ -1052,7 +1058,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     databaseOverride?: string;
     statementRangesOverride?: SqlStatementRange[];
   }) => {
-    if (activeTab.loading) return;
+    if (activeTab.loading || closingTabsRef.current) return;
 
     const pendingMultiRun = pendingMultiRunsRef.current[activeTab.id];
     if (override?.resumeMulti && pendingMultiRun) {
@@ -1351,26 +1357,44 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     setActiveTabId(id);
   };
 
-  const closeTab = async (tabId: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (tabs.length === 1) return;
-    clearPendingMultiRun(tabId);
-    const target = tabs.find((t) => t.id === tabId);
-    if (target?.transactionMode === 'manual' && ['opening', 'active', 'failed'].includes(target.transactionState)) {
-      if (!window.confirm('이 탭을 닫으면 미커밋 변경 사항이 Rollback 됩니다. 계속할까요?')) return;
-    }
-    if (target?.loading && target.queryId) {
-      await window.electronAPI.cancelQuery(target.queryId);
-    }
+  const closeTabs = async (targetId: string, scope: QueryTabCloseScope) => {
+    dismissTabMenu();
+    if (closingTabsRef.current) return;
+    const closeIds = getQueryTabCloseIds(tabsRef.current, targetId, scope);
+    if (!canCloseQueryTabs(tabsRef.current, targetId, scope)) return;
+    closingTabsRef.current = true;
+    setClosingTabs(true);
     try {
-      await closeTransactionSession(tabId);
+      const targets = tabsRef.current.filter((tab) => closeIds.includes(tab.id));
+      if (targets.some((tab) => tab.transactionMode === 'manual' && ['opening', 'active', 'failed'].includes(tab.transactionState))) {
+        if (!window.confirm(`${targets.length}개 탭을 닫으면 미커밋 변경 사항이 Rollback 됩니다. 계속할까요?`)) return;
+      }
+      for (const tabId of closeIds) {
+        const target = tabsRef.current.find((tab) => tab.id === tabId);
+        if (!target) continue;
+        if (target.loading) {
+          throw new Error('실행 중인 탭은 쿼리를 먼저 중지한 뒤 닫아주세요.');
+        }
+        await closeTransactionSession(tabId);
+        clearPendingMultiRun(tabId);
+        const currentTabs = tabsRef.current;
+        const remaining = currentTabs.filter((tab) => tab.id !== tabId);
+        if (remaining.length === 0) {
+          remaining.push(newTab(`tab-${crypto.randomUUID()}`, 'Query 1', target.database, ''));
+        }
+        const nextActiveId = getRemainingActiveTabId(currentTabs, activeTabIdRef.current, [tabId]) ?? remaining[0].id;
+        if (activeTabIdRef.current === tabId) setEditView(null);
+        tabsRef.current = remaining;
+        activeTabIdRef.current = nextActiveId;
+        setTabs(remaining);
+        setActiveTabId(nextActiveId);
+      }
     } catch (error) {
-      alert(error instanceof Error ? error.message : '트랜잭션 세션을 닫지 못했습니다.');
-      return;
+      alert(error instanceof Error ? error.message : '탭을 닫지 못했습니다.');
+    } finally {
+      closingTabsRef.current = false;
+      setClosingTabs(false);
     }
-    const filtered = tabs.filter((t) => t.id !== tabId);
-    setTabs(filtered);
-    if (activeTabId === tabId) setActiveTabId(filtered[filtered.length - 1].id);
   };
 
   const openSaveModal = () => {
@@ -1458,11 +1482,18 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
             className={`etab ${activeTabId === tab.id ? 'active' : ''}`}
             aria-label={formatQueryTabLabel(tab.name, tab.database)}
             onClick={() => setActiveTabId(tab.id)}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              if (!closingTabsRef.current) setTabMenu({ tabId: tab.id, x: event.clientX, y: event.clientY });
+            }}
           >
             <span className="etab-name">{tab.name}</span>
             {tab.database && <span className="etab-db" title={`스키마: ${tab.database}`}>{tab.database}</span>}
             {tabs.length > 1 && (
-              <button className="etab-close" onClick={(e) => closeTab(tab.id, e)}>
+              <button className="etab-close" aria-label={`${tab.name} 닫기`} disabled={closingTabs || tab.loading} title={tab.loading ? '실행 중인 쿼리를 먼저 중지해주세요.' : '탭 닫기'} onClick={(event) => {
+                event.stopPropagation();
+                void closeTabs(tab.id, 'current');
+              }}>
                 <X size={12} />
               </button>
             )}
@@ -1486,6 +1517,16 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
           </button>
         )}
       </div>
+      {tabMenu && (
+        <QueryTabContextMenu
+          tabs={tabs}
+          targetId={tabMenu.tabId}
+          x={tabMenu.x}
+          y={tabMenu.y}
+          onClose={dismissTabMenu}
+          onSelect={(scope) => void closeTabs(tabMenu.tabId, scope)}
+        />
+      )}
 
       {/* Monaco */}
       <div className="monaco-host">
