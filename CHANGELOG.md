@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.38.0](https://github.com/motionz-kr/rebase/compare/v0.37.0...v0.38.0) (2026-10-03)
+
+
+### Features
+
+* **db:** discover local databases and propose MCP registrations ([20596d8](https://github.com/motionz-kr/rebase/commit/20596d82a8d42aff8f8b1fd700972d1ff3848594))
+* **db:** discover local databases and propose MCP registrations ([a8b8720](https://github.com/motionz-kr/rebase/commit/a8b8720a46a23473212af10478e9848564125fc0))
+
 ## [0.37.0](https://github.com/motionz-kr/rebase/compare/v0.36.0...v0.37.0) (2026-10-02)
 
 
