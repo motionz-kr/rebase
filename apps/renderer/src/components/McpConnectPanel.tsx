@@ -165,7 +165,7 @@ export const McpConnectPanel: React.FC<Props> = ({
           )}
 
           <p className="mcp-note">
-            이 서버 하나에서 MCP 노출이 켜진 Rebase 연결을 선택해 사용할 수 있습니다. 각 연결의 접근 범위와 쓰기 정책은 별도로 적용됩니다. 쿼리 결과는 반환되며 연결 비밀번호와 토큰은 제거됩니다. 연결 설정 변경 후 AI 클라이언트를 재시작하세요.
+            이 서버 하나에서 MCP 노출이 켜진 Rebase 연결을 선택해 사용할 수 있습니다. 각 연결의 접근 범위와 쓰기 정책은 별도로 적용됩니다. 연결이나 권한 변경은 다음 MCP 호출부터 반영됩니다.
           </p>
 
           <div className="mcp-scope">

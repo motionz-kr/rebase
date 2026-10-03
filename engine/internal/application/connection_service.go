@@ -127,6 +127,9 @@ func (s *ConnectionService) UpdateProfile(ctx context.Context, p *domain.Connect
 	if err != nil {
 		return fmt.Errorf("failed to load existing profile: %w", err)
 	}
+	if !p.UpdatedAt.IsZero() && !p.UpdatedAt.Equal(existing.UpdatedAt) {
+		return errors.New("connection profile changed since it was loaded; refresh and review the latest values")
+	}
 	p.SecretRef = existing.SecretRef
 	if p.SecretRef == "" {
 		p.SecretRef = connectionSecretRef(p.ID)

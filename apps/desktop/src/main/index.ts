@@ -334,6 +334,15 @@ app.whenReady().then(() => {
     }
   });
 
+  ipcMain.handle('discover-databases', async () => {
+    try {
+      const data = await requestEngine({ method: 'POST', path: '/database-discovery' });
+      return { success: true, data };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
   ipcMain.handle('create-profile', async (event, profile, password) => {
     try {
       const data = await requestEngine({
@@ -1045,6 +1054,25 @@ app.whenReady().then(() => {
   ipcMain.handle('mcp-write-proposal-action', async (_e, id: string, action: 'approve' | 'reject') => {
     try {
       const data = await requestEngine({ method: 'POST', path: '/mcp/write-proposals', body: { id, action } });
+      return { success: true, data };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('mcp-connection-proposals-list', async (_e, status?: string) => {
+    try {
+      const params = new URLSearchParams({ status: status || 'pending_approval' });
+      const data = await requestEngine({ method: 'GET', path: `/mcp/connection-proposals?${params.toString()}` });
+      return { success: true, data };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('mcp-connection-proposal-action', async (_e, id: string, action: 'applied' | 'reject') => {
+    try {
+      const data = await requestEngine({ method: 'POST', path: '/mcp/connection-proposals', body: { id, action } });
       return { success: true, data };
     } catch (err: any) {
       return { success: false, error: err.message };

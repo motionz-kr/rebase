@@ -21,11 +21,12 @@ import (
 const protocolVersion = "2024-11-05"
 
 type Server struct {
-	registry    *agent.Registry
-	secrets     []string
-	activity    ports.MCPActivityRepository
-	workspaceID string
-	profileID   string
+	registry       *agent.Registry
+	secrets        []string
+	secretProvider func(context.Context) []string
+	activity       ports.MCPActivityRepository
+	workspaceID    string
+	profileID      string
 }
 
 func NewServer(reg *agent.Registry) *Server { return &Server{registry: reg} }
@@ -43,6 +44,10 @@ func (s *Server) record(ctx context.Context, event, tool, status, message, query
 }
 
 func (s *Server) recordForProfile(ctx context.Context, profileID, event, tool, status, message, queryText string, started time.Time) {
+	s.recordForProfileWithSecrets(ctx, profileID, event, tool, status, message, queryText, started, s.secretValues(ctx))
+}
+
+func (s *Server) recordForProfileWithSecrets(ctx context.Context, profileID, event, tool, status, message, queryText string, started time.Time, secrets []string) {
 	if s.activity == nil {
 		return
 	}
@@ -55,17 +60,33 @@ func (s *Server) recordForProfile(ctx context.Context, profileID, event, tool, s
 		Tool:        tool,
 		Status:      status,
 		Error:       domain.SafeMCPError(message),
-		QueryText:   agent.Redact(queryText, s.secrets),
+		QueryText:   agent.Redact(queryText, secrets),
 		DurationMs:  time.Since(started).Milliseconds(),
 		CreatedAt:   time.Now().UTC(),
 	})
 }
 
 // SetSecrets configures credential redaction applied to tool results before
-// they leave the server. MCP tool results themselves are returned unchanged so
-// clients can use row values and diagnostic output such as EXPLAIN plans.
+// they leave the server. Other row values and diagnostic output such as EXPLAIN
+// plans are returned unchanged.
 func (s *Server) SetSecrets(secrets []string) {
 	s.secrets = secrets
+}
+
+// SetSecretProvider refreshes credential redaction values for a dynamic
+// profile registry. It is called for each MCP request so newly enabled
+// profiles are protected without restarting the client.
+func (s *Server) SetSecretProvider(provider func(context.Context) []string) {
+	s.secretProvider = provider
+}
+
+func (s *Server) secretValues(ctx context.Context) []string {
+	if s.secretProvider != nil {
+		if secrets := s.secretProvider(ctx); secrets != nil {
+			return secrets
+		}
+	}
+	return s.secrets
 }
 
 type rpcRequest struct {
@@ -197,6 +218,7 @@ func (s *Server) Handle(ctx context.Context, raw []byte) *rpcResponse {
 		}
 		_ = json.Unmarshal(req.Params, &p)
 		started := time.Now()
+		requestSecrets := s.secretValues(ctx)
 		queries := make([]string, 0, 1)
 		traceCtx := agent.WithQueryRecorder(ctx, func(query string) { queries = append(queries, query) })
 		result, err := s.registry.Dispatch(traceCtx, p.Name, p.Arguments)
@@ -207,16 +229,17 @@ func (s *Server) Handle(ctx context.Context, raw []byte) *rpcResponse {
 				profileID = selected
 			}
 		}
+		requestSecrets = mergeSecrets(requestSecrets, s.secretValues(ctx))
 		if err != nil {
-			s.recordForProfile(ctx, profileID, "tool_call", p.Name, "error", err.Error(), queryText, started)
+			s.recordForProfileWithSecrets(ctx, profileID, "tool_call", p.Name, "error", err.Error(), queryText, started, requestSecrets)
 			return reply(map[string]any{
 				"content": []map[string]any{{"type": "text", "text": err.Error()}},
 				"isError": true,
 			})
 		}
-		s.recordForProfile(ctx, profileID, "tool_call", p.Name, "success", "", queryText, started)
+		s.recordForProfileWithSecrets(ctx, profileID, "tool_call", p.Name, "success", "", queryText, started, requestSecrets)
 		b, _ := json.Marshal(result)
-		text := agent.Redact(string(b), s.secrets)
+		text := agent.Redact(string(b), requestSecrets)
 		return reply(map[string]any{
 			"content": []map[string]any{{"type": "text", "text": text}},
 		})
@@ -224,4 +247,20 @@ func (s *Server) Handle(ctx context.Context, raw []byte) *rpcResponse {
 	default:
 		return &rpcResponse{Jsonrpc: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: "method not found: " + req.Method}}
 	}
+}
+
+func mergeSecrets(first, second []string) []string {
+	seen := make(map[string]struct{}, len(first)+len(second))
+	merged := make([]string, 0, len(first)+len(second))
+	for _, secret := range append(append([]string(nil), first...), second...) {
+		if secret == "" {
+			continue
+		}
+		if _, ok := seen[secret]; ok {
+			continue
+		}
+		seen[secret] = struct{}{}
+		merged = append(merged, secret)
+	}
+	return merged
 }

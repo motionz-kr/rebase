@@ -58,7 +58,7 @@ test.describe('README screenshots', () => {
     });
 
     // --- connect a SAFE-MODE MySQL connection via the form ---
-    await win.locator('.sidebar-head button').click();
+    await win.getByRole('button', { name: '새 연결' }).click();
     const form = win.locator('.conn-form');
     await form.locator('label:text-is("Profile name") + input').fill('Production MySQL');
     await form.locator('label:text-is("Host") + input').fill(MYSQL.host);

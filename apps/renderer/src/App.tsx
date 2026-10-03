@@ -15,6 +15,7 @@ import {
   BookOpen,
   History,
   LayoutTemplate,
+  Search,
 } from 'lucide-react';
 import { clampSidebarWidth, SIDEBAR_DEFAULT, clampModalWidth, MODAL_DEFAULT, loadNum, saveNum } from './lib/uiPrefs';
 import { loadHidden, saveHidden, type HiddenStore } from './lib/tableVisibility';
@@ -47,6 +48,9 @@ import { loadAgentSettings } from './lib/agentSettings';
 import { createSqlQueryRequest, type SqlQueryRequest } from './lib/queryRequest';
 import { connectionsReducer, initialConnectionsState } from './state/connections';
 import { connectionRouteFromForm, type SSMConfig } from './lib/connectionRoute';
+import { connectionDefaultsFromCandidate } from './lib/databaseDiscovery';
+import { DatabaseDiscoveryDialog } from './components/DatabaseDiscoveryDialog';
+import type { DiscoveredDatabase, McpConnectionProposal } from './global';
 import './App.css';
 
 export interface ConnectionProfile {
@@ -148,9 +152,13 @@ function App() {
   const [agentPopped, setAgentPopped] = useState(shouldStartInAgentMode);
   const [showSettings, setShowSettings] = useState(false);
   const [showMcpActivity, setShowMcpActivity] = useState(false);
+  const [pendingMcpConnectionProposal, setPendingMcpConnectionProposal] = useState<McpConnectionProposal | null>(null);
+  const [requiresConnectionTest, setRequiresConnectionTest] = useState(false);
+  const [discoveredConnectionDraft, setDiscoveredConnectionDraft] = useState(false);
   const [mcpActivitySummary, setMcpActivitySummary] = useState({ total: 0, errors: 0 });
 
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [showDatabaseDiscovery, setShowDatabaseDiscovery] = useState(false);
   // Active tab inside the connection modal: basic info / schema (table visibility) / MCP.
   const [formTab, setFormTab] = useState<'basic' | 'schema' | 'mcp'>('basic');
   const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -318,6 +326,23 @@ function App() {
     }
   };
 
+  const handleDiscoveredDatabase = (candidate: DiscoveredDatabase) => {
+    const defaults = connectionDefaultsFromCandidate(candidate);
+    resetForm();
+    handleDriverChange(defaults.driver);
+    setFormName(defaults.name);
+    setFormHost(defaults.host);
+    setFormPort(defaults.port);
+    setFormDatabase(defaults.database);
+    setFormUsername(defaults.username);
+    setFormTlsMode('none');
+    setConnectionError(null);
+    setRequiresConnectionTest(true);
+    setDiscoveredConnectionDraft(true);
+    setShowDatabaseDiscovery(false);
+    setShowCreateForm(true);
+  };
+
   const resetForm = () => {
     setFormName('');
     setFormConnectionMode('direct');
@@ -330,7 +355,45 @@ function App() {
     setFormSafeMode(false);
     setFormTenantColumns('');
     setEditingId(null);
+    setPendingMcpConnectionProposal(null);
+    setRequiresConnectionTest(false);
+    setDiscoveredConnectionDraft(false);
     setFormTab('basic');
+  };
+
+  const handleReviewMcpConnectionProposal = (proposal: McpConnectionProposal) => {
+    const current = proposal.operation === 'update'
+      ? profiles.find((profile) => profile.id === proposal.targetProfileId)
+      : undefined;
+    if (proposal.operation === 'update' && (!current || current.updatedAt !== proposal.targetUpdatedAt)) {
+      setShowMcpActivity(false);
+      alert('이 연결은 제안 이후 변경되었거나 삭제되었습니다. 최신 연결 상태를 확인한 뒤 다시 제안해 주세요.');
+      return;
+    }
+
+    setShowMcpActivity(false);
+    setPendingMcpConnectionProposal(proposal);
+    setRequiresConnectionTest(true);
+    setDiscoveredConnectionDraft(false);
+    setFormDriver(proposal.driver);
+    setFormName(proposal.name);
+    setFormConnectionUri('');
+    setFormHost(proposal.host);
+    setFormPort(proposal.port);
+    setFormDatabase(proposal.database ?? '');
+    setFormUsername(proposal.username ?? '');
+    setFormPassword('');
+    setFormTlsMode(proposal.tlsMode);
+    setFormConnectionMode('direct');
+    setFormSSM({ profile: '', region: '', instanceId: '' });
+    setTestedConnectionSettings(null);
+    setFormReadOnly(current?.readOnly ?? false);
+    setFormSafeMode(current?.safeMode ?? false);
+    setFormTenantColumns(current?.tenantColumns ?? '');
+    setEditingId(current?.id ?? null);
+    setConnectionError(null);
+    setFormTab('basic');
+    setShowCreateForm(true);
   };
 
   const startEdit = (p: ConnectionProfile, e: React.MouseEvent) => {
@@ -351,6 +414,9 @@ function App() {
     setFormSafeMode(p.safeMode ?? false);
     setFormTenantColumns(p.tenantColumns ?? '');
     setEditingId(p.id!);
+    setPendingMcpConnectionProposal(null);
+    setRequiresConnectionTest(false);
+    setDiscoveredConnectionDraft(false);
     setConnectionError(null);
     setFormTab('basic');
     setShowCreateForm(true);
@@ -391,6 +457,10 @@ function App() {
       alert('Please enter a profile name');
       return;
     }
+    if (requiresConnectionTest && !connectionTestSuccess) {
+      setConnectionError('저장하기 전에 현재 연결 정보로 연결 테스트를 성공시켜 주세요.');
+      return;
+    }
     setConnectionError(null);
     const profile: ConnectionProfile = {
       ...(editingId ? profiles.find((p) => p.id === editingId) : {}),
@@ -408,13 +478,48 @@ function App() {
       safeMode: formSafeMode,
       tenantColumns: formTenantColumns,
     };
+    if (pendingMcpConnectionProposal?.operation === 'create') {
+      if (!pendingMcpConnectionProposal.resultProfileId) {
+        setConnectionError('MCP 제안에 연결 ID가 없습니다. 다시 요청해 주세요.');
+        return;
+      }
+      profile.id = pendingMcpConnectionProposal.resultProfileId;
+      profile.mcpEnabled = false;
+      profile.mcpWriteMode = 'disabled';
+      profile.mcpAllowedDatabases = formDatabase ? JSON.stringify([formDatabase]) : '';
+      profile.mcpAllowedSchemas = '';
+      profile.mcpAllowedTables = '';
+    } else if (pendingMcpConnectionProposal?.operation === 'update') {
+      if (!pendingMcpConnectionProposal.targetUpdatedAt) {
+        setConnectionError('MCP 제안에 수정 기준 정보가 없습니다. 다시 요청해 주세요.');
+        return;
+      }
+      profile.updatedAt = pendingMcpConnectionProposal.targetUpdatedAt;
+    } else if (discoveredConnectionDraft && !editingId) {
+      profile.mcpEnabled = false;
+      profile.mcpWriteMode = 'disabled';
+      profile.mcpAllowedDatabases = formDatabase ? JSON.stringify([formDatabase]) : '';
+      profile.mcpAllowedSchemas = '';
+      profile.mcpAllowedTables = '';
+    }
     try {
       const res = editingId
         ? await window.electronAPI.updateProfile({ ...profile, id: editingId }, formPassword)
         : await window.electronAPI.createProfile(profile, formPassword);
       if (res.success && res.data) {
+        if (pendingMcpConnectionProposal) {
+          const resolved = await window.electronAPI.mcpConnectionProposalAction(pendingMcpConnectionProposal.id, 'applied');
+          if (!resolved.success) {
+            setConnectionError(`연결은 저장했지만 MCP 제안 상태를 갱신하지 못했습니다: ${resolved.error || '오류'}`);
+            loadProfiles();
+            return;
+          }
+        }
         setShowCreateForm(false);
         setEditingId(null);
+        setPendingMcpConnectionProposal(null);
+        setRequiresConnectionTest(false);
+        setDiscoveredConnectionDraft(false);
         resetForm();
         loadProfiles();
       } else {
@@ -720,9 +825,16 @@ function App() {
       </header>
 
       {showSettings && <SettingsPage onClose={() => setShowSettings(false)} />}
+      {showDatabaseDiscovery && (
+        <DatabaseDiscoveryDialog
+          onSelect={handleDiscoveredDatabase}
+          onClose={() => setShowDatabaseDiscovery(false)}
+        />
+      )}
       {showMcpActivity && (
         <McpActivityPage
           profiles={profiles}
+          onReviewConnectionProposal={handleReviewMcpConnectionProposal}
           onClose={() => {
             setShowMcpActivity(false);
             void refreshMcpActivitySummary();
@@ -743,23 +855,20 @@ function App() {
         <aside className="sidebar" style={{ width: sidebarWidth, flexShrink: 0 }}>
           <div className="sidebar-head">
             <h2>Connections</h2>
-            <button
-              className="btn btn-secondary btn-xs"
-              onClick={() => {
-                setShowCreateForm(!showCreateForm);
-                if (!showCreateForm) resetForm();
-              }}
-            >
-              {showCreateForm ? (
-                <>
-                  <X size={13} /> Cancel
-                </>
-              ) : (
-                <>
-                  <Plus size={13} /> New
-                </>
-              )}
-            </button>
+            <div className="sidebar-head-actions">
+              <button className="btn btn-secondary btn-xs" onClick={() => setShowDatabaseDiscovery(true)} title="내 PC의 데이터베이스 찾기">
+                <Search size={12} /> 찾기
+              </button>
+              <button
+                className="btn btn-secondary btn-xs"
+                onClick={() => {
+                  setShowCreateForm(!showCreateForm);
+                  if (!showCreateForm) resetForm();
+                }}
+              >
+                {showCreateForm ? <><X size={13} /> 취소</> : <><Plus size={13} /> 새 연결</>}
+              </button>
+            </div>
           </div>
 
           {showCreateForm && (
@@ -785,6 +894,16 @@ function App() {
                   </div>
                 )}
                 <div className={`conn-modal-body${editingId && (formDriver === 'mysql' || formDriver === 'postgres' || formDriver === 'sqlite' || formDriver === 'sqlserver') ? ' tabbed' : ''}`}>
+                  {pendingMcpConnectionProposal && (
+                    <div className="dialog-hint" role="note">
+                      MCP 연결 제안 검토 중입니다. 비밀번호는 이 화면에서 입력하고, 연결 테스트가 성공한 뒤에만 저장됩니다. 새 연결은 MCP 비활성화와 쓰기 금지로 생성됩니다.
+                    </div>
+                  )}
+                  {discoveredConnectionDraft && !pendingMcpConnectionProposal && (
+                    <div className="dialog-hint" role="note">
+                      검색된 데이터베이스입니다. 정확한 데이터베이스 이름과 사용자 정보를 입력하고 연결 테스트를 성공시킨 뒤 저장할 수 있습니다.
+                    </div>
+                  )}
                   {formTab === 'basic' && (
                   <form className="conn-form" onSubmit={handleCreateProfile}>
               <div>
@@ -1008,6 +1127,7 @@ function App() {
                             mcpAllowedSchemas: scope.allowedSchemas.length ? JSON.stringify(scope.allowedSchemas) : '',
                             mcpAllowedTables: scope.allowedTables.length ? JSON.stringify(scope.allowedTables) : '',
                           } : profile));
+                          void loadProfiles();
                         }}
                       />
                       <McpServersPanel onOpenActivity={() => setShowMcpActivity(true)} />

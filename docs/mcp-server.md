@@ -12,8 +12,8 @@ agent.
 2. From any enabled connection, click **Claude Desktop에 연결** (or **Codex** /
    **Cursor**) once. Rebase installs one shared server entry and backs up the
    existing client config first.
-3. **Restart the AI client.** Ask it to list the available Rebase connections,
-   then use the connection you want.
+3. Restart the AI client to load the new MCP server entry. Ask it to list the
+   available Rebase connections, then use the connection you want.
 
 > Prefer manual setup? Copy the JSON snippet shown in the panel into the client's
 > MCP config. If the client already has profile-specific Rebase entries, remove
@@ -34,6 +34,15 @@ Once connected, ask the client things like:
 The client calls Rebase's tools (`list_tables`, `describe_table`, `run_select`,
 `explain_query`, …) so its answers are grounded in your **actual** schema, not
 guesses.
+
+The shared server also provides `discover_local_databases`,
+`list_saved_connection_profiles`, and `propose_connection_profile`. Ask the AI
+to find a local database and suggest a new or updated profile. The proposal is
+only a request: it appears in **MCP 활동**, where you can compare the proposed
+fields, enter the password in Rebase, test the connection, and save it. MCP
+cannot provide an arbitrary host/port, credentials, or change the target
+profile's MCP exposure, write mode, or database/schema/table scope. A new profile
+starts with MCP exposure off and writes disabled.
 
 ## Governance in action
 
@@ -120,8 +129,10 @@ Config locations:
 | Cursor | `~/.cursor/mcp.json` | JSON |
 | Codex | `~/.codex/config.toml` | TOML |
 
-Restart the client after connecting or changing which profiles are exposed. The
-entry runs the bundled engine in unified MCP stdio mode:
+Restart the client after installing or changing the MCP server entry. Existing
+MCP processes pick up saved profiles and permission changes on the next tool
+call, including when the client caches its tool list. The entry runs the bundled
+engine in unified MCP stdio mode:
 `app-engine -mcp all`. The process discovers MCP-enabled SQL profiles from
 Rebase's local profile store. Stdio uses local process pipes and does not use a
 bearer token or the desktop HTTP handshake file; the old literal `-token mcp`
@@ -129,18 +140,27 @@ argument was not an authentication credential.
 
 ## Tools exposed
 
-The 14 read/diagnostic tools plus the proposal tool:
+The shared server exposes discovery and profile proposal tools alongside the
+database tools. Its SQL tool catalog stays stable for clients that cache
+`tools/list`; each call checks the selected profile's latest policy. The
+read/diagnostic tools include:
 `list_connections`, `list_tables`,
 `describe_table`, `get_table_ddl`, `list_indexes`, `list_foreign_keys`,
 `find_column`, `profile_table`, `table_stats`, `run_select`, `explain_query`,
-`find_duplicate_indexes`, `slow_queries`, `find_unused_indexes`, and
-`propose_write`. `write_proposal_status` is added when approval mode is enabled.
-Every database tool requires the `connectionId` returned by `list_connections`;
+`find_duplicate_indexes`, `slow_queries`, `find_unused_indexes`,
+`propose_write`, `write_proposal_status`, and `execute_write`. The catalog keeps
+all SQL policy tools available for clients that cache it. `execute_write` is
+rejected unless the selected profile currently has `full_access` enabled and is
+not read-only. `write_proposal_status` only returns requests belonging to the
+selected profile and approval mode.
+`discover_local_databases` checks known loopback ports and locally published
+Docker ports. Remote Docker contexts are skipped. `propose_connection_profile`
+accepts only a returned candidate ID plus non-secret profile fields;
+`list_saved_connection_profiles` omits credentials and secret references.
+Every SQL database tool requires the `connectionId` returned by `list_connections`;
 database tools may also accept a `database` argument to select another exact
-allowed database within that profile. `execute_write` is added when at least one
-exposed profile allows full access; the selected connection's own write mode
-and read-only setting still decide whether execution is allowed. A tool enabled
-for one profile can return “not enabled for selected connection” on another.
+allowed database within that profile. A policy tool advertised for one profile
+can return “not enabled for selected connection” on another.
 `propose_write` remains proposal-only unless that profile uses approval mode and
 the user approves the request in the Rebase activity view.
 
@@ -150,6 +170,9 @@ the user approves the request in the Rebase activity view.
   trust boundary is your machine.
 - **One client entry, opt-in per connection** — one local MCP process lists only
   profiles individually enabled for MCP.
+- **Reviewed profile changes** — MCP can request a connection profile change,
+  but only Rebase UI can test and save it. Credentials stay in the OS Keychain
+  and profile permissions stay under the user's control.
 - **Write policy per connection** — writes remain disabled unless the profile is
   explicitly set to approval mode; profile-level read-only still overrides it.
 - **Explicit approval** — the approval UI executes the stored SQL, not a newly

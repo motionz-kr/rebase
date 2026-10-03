@@ -7,8 +7,8 @@ test('app boots and shows the connections sidebar', async ({ firstWindow }) => {
 });
 
 test('the New button reveals and hides the connection form', async ({ firstWindow }) => {
-  const newBtn = firstWindow.locator('.sidebar-head button');
-  await expect(newBtn).toContainText('New');
+  const newBtn = firstWindow.getByRole('button', { name: '새 연결' });
+  await expect(newBtn).toBeVisible();
   await newBtn.click();
   // Form appears with the database-type selector and all supported drivers.
   const driverSelect = firstWindow.locator('.conn-form select').first();
@@ -23,5 +23,5 @@ test('the New button reveals and hides the connection form', async ({ firstWindo
   ]);
   await expect(firstWindow.locator('.conn-modal')).toBeVisible();
   await firstWindow.locator('.conn-modal .modal-head button[aria-label="닫기"]').click();
-  await expect(newBtn).toContainText('New');
+  await expect(newBtn).toBeVisible();
 });

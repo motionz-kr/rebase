@@ -20,7 +20,7 @@ test.describe('query tab transactions', () => {
 
   test('commits and rolls back statements on the dedicated tab session', async ({ firstWindow: win }) => {
     test.setTimeout(90_000);
-    await win.locator('.sidebar-head button').click();
+    await win.getByRole('button', { name: '새 연결' }).click();
     const form = win.locator('.conn-form');
     await form.locator('select').first().selectOption('sqlite');
     await form.locator('label:text-is("Profile name") + input').fill('E2E SQLite transactions');
@@ -94,7 +94,7 @@ test.describe('query tab transactions', () => {
   });
 
   test('blocks Write mode when the connection profile is read-only', async ({ firstWindow: win }) => {
-    await win.locator('.sidebar-head button').click();
+    await win.getByRole('button', { name: '새 연결' }).click();
     const form = win.locator('.conn-form');
     await form.locator('select').first().selectOption('sqlite');
     await form.locator('label:text-is("Profile name") + input').fill('E2E SQLite read-only');

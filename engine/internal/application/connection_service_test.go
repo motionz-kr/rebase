@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/smlee/database-local-engine/engine/internal/domain"
 	"github.com/smlee/database-local-engine/engine/internal/ports"
@@ -165,6 +166,40 @@ func TestConnectionServiceUpdateProfilePreservesSecretRefWhenPasswordIsOmitted(t
 	}
 	if gotPassword != password {
 		t.Errorf("password = %q, want %q", gotPassword, password)
+	}
+}
+
+func TestConnectionServiceUpdateProfileRejectsStaleRevision(t *testing.T) {
+	ctx := context.Background()
+	repo := ports.NewFakeProfileRepository()
+	service := NewConnectionService(repo, ports.NewFakeSecretStore())
+	profile := &domain.ConnectionProfile{
+		Name: "Original", Driver: "mysql", Host: "127.0.0.1", Port: 3306,
+		Database: "testdb", Username: "tester", TLSMode: "none",
+	}
+	if err := service.CreateProfile(ctx, profile, ""); err != nil {
+		t.Fatalf("CreateProfile: %v", err)
+	}
+	stale := *profile
+	latest, err := repo.GetByID(ctx, profile.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	latest.Name = "Changed elsewhere"
+	latest.UpdatedAt = latest.UpdatedAt.Add(time.Second)
+	if err := repo.Update(ctx, latest); err != nil {
+		t.Fatalf("simulate concurrent update: %v", err)
+	}
+	stale.Name = "Overwrite from stale form"
+	if err := service.UpdateProfile(ctx, &stale, ""); err == nil {
+		t.Fatal("UpdateProfile should reject an outdated profile revision")
+	}
+	got, err := repo.GetByID(ctx, profile.ID)
+	if err != nil {
+		t.Fatalf("GetByID after stale update: %v", err)
+	}
+	if got.Name != "Changed elsewhere" {
+		t.Fatalf("stale update overwrote latest profile name: %q", got.Name)
 	}
 }
 

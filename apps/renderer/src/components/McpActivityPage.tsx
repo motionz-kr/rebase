@@ -14,14 +14,15 @@ import {
   Server,
   X,
 } from 'lucide-react';
-import type { McpActivityEvent, McpServer, McpWriteProposal } from '../global';
+import type { McpActivityEvent, McpConnectionProposal, McpServer, McpWriteProposal } from '../global';
 
 type StatusFilter = 'all' | 'success' | 'error';
 type DirectionFilter = 'all' | 'inbound' | 'outbound';
 
 type Props = {
-  profiles: Array<{ id?: string; name: string; driver: string }>;
+  profiles: Array<{ id?: string; name: string; driver: string; host?: string; port?: number; database?: string; username?: string }>;
   onClose: () => void;
+  onReviewConnectionProposal: (proposal: McpConnectionProposal) => void;
 };
 
 const EVENT_LABEL: Record<string, string> = {
@@ -54,10 +55,12 @@ function formatDuration(value: number): string {
   return `${(value / 1_000).toFixed(value >= 10_000 ? 0 : 1)}s`;
 }
 
-export const McpActivityPage: React.FC<Props> = ({ profiles, onClose }) => {
+export const McpActivityPage: React.FC<Props> = ({ profiles, onClose, onReviewConnectionProposal }) => {
   const [events, setEvents] = useState<McpActivityEvent[]>([]);
   const [servers, setServers] = useState<McpServer[]>([]);
   const [writeProposals, setWriteProposals] = useState<McpWriteProposal[]>([]);
+  const [connectionProposals, setConnectionProposals] = useState<McpConnectionProposal[]>([]);
+  const [connectionProposalError, setConnectionProposalError] = useState<string | null>(null);
   const [proposalBusyId, setProposalBusyId] = useState<string | null>(null);
   const [proposalError, setProposalError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -76,15 +79,18 @@ export const McpActivityPage: React.FC<Props> = ({ profiles, onClose }) => {
     if (manual) setRefreshing(true);
     setLoadError(null);
     try {
-      const [activityRes, serversRes, proposalsRes] = await Promise.all([
+      const [activityRes, serversRes, proposalsRes, connectionProposalsRes] = await Promise.all([
         window.electronAPI.mcpActivityList({ limit: 100 }),
         window.electronAPI.mcpServersList('default'),
         window.electronAPI.mcpWriteProposalsList(undefined, 'pending_approval'),
+        window.electronAPI.mcpConnectionProposalsList('pending_approval'),
       ]);
       if (!activityRes.success) setLoadError(activityRes.error || 'MCP 활동을 불러오지 못했습니다.');
       setEvents(activityRes.data ?? []);
       setServers(serversRes.data ?? []);
       setWriteProposals((proposalsRes.data ?? []).map((proposal) => ({ ...proposal, reasons: proposal.reasons ?? [] })));
+      setConnectionProposals(connectionProposalsRes.data ?? []);
+      setConnectionProposalError(connectionProposalsRes.success ? null : connectionProposalsRes.error || '연결 제안을 불러오지 못했습니다.');
       if (!proposalsRes.success && !activityRes.success) setLoadError(proposalsRes.error || activityRes.error || 'MCP 활동을 불러오지 못했습니다.');
       setExpandedId(null);
       setLoadedDetailIds(new Set());
@@ -109,6 +115,23 @@ export const McpActivityPage: React.FC<Props> = ({ profiles, onClose }) => {
       await load(true);
     } catch (error) {
       setProposalError(error instanceof Error ? error.message : '쓰기 승인 요청을 처리하지 못했습니다.');
+    } finally {
+      setProposalBusyId(null);
+    }
+  }, [load]);
+
+  const actOnConnectionProposal = useCallback(async (id: string) => {
+    setProposalBusyId(id);
+    setConnectionProposalError(null);
+    try {
+      const result = await window.electronAPI.mcpConnectionProposalAction(id, 'reject');
+      if (!result.success) {
+        setConnectionProposalError(result.error || '연결 제안을 거부하지 못했습니다.');
+        return;
+      }
+      await load(true);
+    } catch (error) {
+      setConnectionProposalError(error instanceof Error ? error.message : '연결 제안을 거부하지 못했습니다.');
     } finally {
       setProposalBusyId(null);
     }
@@ -234,6 +257,51 @@ export const McpActivityPage: React.FC<Props> = ({ profiles, onClose }) => {
         <div className="mcp-activity-note">
           <ShieldNote /> 실행된 SQL 원문과 소요 시간을 표시합니다. 등록된 연결 비밀번호 같은 시크릿은 저장 전에 자동으로 가립니다.
         </div>
+
+        {(connectionProposals.length > 0 || connectionProposalError) && (
+          <section className="mcp-write-approval" aria-labelledby="mcp-connection-proposals-title">
+            <div className="mcp-write-approval-head">
+              <div>
+                <h3 id="mcp-connection-proposals-title">데이터베이스 연결 제안 <span>{connectionProposals.length}</span></h3>
+                <p>외부 AI가 찾은 연결 정보입니다. 검토를 누르면 Rebase에서 자격 증명을 입력하고 연결 테스트 후 저장할 수 있습니다.</p>
+              </div>
+            </div>
+            {connectionProposalError && <div className="mcp-write-approval-error"><AlertTriangle size={14} /> {connectionProposalError}</div>}
+            <div className="mcp-write-approval-list">
+              {connectionProposals.map((proposal) => {
+                const busy = proposalBusyId === proposal.id;
+                const targetProfile = profiles.find((profile) => profile.id === proposal.targetProfileId);
+                return (
+                  <article className="mcp-write-proposal" data-connection-proposal-id={proposal.id} key={proposal.id}>
+                    <div className="mcp-write-proposal-meta">
+                      <strong>{proposal.operation === 'create' ? '새 연결' : '연결 수정'} · {proposal.name}</strong>
+                      <span>{formatTime(proposal.createdAt)}</span>
+                      <span>{proposal.source === 'docker' ? `Docker${proposal.sourceName ? ` · ${proposal.sourceName}` : ''}` : '이 PC'}</span>
+                    </div>
+                    <p>{proposal.driver} · {proposal.host}:{proposal.port}{proposal.database ? ` · ${proposal.database}` : ''}</p>
+                    {proposal.username && <p>사용자 이름 제안: {proposal.username}</p>}
+                    {targetProfile && (
+                      <div className="mcp-activity-detail">
+                        <div><span>프로필 이름</span><code>{targetProfile.name} → {proposal.name}</code></div>
+                        <div><span>주소</span><code>{targetProfile.host || '미지정'}:{targetProfile.port || '—'} → {proposal.host}:{proposal.port}</code></div>
+                        <div><span>데이터베이스</span><code>{targetProfile.database || '미지정'} → {proposal.database || '미지정'}</code></div>
+                        <div><span>사용자 이름</span><code>{targetProfile.username || '미지정'} → {proposal.username || '미지정'}</code></div>
+                      </div>
+                    )}
+                    <div className="mcp-write-proposal-actions">
+                      <button className="btn btn-primary btn-sm" onClick={() => onReviewConnectionProposal(proposal)} disabled={busy}>
+                        검토하고 연결
+                      </button>
+                      <button className="btn btn-secondary btn-sm" onClick={() => void actOnConnectionProposal(proposal.id)} disabled={busy}>
+                        {busy ? '처리 중…' : '거부'}
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+        )}
 
         {writeProposals.length > 0 && (
           <section className="mcp-write-approval" aria-labelledby="mcp-write-approval-title">

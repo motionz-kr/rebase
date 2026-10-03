@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('__THEME__', {
 contextBridge.exposeInMainWorld('electronAPI', {
   checkEngineHealth: () => ipcRenderer.invoke('check-engine-health'),
   listProfiles: () => ipcRenderer.invoke('list-profiles'),
+  discoverDatabases: () => ipcRenderer.invoke('discover-databases'),
   createProfile: (profile: any, password?: string) => ipcRenderer.invoke('create-profile', profile, password),
   pickSqliteFile: () => ipcRenderer.invoke('pick-sqlite-file'),
   updateProfile: (profile: any, password?: string) => ipcRenderer.invoke('update-profile', profile, password),
@@ -74,6 +75,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   mcpActivityGet: (id: string, workspaceId?: string) => ipcRenderer.invoke('mcp-activity-get', id, workspaceId),
   mcpWriteProposalsList: (profileId?: string, status?: string) => ipcRenderer.invoke('mcp-write-proposals-list', profileId, status),
   mcpWriteProposalAction: (id: string, action: 'approve' | 'reject') => ipcRenderer.invoke('mcp-write-proposal-action', id, action),
+  mcpConnectionProposalsList: (status?: string) => ipcRenderer.invoke('mcp-connection-proposals-list', status),
+  mcpConnectionProposalAction: (id: string, action: 'applied' | 'reject') => ipcRenderer.invoke('mcp-connection-proposal-action', id, action),
   updateCheck: () => ipcRenderer.invoke('update-check'),
   updateDownload: () => ipcRenderer.invoke('update-download'),
   updateInstall: () => ipcRenderer.invoke('update-install'),
