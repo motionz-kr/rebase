@@ -89,7 +89,7 @@ process.on('SIGTERM', () => { for (const socket of sockets) socket.destroy(); se
 });
 
 async function fillSSM(win: import('@playwright/test').Page, profile = 'e2e') {
-  await win.locator('.sidebar-head button').click();
+  await win.getByRole('button', { name: '새 연결' }).click();
   const form = win.locator('.conn-form');
   await form.locator('label:text-is("Profile name") + input').fill('SSM E2E');
   await win.getByLabel('접속 경로').selectOption('ssm');

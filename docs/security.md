@@ -161,7 +161,8 @@ MCP Request
 
 MCP 원칙:
 
-- MCP server는 DB password를 직접 보관하지 않는다.
+- LLM 클라이언트와 MCP 도구 인자는 DB 비밀번호를 받지 않는다. 로컬 엔진이
+  연결에 필요한 값을 OS Keychain에서 읽어 커넥터와 시크릿 가림 처리에 쓴다.
 - MCP 클라이언트는 단일 로컬 stdio 서버에 연결한다. 서버는 MCP가 켜진
   연결 프로필만 노출하고, 각 도구 호출은 선택한 프로필의 MCP 활성화 여부와
   해당 프로필의 엔진 policy를 통과한다.
@@ -176,6 +177,20 @@ MCP 원칙:
   `full_access`를 명시적으로 선택한 경우에만 `execute_write`가 쓰기를 즉시
   실행한다. 두 모드 모두 연결의 읽기 전용 설정과 MCP
   database/schema/table 범위를 엔진에서 강제한다.
+- 통합 MCP 프로세스는 모든 PC의 데이터베이스 후보 검색 도구를 제공한다.
+  검색은 알려진 DB 기본 포트의 loopback 연결 확인과 현재 Docker context의
+  로컬 publish 포트 목록만 사용한다. 원격 Docker context와 임의 네트워크
+  탐색은 제외하고, 컨테이너 환경 변수와 자격 증명은 읽지 않는다.
+- MCP 연결 관리 도구는 검색 결과의 후보 ID에 연결된 create/update 제안만
+  저장한다. 호출자가 host/port를 지정할 수 없고 endpoint는 현재 검색 결과에
+  묶인다. 비밀번호, secret reference, connection URI, MCP 노출·쓰기 정책·허용
+  목록 필드는 제안에 없으며 호출 인자로도 받을 수 없다. Rebase UI에서 변경
+  내용을 검토하고 비밀번호를 입력한 뒤
+  연결 테스트와 저장을 거쳐야 적용된다. 새 프로필은 MCP 비노출 및 쓰기 금지로
+  시작하고, 수정 제안은 기존 프로필 권한을 유지한다.
+- 통합 MCP 프로세스는 호출마다 최신 MCP 사용 프로필과 정책을 다시 읽는다.
+  클라이언트가 도구 목록을 캐시해도 프로필 노출·쓰기 권한은 엔진의 최신
+  프로필 상태로 검사하며, 새 프로필의 시크릿도 결과 반환 전에 다시 가린다.
 - 활성화된 경우 database/schema/table exact allowlist가 엔진에서 강제된다.
 - allowlist가 활성화된 상태에서 파싱할 수 없는 `FROM`/`JOIN` 참조는 거부한다.
 - MCP 활동 기록에는 방향, 이벤트, 도구명, 상태, 실행 시간, 실행된 SQL, 안전한 오류 요약을 남긴다.
@@ -185,7 +200,9 @@ MCP 원칙:
 ## Audit Log
 
 MCP 활동은 local SQLite의 `mcp_activity_events`에 저장하고, 승인 대기 write는
-`mcp_write_proposals`에 저장한다. Team 기능이 추가되면
+`mcp_write_proposals`에 저장한다. MCP 연결 create/update 요청은 비밀이 없는
+`mcp_connection_proposals`에 저장하며 Rebase에서 거부하거나 연결 저장을 마친 뒤
+완료 처리한다. Team 기능이 추가되면
 workspace/user 권한과 audit log를 별도 모델로 분리한다.
 
 기록 후보:

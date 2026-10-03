@@ -19,7 +19,7 @@ test.describe('query result column resizing', () => {
 
   test('resizes a result column from its current rendered width and keeps the width on its cells', async ({ firstWindow: win }) => {
     await win.setViewportSize({ width: 1600, height: 900 });
-    await win.locator('.sidebar-head button').click();
+    await win.getByRole('button', { name: '새 연결' }).click();
     const form = win.locator('.conn-form');
     await form.locator('select').first().selectOption('sqlite');
     await form.locator('label:text-is("Profile name") + input').fill('E2E result grid resize');

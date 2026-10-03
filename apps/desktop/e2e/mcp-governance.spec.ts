@@ -64,7 +64,7 @@ test('MCP scope is visible in UI and enforced by a real stdio server process', a
   let mcpProcess: ChildProcessWithoutNullStreams | undefined;
 
   try {
-    await win.locator('.sidebar-head button').click();
+    await win.getByRole('button', { name: '새 연결' }).click();
     const form = win.locator('.conn-form');
     await form.locator('label:text-is("Profile name") + input').fill('MCP Governance E2E');
     await form.locator('label:text-is("Host") + input').fill('127.0.0.1');
@@ -222,7 +222,7 @@ test('MCP write approval executes the reviewed SQL for the selected connection',
   let mcpProcess: ChildProcessWithoutNullStreams | undefined;
 
   try {
-    await win.locator('.sidebar-head button').click();
+  await win.getByRole('button', { name: '새 연결' }).click();
     const form = win.locator('.conn-form');
     await form.locator('select').first().selectOption('sqlite');
     await form.locator('label:text-is("Profile name") + input').fill('MCP Write Approval E2E');
@@ -289,7 +289,7 @@ test('MCP full access executes a write immediately for the selected connection',
   let mcpProcess: ChildProcessWithoutNullStreams | undefined;
 
   try {
-    await win.locator('.sidebar-head button').click();
+  await win.getByRole('button', { name: '새 연결' }).click();
     const form = win.locator('.conn-form');
     await form.locator('select').first().selectOption('sqlite');
     await form.locator('label:text-is("Profile name") + input').fill('MCP Full Write E2E');
@@ -375,7 +375,7 @@ test('one MCP stdio server discovers three enabled profiles and enforces each po
     ];
 
     for (const fixture of fixtures) {
-      await win.locator('.sidebar-head button').click();
+      await win.getByRole('button', { name: '새 연결' }).click();
       const form = win.locator('.conn-form');
       await form.locator('label:text-is("Profile name") + input').fill(fixture.name);
       await form.locator('label:text-is("Host") + input').fill('127.0.0.1');

@@ -194,6 +194,20 @@ export interface ResultWrapper<T> {
   error?: string;
 }
 
+export interface DiscoveredDatabase {
+  id: string;
+  driver: 'mysql' | 'postgres' | 'redis' | 'sqlserver' | 'mongodb';
+  host: string;
+  port: number;
+  source: 'local' | 'docker';
+  sourceName?: string;
+}
+
+export interface DatabaseDiscoveryResult {
+  candidates: DiscoveredDatabase[];
+  dockerStatus: 'available' | 'skipped' | 'remote_context' | string;
+}
+
 export interface McpServer {
   id: string;
   workspaceId: string;
@@ -254,6 +268,26 @@ export interface McpWriteProposal {
   updatedAt: string;
 }
 
+export interface McpConnectionProposal {
+  id: string;
+  operation: 'create' | 'update';
+  targetProfileId?: string;
+  resultProfileId?: string;
+  targetUpdatedAt?: string;
+  candidateId: string;
+  name: string;
+  driver: 'mysql' | 'postgres' | 'sqlserver';
+  host: string;
+  port: number;
+  database?: string;
+  username?: string;
+  tlsMode: 'none' | 'prefer' | 'require';
+  source: 'local' | 'docker';
+  sourceName?: string;
+  status: string;
+  createdAt: string;
+}
+
 export interface AnalyzeResult {
   level: 'safe' | 'warn' | 'medium' | 'high';
   verb: string;
@@ -277,6 +311,7 @@ declare global {
     electronAPI: {
       checkEngineHealth: () => Promise<HealthResult>;
       listProfiles: () => Promise<ResultWrapper<ConnectionProfile[]>>;
+      discoverDatabases: () => Promise<ResultWrapper<DatabaseDiscoveryResult>>;
       createProfile: (profile: ConnectionProfile, password?: string) => Promise<ResultWrapper<ConnectionProfile>>;
       pickSqliteFile: () => Promise<string | null>;
       updateProfile: (profile: ConnectionProfile, password?: string) => Promise<ResultWrapper<ConnectionProfile>>;
@@ -327,6 +362,8 @@ declare global {
       mcpActivityGet: (id: string, workspaceId?: string) => Promise<ResultWrapper<McpActivityEvent>>;
       mcpWriteProposalsList: (profileId?: string, status?: string) => Promise<ResultWrapper<McpWriteProposal[]>>;
       mcpWriteProposalAction: (id: string, action: 'approve' | 'reject') => Promise<ResultWrapper<McpWriteProposal>>;
+      mcpConnectionProposalsList: (status?: string) => Promise<ResultWrapper<McpConnectionProposal[]>>;
+      mcpConnectionProposalAction: (id: string, action: 'applied' | 'reject') => Promise<ResultWrapper<{ ok: boolean }>>;
       updateCheck: () => Promise<void>;
       updateDownload: () => Promise<void>;
       updateInstall: () => Promise<void>;

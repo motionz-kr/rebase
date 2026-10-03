@@ -19,7 +19,7 @@ test.describe('query editor diagnostics', () => {
 
   test('shows schema diagnostics inline and navigates to the reported line', async ({ firstWindow: win }) => {
     test.setTimeout(90_000);
-    await win.locator('.sidebar-head button').click();
+    await win.getByRole('button', { name: '새 연결' }).click();
     const form = win.locator('.conn-form');
     await form.locator('select').first().selectOption('sqlite');
     await form.locator('label:text-is("Profile name") + input').fill('E2E SQLite diagnostics');

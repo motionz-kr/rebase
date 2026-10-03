@@ -232,6 +232,20 @@ func TestServerUnrestrictedPassesValues(t *testing.T) {
 	}
 }
 
+func TestServerUsesRefreshedSecretsForDynamicProfiles(t *testing.T) {
+	reg := agent.NewSQLRegistry(fakeSQL{}, domain.ConnectionProfile{}, "", "devdb")
+	reg.RegisterExternal(ports.ToolSpec{Name: "new_profile_result", Schema: map[string]any{"type": "object"}}, func(context.Context, map[string]any) (any, error) {
+		return "dynamic-secret", nil
+	})
+	s := NewServer(reg)
+	s.SetSecretProvider(func(context.Context) []string { return []string{"dynamic-secret"} })
+	m := req(t, s, `{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"new_profile_result","arguments":{}}}`)
+	b, _ := json.Marshal(m["result"])
+	if strings.Contains(string(b), "dynamic-secret") || !strings.Contains(string(b), "[redacted]") {
+		t.Fatalf("dynamic profile result was not redacted: %s", b)
+	}
+}
+
 func TestToolsCallUnknownIsError(t *testing.T) {
 	m := req(t, newServer(), `{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"nope","arguments":{}}}`)
 	result, _ := m["result"].(map[string]any)

@@ -22,7 +22,7 @@ test.describe('SQLite schema query context', () => {
   });
 
   test('opens the editor from the database menu and keeps its selected database', async ({ firstWindow: win }) => {
-    await win.locator('.sidebar-head button').click();
+    await win.getByRole('button', { name: '새 연결' }).click();
     const form = win.locator('.conn-form');
     await form.locator('select').first().selectOption('sqlite');
     await form.locator('label:text-is("Profile name") + input').fill('E2E SQLite query context');
@@ -179,7 +179,7 @@ test.describe('SQLite schema query context', () => {
 
   test('routes a schema action to the selected connection tab', async ({ firstWindow: win }) => {
     const addSqliteConnection = async (name: string, file: string) => {
-      await win.locator('.sidebar-head button').click();
+      await win.getByRole('button', { name: '새 연결' }).click();
       const form = win.locator('.conn-form');
       await form.locator('select').first().selectOption('sqlite');
       await form.locator('label:text-is("Profile name") + input').fill(name);

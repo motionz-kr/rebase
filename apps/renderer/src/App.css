@@ -285,6 +285,11 @@
   letter-spacing: 0.05em;
   color: var(--text-2);
 }
+.sidebar-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
 
 .conn-list {
   flex: 1;
@@ -2898,6 +2903,110 @@
   align-items: center;
   gap: 6px;
 }
+.db-discovery-modal {
+  width: min(560px, calc(100vw - 40px));
+  max-height: 82vh;
+  display: flex;
+  flex-direction: column;
+}
+.db-discovery-subtitle {
+  margin-top: 5px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+.db-discovery-results {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  max-height: 48vh;
+  overflow-y: auto;
+  margin: 3px -4px 8px;
+  padding: 4px;
+}
+.db-discovery-candidate {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  min-height: 60px;
+  padding: 10px 12px;
+  text-align: left;
+  color: var(--text);
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.db-discovery-candidate:hover,
+.db-discovery-candidate:focus-visible {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  outline: none;
+}
+.db-discovery-icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  border-radius: 9px;
+  background: var(--bg-active);
+  color: var(--accent);
+}
+.db-discovery-icon.mysql { color: var(--driver-mysql); }
+.db-discovery-icon.postgres { color: var(--driver-postgres); }
+.db-discovery-icon.redis { color: var(--driver-redis); }
+.db-discovery-main {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.db-discovery-main strong { font-size: 12.5px; }
+.db-discovery-main .mono { color: var(--text-2); font-size: 11.5px; }
+.db-discovery-source {
+  margin-left: auto;
+  color: var(--text-3);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.db-discovery-add {
+  color: var(--accent);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.db-discovery-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 130px;
+  color: var(--text-3);
+  font-size: 12px;
+  text-align: center;
+}
+.db-discovery-state strong { color: var(--text); font-size: 12.5px; }
+.db-discovery-state span { max-width: 360px; line-height: 1.5; }
+.db-discovery-state.empty svg { color: var(--text-2); }
+.db-discovery-note {
+  margin: 2px 0 10px;
+  color: var(--amber);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.db-discovery-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  color: var(--text-3);
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+.db-discovery-footer .btn { flex: 0 0 auto; }
 .schema-compare-modal {
   display: flex;
   flex-direction: column;

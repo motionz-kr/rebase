@@ -141,6 +141,8 @@ engine/internal/application/
   workspace_service.go
   saved_query_service.go
   policy_service.go
+  database_discovery_service.go
+  mcp_connection_proposal_service.go
 
 engine/internal/ports/
   sql_connector.go
@@ -151,6 +153,8 @@ engine/internal/ports/
   query_history_repository.go
   migration_repository.go
   secret_store.go
+  database_discovery.go
+  mcp_connection_proposal.go
   clock.go
 
 engine/internal/adapters/
@@ -159,6 +163,7 @@ engine/internal/adapters/
   redis/
   sqlite/
   keychain/
+  discovery/
 
 engine/internal/transport/
   http/

@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/smlee/database-local-engine/engine/internal/adapters/discovery"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/keychain"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/mcp"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/mysql"
@@ -24,6 +25,7 @@ import (
 	"github.com/smlee/database-local-engine/engine/internal/adapters/ssm"
 	"github.com/smlee/database-local-engine/engine/internal/agent"
 	"github.com/smlee/database-local-engine/engine/internal/application"
+	"github.com/smlee/database-local-engine/engine/internal/domain"
 	"github.com/smlee/database-local-engine/engine/internal/ports"
 	internalHttp "github.com/smlee/database-local-engine/engine/internal/transport/http"
 	_ "modernc.org/sqlite"
@@ -336,6 +338,35 @@ func main() {
 		},
 	}
 	migrations = append(migrations, sqlite.SSMProfileMigration)
+	migrations = append(migrations, sqlite.Migration{
+		Version: 19,
+		Name:    "create_mcp_connection_proposals",
+		SQL: `
+			CREATE TABLE IF NOT EXISTS mcp_connection_proposals (
+				id TEXT PRIMARY KEY,
+				workspace_id TEXT NOT NULL,
+				operation TEXT NOT NULL,
+				target_profile_id TEXT NOT NULL DEFAULT '',
+				result_profile_id TEXT NOT NULL DEFAULT '',
+				target_updated_at DATETIME,
+				candidate_id TEXT NOT NULL,
+				name TEXT NOT NULL,
+				driver TEXT NOT NULL,
+				host TEXT NOT NULL,
+				port INTEGER NOT NULL,
+				database_name TEXT NOT NULL DEFAULT '',
+				username TEXT NOT NULL DEFAULT '',
+				tls_mode TEXT NOT NULL,
+				source TEXT NOT NULL,
+				source_name TEXT NOT NULL DEFAULT '',
+				status TEXT NOT NULL,
+				created_at DATETIME NOT NULL,
+				updated_at DATETIME NOT NULL
+			);
+			CREATE INDEX IF NOT EXISTS idx_mcp_connection_proposals_workspace_status ON mcp_connection_proposals(workspace_id, status, created_at DESC);
+		`,
+		Checksum: "mcp-connection-proposals-v1",
+	})
 	if err := migrationRunner.Run(migrations); err != nil {
 		log.Fatalf("failed to run migrations: %v", err)
 	}
@@ -349,11 +380,14 @@ func main() {
 	connectionService.SetTunnelManager(tunnels)
 	mcpActivityRepo := sqlite.NewSQLiteMCPActivityRepository(db)
 	mcpWriteRepo := sqlite.NewSQLiteMCPWriteProposalRepository(db)
+	mcpConnectionProposalRepo := sqlite.NewSQLiteMCPConnectionProposalRepository(db)
+	databaseDiscovery := application.NewDatabaseDiscoveryService(discovery.NewLocalDatabaseDiscovery())
+	mcpConnectionProposals := application.NewMCPConnectionProposalService(mcpConnectionProposalRepo, profileRepo, databaseDiscovery)
 
 	// MCP mode: serve the DB tool registry over stdio (for a local CLI like
 	// `claude --mcp-config`) instead of the HTTP API, then exit.
 	if *mcpProfile != "" {
-		runMCPServer(connectionService, mcpActivityRepo, mcpWriteRepo, *mcpProfile)
+		runMCPServer(connectionService, mcpActivityRepo, mcpWriteRepo, databaseDiscovery, mcpConnectionProposals, *mcpProfile)
 		return
 	}
 
@@ -372,6 +406,10 @@ func main() {
 	mux.Handle("/health", internalHttp.NewHealthHandler(*token))
 
 	profileHandler := internalHttp.NewProfileHandler(*token, connectionService)
+	discoveryHandler := internalHttp.NewDatabaseDiscoveryHandler(*token, databaseDiscovery)
+	mux.Handle("/database-discovery", discoveryHandler.Discover())
+	mcpConnectionProposalHandler := internalHttp.NewMCPConnectionProposalHandler(*token, mcpConnectionProposals)
+	mux.Handle("/mcp/connection-proposals", mcpConnectionProposalHandler.Handle())
 	mux.Handle("/profiles", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodPost:
@@ -550,14 +588,14 @@ func main() {
 
 // runMCPServer serves the agent's DB tool registry over stdio as an MCP server
 // for the given profile, then returns when stdin closes.
-func runMCPServer(svc *application.ConnectionService, activity ports.MCPActivityRepository, proposals ports.MCPWriteProposalRepository, profileID string) {
+func runMCPServer(svc *application.ConnectionService, activity ports.MCPActivityRepository, proposals ports.MCPWriteProposalRepository, discovery ports.DatabaseDiscovery, connectionProposals ports.MCPConnectionProposalUseCase, profileID string) {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	if profileID == "all" {
-		registry, secrets := buildUnifiedMCPRegistry(ctx, svc, proposals)
+		registry, secretProvider := buildUnifiedMCPRegistry(svc, proposals, discovery, connectionProposals)
 		srv := mcp.NewServer(registry)
 		srv.SetActivity(activity, "default", "all")
-		srv.SetSecrets(secrets)
+		srv.SetSecretProvider(secretProvider)
 		if err := srv.Serve(ctx, os.Stdin, os.Stdout); err != nil {
 			log.Printf("mcp: server error: %v", err)
 		}
@@ -595,11 +633,38 @@ func runMCPServer(svc *application.ConnectionService, activity ports.MCPActivity
 	}
 }
 
-func buildUnifiedMCPRegistry(ctx context.Context, svc *application.ConnectionService, proposals ports.MCPWriteProposalRepository) (*agent.Registry, []string) {
+func buildUnifiedMCPRegistry(svc *application.ConnectionService, proposals ports.MCPWriteProposalRepository, discovery ports.DatabaseDiscovery, connectionProposals ports.MCPConnectionProposalUseCase) (*agent.Registry, func(context.Context) []string) {
+	fullAccessProfile := domain.ConnectionProfile{ID: "tool-schema-full-access", Driver: "mysql", McpWriteMode: domain.MCPWriteModeFullAccess}
+	approvalProfile := domain.ConnectionProfile{ID: "tool-schema-approval", Driver: "mysql", McpWriteMode: domain.MCPWriteModeApproval}
+	fullAccessRegistry := agent.NewSQLRegistryWithMCPWrites(mysql.NewMySQLConnector(svc), fullAccessProfile, "", "", agent.MCPWriteConfig{Mode: domain.MCPWriteModeFullAccess})
+	approvalRegistry := agent.NewSQLRegistryWithMCPWrites(mysql.NewMySQLConnector(svc), approvalProfile, "", "", agent.MCPWriteConfig{Mode: domain.MCPWriteModeApproval, WorkspaceID: "default", ProfileID: approvalProfile.ID, Proposals: proposals})
+	seedTargets := []agent.MCPConnectionTarget{
+		{ID: fullAccessProfile.ID, Name: "tool-schema-full-access", Driver: fullAccessProfile.Driver, Registry: fullAccessRegistry},
+		{ID: approvalProfile.ID, Name: "tool-schema-approval", Driver: approvalProfile.Driver, Registry: approvalRegistry},
+	}
+	resolveTargets := func(ctx context.Context) ([]agent.MCPConnectionTarget, error) {
+		targets, _, err := loadUnifiedMCPProfiles(ctx, svc, proposals)
+		return targets, err
+	}
+	listProfiles := func(ctx context.Context) ([]domain.ConnectionProfile, error) {
+		return svc.ListProfiles(ctx)
+	}
+	registry := agent.NewMultiProfileRegistryWithManagement(seedTargets, resolveTargets, discovery, connectionProposals, listProfiles)
+	secretProvider := func(ctx context.Context) []string {
+		_, secrets, err := loadUnifiedMCPProfiles(ctx, svc, proposals)
+		if err != nil {
+			log.Printf("mcp: unable to refresh credential redaction values")
+			return nil
+		}
+		return secrets
+	}
+	return registry, secretProvider
+}
+
+func loadUnifiedMCPProfiles(ctx context.Context, svc *application.ConnectionService, proposals ports.MCPWriteProposalRepository) ([]agent.MCPConnectionTarget, []string, error) {
 	profiles, err := svc.ListProfiles(ctx)
 	if err != nil {
-		log.Printf("mcp: unable to list Rebase connections")
-		return agent.NewMultiProfileRegistry(nil), nil
+		return nil, nil, err
 	}
 	sort.Slice(profiles, func(i, j int) bool {
 		if profiles[i].Name == profiles[j].Name {
@@ -642,5 +707,5 @@ func buildUnifiedMCPRegistry(ctx context.Context, svc *application.ConnectionSer
 			ID: profile.ID, Name: profile.Name, Driver: profile.Driver, Database: profile.Database, Registry: registry,
 		})
 	}
-	return agent.NewMultiProfileRegistry(targets), secrets
+	return targets, secrets, nil
 }

@@ -24,7 +24,7 @@ test.describe('schema compare and migration draft', () => {
 
   test('compares isolated SQLite files and drafts additive SQL without applying it', async ({ firstWindow: win }) => {
     const createProfile = async (name: string, databaseFile: string) => {
-      await win.locator('.sidebar-head button').click();
+      await win.getByRole('button', { name: '새 연결' }).click();
       const form = win.locator('.conn-form');
       await form.locator('select').first().selectOption('sqlite');
       await form.locator('label:text-is("Profile name") + input').fill(name);
