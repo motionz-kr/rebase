@@ -22,7 +22,7 @@ func TestSSMProfileValidation(t *testing.T) {
 		"invalid instance":   func(p *ConnectionProfile) { p.SSM.InstanceID = "--target" },
 		"profile option":     func(p *ConnectionProfile) { p.SSM.Profile = "--debug" },
 		"unsupported driver": func(p *ConnectionProfile) { p.Driver = "sqlite" },
-		"unknown mode":       func(p *ConnectionProfile) { p.ConnectionMode = "ssh" },
+		"unknown mode":       func(p *ConnectionProfile) { p.ConnectionMode = "unsupported" },
 		"invalid host":       func(p *ConnectionProfile) { p.Host = "db\ninternal" },
 	}
 	for name, edit := range cases {

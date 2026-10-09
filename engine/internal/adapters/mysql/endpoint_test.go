@@ -24,3 +24,11 @@ func TestSSMNeverFallsBackToDirect(t *testing.T) {
 		t.Fatal("missing resolver must refuse SSM")
 	}
 }
+
+func TestSSHWithoutResolverNeverFallsBackToDirect(t *testing.T) {
+	p := domain.ConnectionProfile{Driver: "mysql", Host: "127.0.0.1", Port: 1, ConnectionMode: "ssh"}
+	c := NewMySQLConnector()
+	if err := c.TestConnection(context.Background(), p, ""); err == nil || err.Error() != "connection endpoint resolver is unavailable" {
+		t.Fatal(err)
+	}
+}

@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   listProfiles: () => ipcRenderer.invoke('list-profiles'),
   discoverDatabases: () => ipcRenderer.invoke('discover-databases'),
   createProfile: (profile: any, password?: string) => ipcRenderer.invoke('create-profile', profile, password),
+  pickSSHFile: (kind: 'identity' | 'known-hosts') => ipcRenderer.invoke('pick-ssh-file', kind),
   pickSqliteFile: () => ipcRenderer.invoke('pick-sqlite-file'),
   updateProfile: (profile: any, password?: string) => ipcRenderer.invoke('update-profile', profile, password),
   deleteProfile: (id: string) => ipcRenderer.invoke('delete-profile', id),

@@ -44,8 +44,8 @@ func (c *PostgreSQLConnector) connect(ctx context.Context, p domain.ConnectionPr
 			return nil, err
 		}
 		p.Host, p.Port = endpoint.Host, endpoint.Port
-	} else if p.ConnectionMode == "ssm" {
-		return nil, fmt.Errorf("AWS SSM endpoint resolver is unavailable")
+	} else if p.ConnectionMode != "" && p.ConnectionMode != "direct" {
+		return nil, fmt.Errorf("connection endpoint resolver is unavailable")
 	}
 	// libpq native sslmode values. "require" forces encryption, "prefer" uses
 	// TLS opportunistically with plaintext fallback. Certificate verification

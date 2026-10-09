@@ -201,3 +201,8 @@ the user approves the request in the Rebase activity view.
   ordering are not). Back up manually first if you keep hand-formatted comments.
 - The config embeds the **absolute** path to the bundled engine. If you move the
   app, re-run auto-connect to update existing client entries.
+
+MySQL/PostgreSQL profiles using **SSH (Bastion 경유)** use the same saved routing
+for MCP tools. The local engine needs access to the selected identity/known_hosts
+files; MCP does not receive key contents or accept SSH configuration as tool input.
+See [SSH connections](ssh-connections.md).

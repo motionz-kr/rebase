@@ -31,11 +31,11 @@ func (s *ConnectionService) ResolveEndpoint(ctx context.Context, p domain.Connec
 	if err := p.ValidateConnectionRoute(); err != nil {
 		return ports.ConnectionEndpoint{}, err
 	}
-	if p.ConnectionMode != "ssm" {
+	if p.ConnectionMode == "" || p.ConnectionMode == "direct" {
 		return ports.ConnectionEndpoint{Host: p.Host, Port: p.Port}, nil
 	}
 	if s.tunnels == nil {
-		return ports.ConnectionEndpoint{}, errors.New("AWS SSM tunnel manager is unavailable")
+		return ports.ConnectionEndpoint{}, errors.New("connection tunnel manager is unavailable")
 	}
 	return s.tunnels.ResolveEndpoint(ctx, p)
 }

@@ -18,3 +18,11 @@ describe('connection routing form', () => {
     expect(connectionRouteFromForm('sqlite', 'ssm', ssm)).toEqual({ connectionMode: 'direct', ssm: undefined });
   });
 });
+
+it('converts SSH references and clears stale SSH settings on other routes', () => {
+  const ssh = { host: ' bastion.example.com ', port: 22, username: ' ec2-user ', identityFile: ' /tmp/key.pem ', knownHostsFile: ' /tmp/known_hosts ' };
+  const route = connectionRouteFromForm('mysql', 'ssh', { profile: '', region: '', instanceId: '' }, ssh);
+  expect(route).toEqual({ connectionMode: 'ssh', ssm: undefined, ssh: { host: 'bastion.example.com', port: 22, username: 'ec2-user', identityFile: '/tmp/key.pem', knownHostsFile: '/tmp/known_hosts' } });
+  expect(connectionRouteFromForm('sqlite', 'ssh', { profile: '', region: '', instanceId: '' }, ssh).ssh).toBeUndefined();
+  expect(connectionRouteFromForm('mysql', 'direct', { profile: '', region: '', instanceId: '' }, ssh).ssh).toBeUndefined();
+});

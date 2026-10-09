@@ -17,8 +17,9 @@ type ConnectionProfile struct {
 	Username       string     `json:"username"`
 	SecretRef      string     `json:"secretRef"`
 	TLSMode        string     `json:"tlsMode"`                  // none, prefer, require
-	ConnectionMode string     `json:"connectionMode,omitempty"` // empty/direct (legacy), ssm
+	ConnectionMode string     `json:"connectionMode,omitempty"` // empty/direct (legacy), ssm, ssh
 	SSM            *SSMConfig `json:"ssm,omitempty"`
+	SSH            *SSHConfig `json:"ssh,omitempty"`
 	// ReadOnly is a general read-only intent for the connection; currently the
 	// sqlite connector honors it (opens mode=ro). Other drivers ignore it today.
 	ReadOnly bool `json:"readOnly"`

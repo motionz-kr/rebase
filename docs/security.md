@@ -71,6 +71,26 @@ network can still leave remote sessions requiring operator cleanup.
 SSM transport does not introduce IAM DB authentication or stronger DB certificate
 verification. See [SSM connections](ssm-connections.md) for supported scope.
 
+## SSH key references and host verification
+
+SSH profiles store only bastion host/port/user and user-selected identity/known_hosts
+file paths in SQLite. Private key contents never enter profile JSON, renderer, logs
+or MCP. The engine reads an unencrypted PEM/OpenSSH identity at connection time.
+Encrypted keys and password/agent authentication are outside this initial scope.
+Host authentication uses OpenSSH known_hosts (default ~/.ssh/known_hosts); unknown,
+changed and revoked host keys fail closed. There is no automatic host-key acceptance.
+The native SSH adapter opens only loopback listeners after authenticated handshake
+and destination reachability checks, never starts a shell or accepts SSH commands.
+Errors are curated without raw SSH/file contents. Profile changes/deletion and engine
+shutdown close owned clients, listeners and sockets. Failed SSH routing cannot fall
+back to direct DB access. DB TLS and existing MCP/query policies remain in force.
+
+The `pickSSHFile` preload API accepts only identity/known-hosts picker categories;
+Electron returns the user-selected path, without reading the file or accepting a
+renderer-specified filesystem read. Security review of this boundary confirms that
+no new filesystem content or secret retrieval API is exposed.
+See [SSH connections](ssh-connections.md).
+
 ## Renderer Security
 
 Electron renderer는 제한된 preload API만 사용한다.
@@ -88,7 +108,7 @@ Renderer에 노출하지 않는 것:
 - local engine auth token
 - raw connection string
 - keychain API
-- filesystem secret path
+- filesystem secret path (사용자가 선택한 SSH identity/known_hosts 경로 메타데이터는 예외; 파일 본문은 노출하지 않음)
 
 ## Local Engine API Security
 

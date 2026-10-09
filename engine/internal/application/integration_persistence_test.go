@@ -66,7 +66,7 @@ func TestIntegration_Persistence(t *testing.T) {
 		},
 	}
 
-	migrations = append(migrations, sqlite.SSMProfileMigration)
+	migrations = append(migrations, sqlite.SSMProfileMigration, sqlite.SSHProfileMigration)
 	if err := runner.Run(migrations); err != nil {
 		t.Fatalf("failed to run migrations: %v", err)
 	}

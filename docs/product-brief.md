@@ -17,7 +17,7 @@
 
 장기적으로는 개인용 DB client에서 팀 단위 SQL knowledge base와 MCP 연결 관리 도구로 확장한다.
 
-MVP의 managed database 접속 범위는 사용자의 네트워크에서 DB endpoint에 접근 가능하고 TLS 설정으로 연결할 수 있는 환경을 기준으로 한다. Bastion host나 private subnet 때문에 SSH tunnel 없이는 접근할 수 없는 환경은 post-MVP 범위로 둔다.
+MVP의 managed database 접속 범위는 사용자의 네트워크에서 DB endpoint에 접근 가능하고 TLS 설정으로 연결할 수 있는 환경을 기준으로 한다. MySQL/PostgreSQL의 private subnet 접속은 SSH bastion 및 AWS SSM 경로를 지원한다([SSH 설정](ssh-connections.md), [SSM 설정](ssm-connections.md)).
 
 ## 초기 지원 범위
 
@@ -55,7 +55,7 @@ MVP 이후 아래 기능을 단계적으로 추가한다.
 - MCP connection settings
 - MCP read-only mode
 - MCP destructive query policy
-- SSH tunnel
+- SSH agent, encrypted private keys, and multi-hop SSH
 - advanced certificate profile
 - export CSV/JSON
 - table data editing

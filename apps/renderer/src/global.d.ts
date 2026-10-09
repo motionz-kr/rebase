@@ -108,7 +108,8 @@ export interface ConnectionProfile {
   connectionUri?: string;
   secretRef?: string;
   tlsMode: 'none' | 'prefer' | 'require';
-  connectionMode?: 'direct' | 'ssm';
+  connectionMode?: import('./lib/connectionRoute').ConnectionMode;
+  ssh?: import('./lib/connectionRoute').SSHConfig;
   ssm?: import('./lib/connectionRoute').SSMConfig;
   readOnly?: boolean;
   safeMode?: boolean;
@@ -314,6 +315,7 @@ declare global {
       discoverDatabases: () => Promise<ResultWrapper<DatabaseDiscoveryResult>>;
       createProfile: (profile: ConnectionProfile, password?: string) => Promise<ResultWrapper<ConnectionProfile>>;
       pickSqliteFile: () => Promise<string | null>;
+      pickSSHFile: (kind: 'identity' | 'known-hosts') => Promise<string | null>;
       updateProfile: (profile: ConnectionProfile, password?: string) => Promise<ResultWrapper<ConnectionProfile>>;
       deleteProfile: (id: string) => Promise<ResultWrapper<{ success: boolean }>>;
       testConnection: (profile: ConnectionProfile, password?: string) => Promise<ResultWrapper<{ success: boolean }>>;
