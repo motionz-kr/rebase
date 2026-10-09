@@ -47,7 +47,7 @@ import type { TemplateDef } from './lib/templateTypes';
 import { loadAgentSettings } from './lib/agentSettings';
 import { createSqlQueryRequest, type SqlQueryRequest } from './lib/queryRequest';
 import { connectionsReducer, initialConnectionsState } from './state/connections';
-import { connectionRouteFromForm, type SSMConfig } from './lib/connectionRoute';
+import { connectionRouteFromForm, type SSMConfig, type SSHConfig, type ConnectionMode } from './lib/connectionRoute';
 import { connectionDefaultsFromCandidate } from './lib/databaseDiscovery';
 import { DatabaseDiscoveryDialog } from './components/DatabaseDiscoveryDialog';
 import type { DiscoveredDatabase, McpConnectionProposal } from './global';
@@ -64,7 +64,8 @@ export interface ConnectionProfile {
   connectionUri?: string;
   secretRef?: string;
   tlsMode: 'none' | 'prefer' | 'require';
-  connectionMode?: 'direct' | 'ssm';
+  connectionMode?: ConnectionMode;
+  ssh?: SSHConfig;
   ssm?: SSMConfig;
   readOnly?: boolean;
   safeMode?: boolean;
@@ -203,11 +204,12 @@ function App() {
   const [formUsername, setFormUsername] = useState('');
   const [formPassword, setFormPassword] = useState('');
   const [formTlsMode, setFormTlsMode] = useState<'none' | 'prefer' | 'require'>('none');
-  const [formConnectionMode, setFormConnectionMode] = useState<'direct' | 'ssm'>('direct');
+  const [formConnectionMode, setFormConnectionMode] = useState<ConnectionMode>('direct');
+  const [formSSH, setFormSSH] = useState<SSHConfig>({ host: '', port: 22, username: 'ec2-user', identityFile: '', knownHostsFile: '' });
   const [formSSM, setFormSSM] = useState<SSMConfig>({ profile: '', region: '', instanceId: '' });
   const formUsesDocumentDestination = formConnectionMode === 'ssm' && (formDriver === 'mysql' || formDriver === 'postgres') && formSSM.destinationMode === 'document';
   const [testingConnection, setTestingConnection] = useState(false);
-  const connectionTestSettings = JSON.stringify([formDriver, formHost, formPort, formDatabase, formUsername, formPassword, formTlsMode, formConnectionMode, formSSM]);
+  const connectionTestSettings = JSON.stringify([formDriver, formHost, formPort, formDatabase, formUsername, formPassword, formTlsMode, formConnectionMode, formSSM, formSSH]);
   const [testedConnectionSettings, setTestedConnectionSettings] = useState<string | null>(null);
   const connectionTestSuccess = testedConnectionSettings === connectionTestSettings;
   const connectionFeedbackRef = useRef<HTMLDivElement>(null);
@@ -347,6 +349,7 @@ function App() {
     setFormName('');
     setFormConnectionMode('direct');
     setFormSSM({ profile: '', region: '', instanceId: '' });
+    setFormSSH({ host: '', port: 22, username: 'ec2-user', identityFile: '', knownHostsFile: '' });
     setTestedConnectionSettings(null);
     handleDriverChange('mysql');
     setFormConnectionUri('');
@@ -386,6 +389,7 @@ function App() {
     setFormTlsMode(proposal.tlsMode);
     setFormConnectionMode('direct');
     setFormSSM({ profile: '', region: '', instanceId: '' });
+    setFormSSH({ host: '', port: 22, username: 'ec2-user', identityFile: '', knownHostsFile: '' });
     setTestedConnectionSettings(null);
     setFormReadOnly(current?.readOnly ?? false);
     setFormSafeMode(current?.safeMode ?? false);
@@ -407,7 +411,8 @@ function App() {
     setFormConnectionUri(p.connectionUri ?? '');
     setFormPassword(''); // blank keeps the existing password
     setFormTlsMode(p.tlsMode);
-    setFormConnectionMode(p.connectionMode === 'ssm' ? 'ssm' : 'direct');
+    setFormConnectionMode(p.connectionMode === 'ssm' || p.connectionMode === 'ssh' ? p.connectionMode : 'direct');
+    setFormSSH(p.ssh ?? { host: '', port: 22, username: 'ec2-user', identityFile: '', knownHostsFile: '' });
     setFormSSM(p.ssm ?? { profile: '', region: '', instanceId: '' });
     setTestedConnectionSettings(null);
     setFormReadOnly(p.readOnly ?? false);
@@ -429,7 +434,7 @@ function App() {
     const profile: ConnectionProfile = {
       ...(editingId ? profiles.find((p) => p.id === editingId) : {}),
       secretRef: undefined, // The engine owns this reference; the edit form never sends it.
-      ...connectionRouteFromForm(formDriver, formConnectionMode, formSSM),
+      ...connectionRouteFromForm(formDriver, formConnectionMode, formSSM, formSSH),
       name: formName || 'Test Profile',
       driver: formDriver,
       host: formDriver === 'sqlite' || formUsesDocumentDestination ? '' : formHost,
@@ -465,7 +470,7 @@ function App() {
     const profile: ConnectionProfile = {
       ...(editingId ? profiles.find((p) => p.id === editingId) : {}),
       secretRef: undefined, // The engine owns this reference; the edit form never sends it.
-      ...connectionRouteFromForm(formDriver, formConnectionMode, formSSM),
+      ...connectionRouteFromForm(formDriver, formConnectionMode, formSSM, formSSH),
       name: formName,
       driver: formDriver,
       host: formDriver === 'sqlite' || formUsesDocumentDestination ? '' : formHost,
@@ -975,11 +980,40 @@ function App() {
               {(formDriver === 'mysql' || formDriver === 'postgres') && (
                 <div>
                   <label htmlFor="connection-mode">접속 경로</label>
-                  <select id="connection-mode" value={formConnectionMode} onChange={(e) => { setFormConnectionMode(e.target.value as 'direct' | 'ssm'); setTestedConnectionSettings(null); }}>
+                  <select id="connection-mode" value={formConnectionMode} onChange={(e) => { setFormConnectionMode(e.target.value as ConnectionMode); setTestedConnectionSettings(null); }}>
                     <option value="direct">직접 연결</option>
                     <option value="ssm">AWS SSM (EC2 경유)</option>
+                    <option value="ssh">SSH (Bastion 경유)</option>
                   </select>
                 </div>
+              )}
+              {formConnectionMode === 'ssh' && (formDriver === 'mysql' || formDriver === 'postgres') && (
+                <fieldset className="ssm-settings">
+                  <legend>SSH Bastion</legend>
+                  <div><label htmlFor="ssh-host">Bastion Host</label>
+                    <input type="text" id="ssh-host" value={formSSH.host} placeholder="ec2-….compute.amazonaws.com" onChange={(e) => setFormSSH({ ...formSSH, host: e.target.value })} required />
+                  </div>
+                  <div className="field-row">
+                    <div className="field-grow"><label htmlFor="ssh-port">SSH Port</label>
+                      <input id="ssh-port" type="number" min={1} max={65535} value={formSSH.port} onChange={(e) => setFormSSH({ ...formSSH, port: Number(e.target.value) })} required />
+                    </div>
+                    <div className="field-grow"><label htmlFor="ssh-user">SSH User</label>
+                      <input type="text" id="ssh-user" value={formSSH.username} onChange={(e) => setFormSSH({ ...formSSH, username: e.target.value })} required />
+                    </div>
+                  </div>
+                  <div><label htmlFor="ssh-identity">SSH 개인 키 파일</label>
+                    <div className="field-row"><input type="text" id="ssh-identity" className="field-grow" value={formSSH.identityFile} placeholder="/path/to/Bastion_Host.pem" onChange={(e) => setFormSSH({ ...formSSH, identityFile: e.target.value })} required />
+                      <button type="button" className="btn btn-secondary btn-sm" onClick={async () => { const file = await window.electronAPI.pickSSHFile('identity'); if (file) setFormSSH({ ...formSSH, identityFile: file }); }}>키 파일 선택</button>
+                    </div>
+                  </div>
+                  <div><label htmlFor="ssh-known-hosts">known_hosts 파일 (선택)</label>
+                    <div className="field-row"><input type="text" id="ssh-known-hosts" className="field-grow" value={formSSH.knownHostsFile ?? ''} placeholder="~/.ssh/known_hosts" onChange={(e) => setFormSSH({ ...formSSH, knownHostsFile: e.target.value })} />
+                      <button type="button" className="btn btn-secondary btn-sm" onClick={async () => { const file = await window.electronAPI.pickSSHFile('known-hosts'); if (file) setFormSSH({ ...formSSH, knownHostsFile: file }); }}>호스트 키 파일 선택</button>
+                    </div>
+                  </div>
+                  <p className="ssm-note">아래 Host·Port에는 bastion에서 접근할 실제 DB 주소를 입력하세요. 로컬 터널은 자동으로 연결합니다.</p>
+                  <p className="ssm-note">암호가 없는 PEM·OpenSSH 키를 지원합니다. known_hosts에 신뢰할 수 있는 bastion 호스트 키가 등록되어 있어야 합니다. 키 본문은 저장하지 않습니다.</p>
+                </fieldset>
               )}
               {formConnectionMode === 'ssm' && (formDriver === 'mysql' || formDriver === 'postgres') && (
                 <fieldset className="ssm-settings">
@@ -1188,7 +1222,7 @@ function App() {
                       <div className="conn-row-text">
                         <span className="conn-row-name">{p.name}</span>
                         <span className="conn-row-host">
-                          {p.driver === 'sqlite' ? (p.database.split('/').pop() || p.database) : p.connectionMode === 'ssm' && p.ssm?.destinationMode === 'document' ? `SSM · ${p.ssm.documentName}` : `${p.connectionMode === 'ssm' ? 'SSM · ' : ''}${p.host}:${p.port}`}
+                          {p.driver === 'sqlite' ? (p.database.split('/').pop() || p.database) : p.connectionMode === 'ssm' && p.ssm?.destinationMode === 'document' ? `SSM · ${p.ssm.documentName}` : `${p.connectionMode === 'ssm' ? 'SSM · ' : p.connectionMode === 'ssh' ? 'SSH · ' : ''}${p.host}:${p.port}`}
                         </span>
                       </div>
                       <span className="conn-row-actions">

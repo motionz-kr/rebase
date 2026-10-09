@@ -48,8 +48,8 @@ func (c *MySQLConnector) connectWithTimeout(ctx context.Context, p domain.Connec
 			return nil, err
 		}
 		p.Host, p.Port = endpoint.Host, endpoint.Port
-	} else if p.ConnectionMode == "ssm" {
-		return nil, fmt.Errorf("AWS SSM endpoint resolver is unavailable")
+	} else if p.ConnectionMode != "" && p.ConnectionMode != "direct" {
+		return nil, fmt.Errorf("connection endpoint resolver is unavailable")
 	}
 	cfg := mysqlDriver.NewConfig()
 	cfg.User = p.Username

@@ -389,3 +389,15 @@ profile metadata 및 local SQLite activity repository에 저장한다. MCP tool-
 `[redacted]`로 치환하고 별도의 credential/header 값은 기록하지 않는다.
 승인 모드의 write는 별도 proposal 저장소를 거치며, normal engine의
 authenticated approval endpoint에서만 SQLConnector로 전달된다.
+
+## SSH connection routing
+
+MySQL/PostgreSQL profiles also accept `connectionMode: ssh` and `SSHConfig` metadata.
+An additive v20 migration stores SSH file references in `ssh_config`; no key material
+is stored. The connection service delegates tunnel routes to a composite adapter
+that dispatches to the existing SSM manager or native SSH manager.
+The SSH adapter uses golang.org/x/crypto/ssh, validates host keys against known_hosts,
+reads the chosen identity only in engine memory and forwards loopback TCP sockets
+through direct-tcpip channels. DB adapters consume the same endpoint resolver and
+reject tunnel profiles when the resolver is absent. UI and MCP share this route.
+See [SSH connections](ssh-connections.md) for supported authentication and lifecycle.

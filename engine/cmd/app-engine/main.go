@@ -22,7 +22,7 @@ import (
 	"github.com/smlee/database-local-engine/engine/internal/adapters/postgres"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/sqlite"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/sqlserver"
-	"github.com/smlee/database-local-engine/engine/internal/adapters/ssm"
+	"github.com/smlee/database-local-engine/engine/internal/adapters/tunnel"
 	"github.com/smlee/database-local-engine/engine/internal/agent"
 	"github.com/smlee/database-local-engine/engine/internal/application"
 	"github.com/smlee/database-local-engine/engine/internal/domain"
@@ -367,6 +367,7 @@ func main() {
 		`,
 		Checksum: "mcp-connection-proposals-v1",
 	})
+	migrations = append(migrations, sqlite.SSHProfileMigration)
 	if err := migrationRunner.Run(migrations); err != nil {
 		log.Fatalf("failed to run migrations: %v", err)
 	}
@@ -375,7 +376,7 @@ func main() {
 	profileRepo := sqlite.NewSQLiteProfileRepository(db)
 	secretStore := keychain.NewKeyringStore("AntigravityDBDesktop")
 	connectionService := application.NewConnectionService(profileRepo, secretStore)
-	tunnels := ssm.NewManager()
+	tunnels := tunnel.NewManager()
 	defer tunnels.Close()
 	connectionService.SetTunnelManager(tunnels)
 	mcpActivityRepo := sqlite.NewSQLiteMCPActivityRepository(db)

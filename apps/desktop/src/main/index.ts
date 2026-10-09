@@ -6,6 +6,7 @@ import * as crypto from 'crypto';
 import * as readline from 'readline';
 import { execFile, spawn } from 'child_process';
 import { EngineManager } from './engine_manager';
+import { connectionErrorMessage } from './connectionErrorMessage';
 import { UpdateService } from './updateService';
 import { detectClients, applyClient } from './mcpClients';
 import isDev from 'electron-is-dev';
@@ -356,6 +357,15 @@ app.whenReady().then(() => {
     }
   });
 
+  ipcMain.handle('pick-ssh-file', async (_event, kind: unknown) => {
+    if (kind !== 'identity' && kind !== 'known-hosts') return null;
+    const result = await dialog.showOpenDialog({
+      title: kind === 'identity' ? 'SSH 개인 키 선택' : 'SSH known_hosts 선택',
+      properties: ['openFile', 'showHiddenFiles'],
+    });
+    return result.canceled ? null : result.filePaths[0] ?? null;
+  });
+
   ipcMain.handle('pick-sqlite-file', async () => {
     const result = await dialog.showOpenDialog({
       properties: ['openFile'],
@@ -398,7 +408,7 @@ app.whenReady().then(() => {
       });
       return { success: true, data };
     } catch (err: any) {
-      return { success: false, error: err.message };
+      return { success: false, error: connectionErrorMessage(err.message) };
     }
   });
 

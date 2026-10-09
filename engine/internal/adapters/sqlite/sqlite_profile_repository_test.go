@@ -56,7 +56,7 @@ func newProfileRepo(t *testing.T) *SQLiteProfileRepository {
 			Checksum: "profiles-v1",
 		},
 	}
-	migrations = append(migrations, SSMProfileMigration)
+	migrations = append(migrations, SSMProfileMigration, SSHProfileMigration)
 	if err := runner.Run(migrations); err != nil {
 		t.Fatalf("failed to run profiles migration: %v", err)
 	}
@@ -353,5 +353,76 @@ func TestCorruptStoredSSMConfigurationFailsClosed(t *testing.T) {
 	}
 	if list, err := repo.List(ctx); err == nil || list != nil {
 		t.Fatal("corrupt route must not be silently omitted or defaulted", list, err)
+	}
+}
+
+func TestSSHProfileRoundTripAndMigration(t *testing.T) {
+	repo := newProfileRepo(t)
+	ctx := context.Background()
+	p := &domain.ConnectionProfile{ID: "ssh", Name: "bastion", Driver: "mysql", Host: "db.internal", Port: 3306, Database: "app", ConnectionMode: "ssh", SSH: &domain.SSHConfig{Host: "jump", Port: 22, Username: "ec2-user", IdentityFile: "/tmp/key.pem", KnownHostsFile: "/tmp/known_hosts"}, CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	if err := repo.Create(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	got, err := repo.GetByID(ctx, p.ID)
+	if err != nil || !reflect.DeepEqual(got.SSH, p.SSH) {
+		t.Fatal(got, err)
+	}
+	list, err := repo.List(ctx)
+	if err != nil || len(list) != 1 || !reflect.DeepEqual(list[0].SSH, p.SSH) {
+		t.Fatal(list, err)
+	}
+	got.SSH.Port = 2222
+	if err := repo.Update(ctx, got); err != nil {
+		t.Fatal(err)
+	}
+	if err := NewMigrationRunner(repo.db).Run([]Migration{SSHProfileMigration}); err != nil {
+		t.Fatal(err)
+	}
+	got, err = repo.GetByID(ctx, p.ID)
+	if err != nil || got.SSH.Port != 2222 {
+		t.Fatal(got, err)
+	}
+	if _, err := repo.db.Exec("UPDATE connection_profiles SET ssh_config='{broken' WHERE id='ssh'"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.GetByID(ctx, p.ID); err == nil {
+		t.Fatal("corrupt SSH settings accepted")
+	}
+	if _, err := repo.List(ctx); err == nil {
+		t.Fatal("corrupt SSH list accepted")
+	}
+}
+
+func TestSSHMigrationPreservesExistingProfiles(t *testing.T) {
+	repo := newProfileRepo(t)
+	ctx := context.Background()
+	direct := &domain.ConnectionProfile{ID: "direct", Name: "legacy", Driver: "mysql", Host: "db.internal", Port: 3306, Database: "app", SecretRef: "secret-direct", McpEnabled: true, McpWriteMode: "approval_required", ReadOnly: true, CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	ssm := *direct
+	ssm.ID = "ssm"
+	ssm.ConnectionMode = "ssm"
+	ssm.SSM = &domain.SSMConfig{Region: "ap-northeast-2", InstanceID: "i-0123456789abcdef0"}
+	for _, p := range []*domain.ConnectionProfile{direct, &ssm} {
+		if err := repo.Create(ctx, p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before, err := repo.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, query := range []string{"ALTER TABLE connection_profiles DROP COLUMN ssh_config", "DELETE FROM schema_migrations WHERE version=20"} {
+		if _, err := repo.db.Exec(query); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runner := NewMigrationRunner(repo.db)
+	for i := 0; i < 2; i++ {
+		if err := runner.Run([]Migration{SSHProfileMigration}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	after, err := repo.List(ctx)
+	if err != nil || !reflect.DeepEqual(before, after) {
+		t.Fatalf("existing profiles changed: %v", err)
 	}
 }

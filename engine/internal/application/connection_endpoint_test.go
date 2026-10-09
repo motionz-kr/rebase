@@ -56,3 +56,21 @@ func TestConnectionEndpointResolution(t *testing.T) {
 		t.Fatal(tunnel.closed)
 	}
 }
+
+func TestSSHEndpointResolution(t *testing.T) {
+	svc := NewConnectionService(ports.NewFakeProfileRepository(), ports.NewFakeSecretStore())
+	p := domain.ConnectionProfile{ID: "ssh", Name: "SSH", Driver: "mysql", Host: "db.internal", Port: 3306, Database: "app", ConnectionMode: "ssh", SSH: &domain.SSHConfig{Host: "bastion", Port: 22, Username: "ec2-user", IdentityFile: "/tmp/key.pem"}}
+	if _, err := svc.ResolveEndpoint(context.Background(), p); err == nil {
+		t.Fatal("SSH fell back to direct")
+	}
+	tunnel := &fakeTunnel{}
+	svc.SetTunnelManager(tunnel)
+	ep, err := svc.ResolveEndpoint(context.Background(), p)
+	if err != nil || ep.Host != "127.0.0.1" || tunnel.calls != 1 {
+		t.Fatal(ep, err)
+	}
+	tunnel.err = errors.New("SSH failed")
+	if _, err := svc.ResolveEndpoint(context.Background(), p); err == nil {
+		t.Fatal("SSH failure fell back to direct")
+	}
+}

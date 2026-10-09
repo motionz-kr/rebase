@@ -28,6 +28,8 @@ func (p ConnectionProfile) ValidateConnectionRoute() error {
 	switch p.ConnectionMode {
 	case "", "direct":
 		return nil
+	case "ssh":
+		return p.validateSSHRoute()
 	case "ssm":
 	default:
 		return errors.New("unsupported connection mode")
