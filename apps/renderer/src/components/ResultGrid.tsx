@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Download, Search, Pin, PinOff } from 'lucide-react';
 import { toCsv, toJson, toTsv } from '../lib/gridExport';
 import { sortRows, filterRows, type SortDir } from '../lib/gridView';
@@ -29,11 +29,20 @@ interface Sel {
   c2: number;
 }
 
+interface SelectionDrag {
+  kind: 'cell' | 'row' | 'column';
+  anchorRow: number;
+  anchorCol: number;
+}
+
 
 export const ResultGrid: React.FC<Props> = ({ columns, rows, rowHeight = 32 }) => {
   const [filter, setFilter] = useState('');
   const [sort, setSort] = useState<{ col: number; dir: SortDir } | null>(null);
   const [sel, setSel] = useState<Sel | null>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const selectionDragRef = useRef<SelectionDrag | null>(null);
+  const suppressHeaderClickRef = useRef(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [pinned, setPinned] = useState<Set<number>>(new Set());
   const [headerMenu, setHeaderMenu] = useState<{ x: number; y: number; col: number } | null>(null);
@@ -174,6 +183,13 @@ export const ResultGrid: React.FC<Props> = ({ columns, rows, rowHeight = 32 }) =
     setSel(null);
   }, [rows, filter, sort]);
 
+  // Selection coordinates follow the visible column order, so a pin/reorder
+  // change clears a range that would otherwise point at different cells.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSel(null);
+  }, [displayOrder]);
+
   // Reset pinned columns + drag order when the column set changes (new query).
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -223,12 +239,110 @@ export const ResultGrid: React.FC<Props> = ({ columns, rows, rowHeight = 32 }) =
     });
   };
 
-  const selectCell = (r: number, c: number, shift: boolean) =>
-    setSel((prev) => (shift && prev ? { ...prev, r2: r, c2: c } : { r1: r, c1: c, r2: r, c2: c }));
-  const selectRow = (r: number, shift: boolean) => {
-    const last = columns.length - 1;
-    setSel((prev) => (shift && prev ? { r1: prev.r1, c1: 0, r2: r, c2: last } : { r1: r, c1: 0, r2: r, c2: last }));
+  const selectionFor = useCallback((drag: SelectionDrag, r: number, c: number): Sel => {
+    if (drag.kind === 'row') return { r1: drag.anchorRow, c1: 0, r2: r, c2: displayOrder.length - 1 };
+    if (drag.kind === 'column') return { r1: 0, c1: drag.anchorCol, r2: display.length - 1, c2: c };
+    return { r1: drag.anchorRow, c1: drag.anchorCol, r2: r, c2: c };
+  }, [display.length, displayOrder.length]);
+
+  const beginSelection = (kind: SelectionDrag['kind'], r: number, c: number, e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    gridRef.current?.focus();
+    const anchor = e.shiftKey && kind === 'cell' && sel
+      ? { anchorRow: sel.r1, anchorCol: sel.c1 }
+      : e.shiftKey && kind === 'row' && sel
+        ? { anchorRow: sel.r1, anchorCol: 0 }
+        : { anchorRow: r, anchorCol: c };
+    const drag = { kind, ...anchor };
+    selectionDragRef.current = drag;
+    setSel(selectionFor(drag, r, c));
   };
+
+  // Track the pointer outside React's cell handlers so dragging keeps working
+  // across virtualized rows. Near the body edge, scroll while the pointer is
+  // held so a range can extend beyond the currently rendered rows.
+  useEffect(() => {
+    let pointer: { x: number; y: number } | null = null;
+    let autoScrollFrame: number | null = null;
+
+    const updateSelectionAtPointer = () => {
+      if (!pointer) return;
+      const drag = selectionDragRef.current;
+      if (!drag) return;
+      const target = document.elementFromPoint(pointer.x, pointer.y)?.closest<HTMLElement>('[data-grid-row][data-grid-col], [data-grid-row-header], [data-grid-col]');
+      if (!target) return;
+      const row = Number(target.dataset.gridRow);
+      const col = Number(target.dataset.gridCol);
+      const update = (r: number, c: number) => {
+        const next = selectionFor(drag, r, c);
+        setSel((prev) => prev && prev.r1 === next.r1 && prev.c1 === next.c1 && prev.r2 === next.r2 && prev.c2 === next.c2 ? prev : next);
+      };
+      if (drag.kind === 'column') {
+        if (Number.isInteger(col)) update(0, col);
+      } else if (drag.kind === 'row') {
+        if (Number.isInteger(row)) update(row, drag.anchorCol);
+      } else if (Number.isInteger(row) && Number.isInteger(col) && target.dataset.gridRowHeader === undefined) {
+        update(row, col);
+      }
+    };
+
+    const edgeScrollDelta = () => {
+      const body = bodyRef.current;
+      if (!body || !pointer) return 0;
+      const rect = body.getBoundingClientRect();
+      if (pointer.x < rect.left || pointer.x > rect.right || pointer.y < rect.top || pointer.y > rect.bottom) return 0;
+      const edgeSize = Math.min(40, Math.max(20, rowHeight));
+      if (pointer.y < rect.top + edgeSize) return -Math.max(4, Math.round(rowHeight / 3));
+      if (pointer.y > rect.bottom - edgeSize) return Math.max(4, Math.round(rowHeight / 3));
+      return 0;
+    };
+
+    const autoScroll = () => {
+      autoScrollFrame = null;
+      if (!selectionDragRef.current) return;
+      const body = bodyRef.current;
+      const delta = edgeScrollDelta();
+      if (!body || delta === 0) return;
+      const previousScrollTop = body.scrollTop;
+      body.scrollTop += delta;
+      if (body.scrollTop === previousScrollTop) return;
+      updateSelectionAtPointer();
+      autoScrollFrame = window.requestAnimationFrame(autoScroll);
+    };
+
+    const onMouseMove = (e: MouseEvent) => {
+      if (!selectionDragRef.current) return;
+      pointer = { x: e.clientX, y: e.clientY };
+      updateSelectionAtPointer();
+      if (edgeScrollDelta() !== 0 && autoScrollFrame === null) {
+        autoScrollFrame = window.requestAnimationFrame(autoScroll);
+      } else if (edgeScrollDelta() === 0 && autoScrollFrame !== null) {
+        window.cancelAnimationFrame(autoScrollFrame);
+        autoScrollFrame = null;
+      }
+    };
+
+    const endSelection = () => {
+      selectionDragRef.current = null;
+      pointer = null;
+      if (autoScrollFrame !== null) window.cancelAnimationFrame(autoScrollFrame);
+      autoScrollFrame = null;
+      if (suppressHeaderClickRef.current) {
+        window.setTimeout(() => { suppressHeaderClickRef.current = false; }, 0);
+      }
+    };
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', endSelection);
+    window.addEventListener('blur', endSelection);
+    return () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', endSelection);
+      window.removeEventListener('blur', endSelection);
+      endSelection();
+    };
+  }, [display.length, displayOrder.length, rowHeight, selectionFor]);
 
   const bounds = (s: Sel) => ({
     r0: Math.min(s.r1, s.r2),
@@ -249,7 +363,7 @@ export const ResultGrid: React.FC<Props> = ({ columns, rows, rowHeight = 32 }) =
     const grid: unknown[][] = [];
     for (let r = b.r0; r <= b.r1; r++) {
       const row: unknown[] = [];
-      for (let c = b.c0; c <= b.c1; c++) row.push(display[r]?.[c]);
+      for (let c = b.c0; c <= b.c1; c++) row.push(display[r]?.[displayOrder[c]]);
       grid.push(row);
     }
     void navigator.clipboard.writeText(toTsv(grid));
@@ -270,6 +384,12 @@ export const ResultGrid: React.FC<Props> = ({ columns, rows, rowHeight = 32 }) =
     // Tab/arrows for grid-cell navigation.
     const tag = (e.target as HTMLElement).tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    if ((e.metaKey || e.ctrlKey) && (e.key === 'a' || e.key === 'A')) {
+      if (display.length === 0 || displayOrder.length === 0) return;
+      e.preventDefault();
+      setSel({ r1: 0, c1: 0, r2: display.length - 1, c2: displayOrder.length - 1 });
+      return;
+    }
     if ((e.metaKey || e.ctrlKey) && (e.key === 'c' || e.key === 'C')) {
       e.preventDefault();
       copySelection();
@@ -286,7 +406,7 @@ export const ResultGrid: React.FC<Props> = ({ columns, rows, rowHeight = 32 }) =
       return;
     }
     const pageRows = Math.max(1, Math.floor(containerHeight / rowHeight) - 1);
-    const nc = nextCell({ r: sel.r2, c: sel.c2 }, e.key, e.shiftKey, display.length - 1, columns.length - 1, pageRows);
+    const nc = nextCell({ r: sel.r2, c: sel.c2 }, e.key, e.shiftKey, display.length - 1, displayOrder.length - 1, pageRows);
     if (!nc) return;
     e.preventDefault();
     const extend = e.shiftKey && e.key !== 'Tab'; // Tab always collapses; arrows extend with shift
@@ -295,7 +415,7 @@ export const ResultGrid: React.FC<Props> = ({ columns, rows, rowHeight = 32 }) =
   };
 
   return (
-    <div className="grid" tabIndex={0} onKeyDown={onKeyDown}>
+    <div className="grid" tabIndex={0} ref={gridRef} onKeyDown={onKeyDown}>
       <div className="grid-toolbar">
         <div className="grid-filter">
           <Search size={13} />
@@ -315,18 +435,36 @@ export const ResultGrid: React.FC<Props> = ({ columns, rows, rowHeight = 32 }) =
       </div>
 
       <div className="grid-head" ref={headRef}>
-        <div className="grid-idx" style={idxStyle('var(--bg-panel-2)')}>#</div>
-        {displayOrder.map((idx) => (
+        <div className="grid-idx" style={idxStyle('var(--bg-panel-2)')} title="행 번호를 드래그해 행 선택 · ⌘/Ctrl+A로 전체 선택">#</div>
+        {displayOrder.map((idx, position) => (
           <div
             key={idx}
             className={`grid-cell grid-head-cell ${pinned.has(idx) ? 'pinned' : ''}`}
             style={cellGeom(idx, 'var(--bg-panel-2)')}
-            title={columns[idx]}
+            data-grid-col={position}
+            title={`${columns[idx]} · Shift+드래그로 열 선택`}
             draggable={!pinned.has(idx)}
-            onDragStart={() => { dragCol.current = idx; }}
+            onMouseDown={(e) => {
+              if (!e.shiftKey) return;
+              suppressHeaderClickRef.current = true;
+              beginSelection('column', 0, position, e);
+            }}
+            onDragStart={(e) => {
+              if (selectionDragRef.current?.kind === 'column') {
+                e.preventDefault();
+                return;
+              }
+              dragCol.current = idx;
+            }}
             onDragOver={(e) => { if (!pinned.has(idx) && dragCol.current !== null) e.preventDefault(); }}
             onDrop={() => onColDrop(idx)}
-            onClick={() => toggleSort(idx)}
+            onClick={() => {
+              if (suppressHeaderClickRef.current) {
+                suppressHeaderClickRef.current = false;
+                return;
+              }
+              toggleSort(idx);
+            }}
             onContextMenu={(e) => { e.preventDefault(); setHeaderMenu({ x: e.clientX, y: e.clientY, col: idx }); }}
           >
             {pinned.has(idx) && <Pin size={11} className="pin-mark" />}
@@ -357,19 +495,28 @@ export const ResultGrid: React.FC<Props> = ({ columns, rows, rowHeight = 32 }) =
                   className={`grid-row ${r % 2 === 0 ? 'even' : 'odd'}`}
                   style={{ position: 'absolute', top: `${r * rowHeight}px`, height: `${rowHeight}px`, left: 0, display: 'flex', ...rowSpan }}
                 >
-                  <div className="grid-idx" style={idxStyle('var(--bg)')} onMouseDown={(e) => selectRow(r, e.shiftKey)}>{r + 1}</div>
-                  {displayOrder.map((c) => {
+                  <div
+                    className="grid-idx"
+                    style={idxStyle('var(--bg)')}
+                    data-grid-row={r}
+                    data-grid-row-header="true"
+                    title="드래그해 행 선택"
+                    onMouseDown={(e) => beginSelection('row', r, 0, e)}
+                  >{r + 1}</div>
+                  {displayOrder.map((c, position) => {
                     const val = row[c];
                     const isNull = val === null || val === undefined;
                     const text = cellText(val);
-                    const selected = inSel(r, c);
+                    const selected = inSel(r, position);
                     return (
                       <div
                         key={c}
                         className={`grid-cell ${isNull ? 'null' : ''} ${selected ? 'sel' : ''} ${pinned.has(c) ? 'pinned' : ''}`}
                         style={cellGeom(c, 'var(--bg)', selected)}
+                        data-grid-row={r}
+                        data-grid-col={position}
                         title={text}
-                        onMouseDown={(e) => selectCell(r, c, e.shiftKey)}
+                        onMouseDown={(e) => beginSelection('cell', r, position, e)}
                       >
                         {text}
                       </div>

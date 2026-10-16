@@ -1445,6 +1445,16 @@
   color: var(--text-3);
   font-style: italic;
 }
+.grid-body .grid-cell,
+.grid-body .grid-idx {
+  user-select: none;
+}
+.grid-body .grid-cell {
+  cursor: cell;
+}
+.grid-body .grid-idx {
+  cursor: pointer;
+}
 .grid-foot {
   display: flex;
   align-items: center;
