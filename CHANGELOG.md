@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.39.0](https://github.com/motionz-kr/rebase/compare/v0.38.0...v0.39.0) (2026-10-16)
+
+
+### Features
+
+* **grid:** support drag selection and TSV copy ([#218](https://github.com/motionz-kr/rebase/issues/218)) ([a992483](https://github.com/motionz-kr/rebase/commit/a992483f456d9cbe7d3a02c3d4d89b7f7f89efa5))
+
 ## [0.38.0](https://github.com/motionz-kr/rebase/compare/v0.37.0...v0.38.0) (2026-10-09)
 
 
