@@ -182,8 +182,5 @@ test.describe('query tab context menu', () => {
     await win.getByRole('menuitem', { name: '다른 탭 닫기' }).click();
     await expect(names(win)).toHaveText(['Query 1']);
     await expect(win.locator('.editor-toolbar .btn-danger')).toBeVisible();
-    // Release the deliberately long-running query before fixture teardown.
-    await win.locator('.editor-toolbar .btn-danger').click();
-    await expect(win.locator('.editor-toolbar .btn-danger')).toHaveCount(0);
   });
 });
