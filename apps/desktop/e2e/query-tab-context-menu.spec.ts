@@ -165,7 +165,7 @@ test.describe('query tab context menu', () => {
     await win.getByTestId('session-manager-open').click();
     const manager = win.getByRole('dialog', { name: '세션 관리' });
     await expect(manager.getByTestId('session-manager-client')).toHaveCount(1);
-    await expect(manager).toContainText('실행별 전용 연결');
+    await expect(manager).toContainText('아직 연결되지 않음');
   });
 
   test('protects a running tab while closing the other idle tabs', async ({ firstWindow: win }) => {

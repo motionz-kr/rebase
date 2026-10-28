@@ -272,6 +272,10 @@ func (c *MySQLConnector) ExecuteQueryStream(
 	onHeader func(columns []string) error,
 	onRow func(row []any) error,
 ) (int64, error) {
+	if domain.ParseTransactionCommand(query).Action != "" {
+		return 0, adapters.ErrQuerySessionRequired
+	}
+
 	db, err := c.connectForQuery(ctx, p, password)
 	if err != nil {
 		return 0, err
@@ -304,54 +308,11 @@ func (c *MySQLConnector) ExecuteQueryStream(
 		}
 	}
 
-	// 2. Execute query
-	rows, err := conn.QueryContext(ctx, query)
-	if err != nil {
-		return 0, c.normalizeError(err)
-	}
-	defer rows.Close()
-
-	// 3. Process Header
-	cols, err := rows.Columns()
-	if err != nil {
-		return 0, c.normalizeError(err)
-	}
-	if err := onHeader(cols); err != nil {
-		return 0, err
-	}
-
-	// 4. Process Rows
-	values := make([]any, len(cols))
-	valuePtrs := make([]any, len(cols))
-	for i := range values {
-		valuePtrs[i] = &values[i]
-	}
-
-	var rowsAffected int64
-	for rows.Next() {
-		if err := rows.Scan(valuePtrs...); err != nil {
-			return rowsAffected, c.normalizeError(err)
-		}
-
-		row := make([]any, len(values))
-		for i, val := range values {
-			if b, ok := val.([]byte); ok {
-				row[i] = string(b)
-			} else {
-				row[i] = val
-			}
-		}
-
-		if err := onRow(row); err != nil {
-			return rowsAffected, err
-		}
-		rowsAffected++
-	}
-
-	return rowsAffected, c.normalizeError(rows.Err())
+	rowsAffected, err := adapters.ExecuteSessionQuery(ctx, conn, query, onHeader, onRow)
+	return rowsAffected, c.normalizeError(err)
 }
 
-func (c *MySQLConnector) OpenQuerySession(ctx context.Context, p domain.ConnectionProfile, password, ownerID, database string, readOnly bool) (string, error) {
+func (c *MySQLConnector) OpenQuerySession(ctx context.Context, p domain.ConnectionProfile, password, ownerID, database string, readOnly bool, autoCommit ...bool) (string, error) {
 	if database != "" {
 		p.Database = database
 	}
@@ -359,7 +320,19 @@ func (c *MySQLConnector) OpenQuerySession(ctx context.Context, p domain.Connecti
 	if err != nil {
 		return "", err
 	}
-	return c.querySessions.Open(ctx, ownerID, p.Database, db, readOnly || p.ReadOnly, true)
+	return c.querySessions.Open(ctx, ownerID, p.Database, db, readOnly || p.ReadOnly, sqlsession.Options{
+		AutoCommit: len(autoCommit) > 0 && autoCommit[0], BeginSQL: "START TRANSACTION", Dialect: "mysql",
+		Initialize: func(ctx context.Context, conn *sql.Conn) (int64, error) {
+			if readOnly || p.ReadOnly {
+				if _, err := conn.ExecContext(ctx, "SET SESSION TRANSACTION READ ONLY"); err != nil {
+					return 0, err
+				}
+			}
+			var id int64
+			err := conn.QueryRowContext(ctx, "SELECT CONNECTION_ID()").Scan(&id)
+			return id, err
+		},
+	})
 }
 
 func (c *MySQLConnector) ExecuteQuerySessionStream(
@@ -372,21 +345,26 @@ func (c *MySQLConnector) ExecuteQuerySessionStream(
 	onHeader func(columns []string) error,
 	onRow func(row []any) error,
 ) (int64, error) {
-	lease, err := c.querySessions.Begin(ctx, ownerID, database, sessionID, readOnly)
+	lease, err := c.querySessions.Acquire(ctx, ownerID, database, sessionID, readOnly, query)
 	if err != nil {
 		return 0, c.normalizeError(err)
 	}
 	defer lease.Close()
 
-	var threadID int64
-	if err := lease.Queryer.QueryRowContext(ctx, "SELECT CONNECTION_ID()").Scan(&threadID); err != nil {
-		return 0, c.normalizeError(err)
-	}
 	if onSessionStart != nil {
-		onSessionStart(threadID)
+		onSessionStart(lease.ServerID)
 	}
 	rowsAffected, err := adapters.ExecuteSessionQuery(ctx, lease.Queryer, query, onHeader, onRow)
+	lease.Complete(query, err)
 	return rowsAffected, c.normalizeError(err)
+}
+
+func (c *MySQLConnector) QuerySessionState(ownerID, sessionID string) (string, error) {
+	return c.querySessions.State(ownerID, sessionID)
+}
+
+func (c *MySQLConnector) SetQuerySessionAutoCommit(ownerID, sessionID string, autoCommit bool) error {
+	return c.querySessions.SetAutoCommit(ownerID, sessionID, autoCommit)
 }
 
 func (c *MySQLConnector) CommitQuerySession(ctx context.Context, ownerID, sessionID string) error {

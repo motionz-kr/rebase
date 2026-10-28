@@ -282,6 +282,10 @@ func (c *PostgreSQLConnector) ExecuteQueryStream(
 	onHeader func(columns []string) error,
 	onRow func(row []any) error,
 ) (int64, error) {
+	if domain.ParseTransactionCommand(query).Action != "" {
+		return 0, adapters.ErrQuerySessionRequired
+	}
+
 	db, err := c.connect(ctx, p, password, p.Database)
 	if err != nil {
 		return 0, err
@@ -360,7 +364,7 @@ func (c *PostgreSQLConnector) ExecuteQueryStream(
 	return rowsAffected, c.normalizeError(rows.Err())
 }
 
-func (c *PostgreSQLConnector) OpenQuerySession(ctx context.Context, p domain.ConnectionProfile, password, ownerID, database string, readOnly bool) (string, error) {
+func (c *PostgreSQLConnector) OpenQuerySession(ctx context.Context, p domain.ConnectionProfile, password, ownerID, database string, readOnly bool, autoCommit ...bool) (string, error) {
 	if database == "" {
 		database = p.Database
 	}
@@ -368,7 +372,19 @@ func (c *PostgreSQLConnector) OpenQuerySession(ctx context.Context, p domain.Con
 	if err != nil {
 		return "", err
 	}
-	return c.querySessions.Open(ctx, ownerID, database, db, readOnly || p.ReadOnly, true)
+	return c.querySessions.Open(ctx, ownerID, database, db, readOnly || p.ReadOnly, sqlsession.Options{
+		AutoCommit: len(autoCommit) > 0 && autoCommit[0], BeginSQL: "BEGIN", Dialect: "postgres",
+		Initialize: func(ctx context.Context, conn *sql.Conn) (int64, error) {
+			if readOnly || p.ReadOnly {
+				if _, err := conn.ExecContext(ctx, "SET default_transaction_read_only = on"); err != nil {
+					return 0, err
+				}
+			}
+			var id int64
+			err := conn.QueryRowContext(ctx, "SELECT pg_backend_pid()").Scan(&id)
+			return id, err
+		},
+	})
 }
 
 func (c *PostgreSQLConnector) ExecuteQuerySessionStream(
@@ -381,21 +397,26 @@ func (c *PostgreSQLConnector) ExecuteQuerySessionStream(
 	onHeader func(columns []string) error,
 	onRow func(row []any) error,
 ) (int64, error) {
-	lease, err := c.querySessions.Begin(ctx, ownerID, database, sessionID, readOnly)
+	lease, err := c.querySessions.Acquire(ctx, ownerID, database, sessionID, readOnly, query)
 	if err != nil {
 		return 0, c.normalizeError(err)
 	}
 	defer lease.Close()
 
-	var pid int64
-	if err := lease.Queryer.QueryRowContext(ctx, "SELECT pg_backend_pid()").Scan(&pid); err != nil {
-		return 0, c.normalizeError(err)
-	}
 	if onSessionStart != nil {
-		onSessionStart(pid)
+		onSessionStart(lease.ServerID)
 	}
 	rowsAffected, err := adapters.ExecuteSessionQuery(ctx, lease.Queryer, query, onHeader, onRow)
+	lease.Complete(query, err)
 	return rowsAffected, c.normalizeError(err)
+}
+
+func (c *PostgreSQLConnector) QuerySessionState(ownerID, sessionID string) (string, error) {
+	return c.querySessions.State(ownerID, sessionID)
+}
+
+func (c *PostgreSQLConnector) SetQuerySessionAutoCommit(ownerID, sessionID string, autoCommit bool) error {
+	return c.querySessions.SetAutoCommit(ownerID, sessionID, autoCommit)
 }
 
 func (c *PostgreSQLConnector) CommitQuerySession(ctx context.Context, ownerID, sessionID string) error {

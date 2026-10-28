@@ -82,7 +82,7 @@ export const QuerySessionManager: React.FC<Props> = ({
                       <span>{getTransactionStatusLabel(client.transactionMode, client.transactionState)}</span>
                       {client.transactionSessionId
                         ? <span className="session-id">세션 {shortSessionId(client.transactionSessionId)}</span>
-                        : <span className="session-id">실행별 전용 연결</span>}
+                        : <span className="session-id">아직 연결되지 않음</span>}
                     </span>
                   </span>
                   {active && <span className="session-active-label">현재 탭</span>}
@@ -102,7 +102,7 @@ export const QuerySessionManager: React.FC<Props> = ({
                       <button className="btn btn-secondary btn-xs" disabled={!controls.rollback} onClick={() => onRollback(client.id)}>
                         <RotateCcw size={11} /> Rollback
                       </button>
-                      <button className="btn btn-ghost btn-xs" onClick={() => onCloseSession(client.id)}>
+                      <button className="btn btn-ghost btn-xs" disabled={client.loading} onClick={() => onCloseSession(client.id)}>
                         세션 종료
                       </button>
                     </>
@@ -114,7 +114,7 @@ export const QuerySessionManager: React.FC<Props> = ({
         </div>
 
         <footer className="session-manager-footer">
-          <span>수동 세션 종료 시 미커밋 변경 사항은 Rollback됩니다.</span>
+          <span>세션 종료 시 미커밋 변경 사항은 Rollback됩니다.</span>
           <button className="btn btn-secondary btn-sm" onClick={onClose}>닫기</button>
         </footer>
       </div>

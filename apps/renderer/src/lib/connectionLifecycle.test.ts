@@ -10,6 +10,10 @@ describe('connection lifecycle', () => {
     })).toBe(true);
   });
 
+  it('also protects a SQL transaction opened in Auto mode', () => {
+    expect(hasUncommittedTransaction({ transactionMode: 'auto', transactionState: 'active', transactionSessionId: 'sql-tx' })).toBe(true);
+  });
+
   it('does not block disconnect for auto-commit or an idle manual tab', () => {
     expect(hasUncommittedTransaction({
       transactionMode: 'auto',

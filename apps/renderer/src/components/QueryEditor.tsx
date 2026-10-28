@@ -242,9 +242,10 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
   const explainSql = buildExplainSql(driver, activeTab.query);
   const isExplainResult = /^\s*EXPLAIN\b/i.test(activeTab.lastExecutedSql ?? '');
   const activeTabIdRef = useRef(activeTabId);
-  // When the run query is a plain single-table SELECT *, the result is shown in
-  // an editable table view (add/edit/delete) instead of the read-only grid.
-  const [editView, setEditView] = useState<EditableQuery | null>(null);
+  // Explicit schema-browser previews belong to the tab that opened them.
+  // Console SQL uses its pinned session and the query result grid.
+  const [tablePreview, setEditView] = useState<(EditableQuery & { tabId: string }) | null>(null);
+  const editView = tablePreview?.tabId === activeTab.id ? tablePreview : null;
   const [showSessionManager, setShowSessionManager] = useState(false);
   const [tabMenu, setTabMenu] = useState<{ tabId: string; x: number; y: number } | null>(null);
   const closingTabsRef = useRef(false);
@@ -270,7 +271,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     if (previousProfileDatabaseRef.current === database) return;
     previousProfileDatabaseRef.current = database;
     for (const tab of tabsRef.current) clearPendingMultiRun(tab.id);
-    setTabs((prev) => prev.map((t) => ({ ...t, database })));
+    setTabs((prev) => prev.map((t) => t.transactionSessionId ? t : { ...t, database }));
   }, [database]);
 
   useEffect(() => {
@@ -287,6 +288,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
 
   const tabsRef = useRef<QueryTab[]>(tabs);
   const transactionSessionsRef = useRef<Record<string, string>>({});
+  const sessionPermissionsRef = useRef<Record<string, boolean>>({});
   const pendingMultiRunsRef = useRef<Record<string, PendingMultiStatementRun | undefined>>({});
   const clearPendingMultiRun = (tabId: string) => {
     delete pendingMultiRunsRef.current[tabId];
@@ -325,16 +327,24 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     const fromRef = transactionSessionsRef.current[tabId];
     const fromTab = tabsRef.current.find((tab) => tab.id === tabId)?.transactionSessionId;
     const existing = fromRef ?? fromTab;
-    if (existing) return existing;
+    if (existing) {
+      if (sessionPermissionsRef.current[tabId] === allowWrite) return existing;
+      const state = tabsRef.current.find((tab) => tab.id === tabId)?.transactionState;
+      if (state && ['opening', 'active', 'failed'].includes(state)) {
+        throw new Error('현재 트랜잭션을 Commit 또는 Rollback한 뒤 Read-only/Write 모드를 변경해주세요.');
+      }
+      await closeTransactionSession(tabId);
+    }
 
     updateTabTransaction(tabId, { transactionState: 'opening' });
-    const result = await window.electronAPI.querySession('open', profileId, targetDatabase, '', !allowWrite);
+    const result = await window.electronAPI.querySession('open', profileId, targetDatabase, '', !allowWrite, tabsRef.current.find((tab) => tab.id === tabId)?.transactionMode === 'auto');
     const sessionId = result.success ? result.data?.sessionId : undefined;
     if (!sessionId) {
       updateTabTransaction(tabId, { transactionState: 'idle', transactionSessionId: null });
       throw new Error(result.error || '수동 트랜잭션 세션을 열지 못했습니다.');
     }
     transactionSessionsRef.current[tabId] = sessionId;
+    sessionPermissionsRef.current[tabId] = allowWrite;
     updateTabTransaction(tabId, { transactionState: 'idle', transactionSessionId: sessionId });
     return sessionId;
   };
@@ -346,6 +356,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     const result = await window.electronAPI.querySession('close', profileId, '', sessionId);
     if (!result.success) throw new Error(result.error || '트랜잭션 세션을 닫지 못했습니다.');
     delete transactionSessionsRef.current[tabId];
+    delete sessionPermissionsRef.current[tabId];
     updateTabTransaction(tabId, { transactionSessionId: null, transactionState: 'idle' });
   };
 
@@ -358,16 +369,15 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
       alert('이 연결은 Read-only로 설정되어 Write 모드를 사용할 수 없습니다.');
       return false;
     }
-    const hasUncommittedTransaction = target.transactionMode === 'manual'
-      && ['opening', 'active', 'failed'].includes(target.transactionState);
+    const hasUncommittedTransaction = ['opening', 'active', 'failed'].includes(target.transactionState);
     if (hasUncommittedTransaction) {
-      alert('Manual 트랜잭션을 먼저 Commit 또는 Rollback 해주세요.');
+      alert('현재 트랜잭션을 먼저 Commit 또는 Rollback 해주세요.');
       return false;
     }
     try {
-      // A manual session is bound to its read/write permission. Only the
+      // Each session is bound to its read/write permission. Only the
       // current query tab's session is closed when that tab changes mode.
-      if (target.transactionMode === 'manual' && target.transactionSessionId) {
+      if (target.transactionSessionId) {
         await closeTransactionSession(tabId);
         const pending = pendingMultiRunsRef.current[tabId];
         if (pending) pending.sessionId = undefined;
@@ -384,15 +394,20 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
   const setTransactionMode = async (tabId: string, mode: QueryTransactionMode) => {
     const target = tabsRef.current.find((tab) => tab.id === tabId);
     if (!target || target.transactionMode === mode) return;
-    if (mode === 'auto' && ['opening', 'active', 'failed'].includes(target.transactionState)) {
-      const confirmed = window.confirm('Auto-commit으로 전환하면 미커밋 변경 사항을 Rollback 합니다. 계속할까요?');
+    if (['opening', 'active', 'failed'].includes(target.transactionState)) {
+      const confirmed = window.confirm('트랜잭션 모드를 전환하면 미커밋 변경 사항을 Rollback 합니다. 계속할까요?');
       if (!confirmed) return;
+      const result = await window.electronAPI.querySession('rollback', profileId, '', target.transactionSessionId ?? '');
+      if (!result.success) { alert(result.error || 'Rollback에 실패했습니다.'); return; }
     }
     try {
-      if (target.transactionSessionId) await closeTransactionSession(tabId);
+      if (target.transactionSessionId) {
+        const result = await window.electronAPI.querySession('configure', profileId, '', target.transactionSessionId, true, mode === 'auto');
+        if (!result.success) throw new Error(result.error || '세션 모드를 변경하지 못했습니다.');
+      }
       clearPendingMultiRun(tabId);
       setTabs((prev) => prev.map((tab) => tab.id === tabId
-        ? { ...tab, transactionMode: mode, transactionState: 'idle', transactionSessionId: null, transactionNotice: null }
+        ? { ...tab, transactionMode: mode, transactionState: 'idle', transactionNotice: null }
         : tab));
     } catch (error) {
       alert(error instanceof Error ? error.message : '트랜잭션 세션을 닫지 못했습니다.');
@@ -412,8 +427,9 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
         : tab));
       return;
     }
+    clearPendingMultiRun(tabId);
     setTabs((prev) => prev.map((tab) => tab.id === tabId
-      ? { ...tab, transactionState: 'idle', transactionNotice: action === 'commit' ? 'Committed' : 'Rolled back', error: null }
+      ? { ...tab, transactionState: 'idle', transactionNotice: action === 'commit' ? 'Committed' : 'Rolled back', error: null, policyPrompt: null }
       : tab));
   };
 
@@ -426,6 +442,8 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     }
     try {
       await closeTransactionSession(tabId);
+      clearPendingMultiRun(tabId);
+      setTabs((prev) => prev.map((tab) => tab.id === tabId ? { ...tab, policyPrompt: null } : tab));
     } catch (error) {
       alert(error instanceof Error ? error.message : '세션을 종료하지 못했습니다.');
     }
@@ -607,6 +625,13 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     }
     setEditView(null);
     if (requestedExecute && requestedSql) {
+      // An explicit schema-browser action opens a separate table preview. SQL
+      // run in the console itself always stays on the console's connection.
+      const preview = requestedOpenInNewTab ? analyzeEditableQuery(requestedSql) : null;
+      if (preview) {
+        setEditView({ ...preview, tabId: targetTabId });
+        return;
+      }
       setPendingExternalExecution({ tabId: targetTabId, sql: requestedSql, database: requestedDatabase });
     } else {
       editorInstance?.focus();
@@ -686,14 +711,13 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
           if (chunk.type === 'meta') {
             updated.columns = chunk.columns ?? [];
             updated.rows = [];
-            if (updated.transactionMode === 'manual') updated.transactionState = 'active';
           } else if (chunk.type === 'row') {
             updated.rows = [...updated.rows, chunk.data ?? []];
           } else if (chunk.type === 'policy') {
             updated.loading = false;
             updated.queryId = null;
             updated.policyPrompt = { code: chunk.code ?? '', message: chunk.message ?? '', verb: chunk.verb ?? '' };
-            if (updated.transactionMode === 'manual' && updated.transactionState === 'opening') updated.transactionState = 'idle';
+            if (updated.transactionState === 'opening') updated.transactionState = 'idle';
             const runningIndex = updated.statementExecutions.findIndex((execution) => execution.state === 'running');
             if (runningIndex >= 0) {
               updated.statementExecutions = updated.statementExecutions.map((execution, index) =>
@@ -701,13 +725,13 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
               );
             }
           } else if (chunk.type === 'done') {
+            updated.transactionState = chunk.transactionState ?? 'idle';
             updated.loading = false;
             updated.rowsAffected = chunk.rowsAffected ?? null;
             updated.truncated = chunk.truncated === true;
             updated.rowLimit = chunk.rowLimit ?? 0;
             updated.elapsedTimeMs = tab.startTime ? Date.now() - tab.startTime : 0;
             updated.queryId = null;
-            if (updated.transactionMode === 'manual') updated.transactionState = 'active';
             updated.lastExec = {
               sql: tab.lastExecutedSql ?? tab.query,
               durationMs: updated.elapsedTimeMs,
@@ -736,7 +760,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
             updated.error = chunk.message ?? null;
             updated.elapsedTimeMs = tab.startTime ? Date.now() - tab.startTime : 0;
             updated.queryId = null;
-            if (updated.transactionMode === 'manual') updated.transactionState = 'failed';
+            updated.transactionState = chunk.transactionState ?? 'failed';
             updated.lastExec = { sql: tab.lastExecutedSql ?? tab.query, durationMs: updated.elapsedTimeMs, error: chunk.message };
             const runningIndex = updated.statementExecutions.findIndex((execution) => execution.state === 'running');
             if (runningIndex >= 0) {
@@ -798,7 +822,6 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
         if (qid !== queryId) return;
         if (chunk.type === 'meta') {
           columns = chunk.columns ?? [];
-          if (transactionSessionsRef.current[opts.tabId]) updateTabTransaction(opts.tabId, { transactionState: 'active' });
         } else if (chunk.type === 'row') {
           rows.push(chunk.data ?? []);
         } else if (chunk.type === 'policy') {
@@ -807,7 +830,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
           }
           finish({ policy: { code: chunk.code ?? '', message: chunk.message ?? '', verb: chunk.verb ?? '' } });
         } else if (chunk.type === 'done') {
-          if (transactionSessionsRef.current[opts.tabId]) updateTabTransaction(opts.tabId, { transactionState: 'active' });
+          updateTabTransaction(opts.tabId, { transactionState: chunk.transactionState ?? 'idle' });
           finish({
             result: {
               statement: stmt,
@@ -820,7 +843,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
             },
           });
         } else if (chunk.type === 'error') {
-          if (transactionSessionsRef.current[opts.tabId]) updateTabTransaction(opts.tabId, { transactionState: 'failed' });
+          updateTabTransaction(opts.tabId, { transactionState: chunk.transactionState ?? 'failed' });
           finish({
             result: { statement: stmt, columns, rows, rowsAffected: null, error: chunk.message ?? null, truncated: false, rowLimit: 0 },
           });
@@ -851,18 +874,15 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     statementRanges: ReturnType<typeof splitStatementRanges>,
     opts: MultiStatementRunOptions,
     startIndex = 0,
-    existingSessionId?: string,
   ) => {
     const statements = statementRanges.map((range) => range.statement);
     const resumePlan = createMultiStatementResumePlan(statementRanges, startIndex);
     if (startIndex > 0 && !resumePlan) return;
     const runTabId = activeTabId;
     const currentTab = tabsRef.current.find((tab) => tab.id === runTabId);
-    if (currentTab?.transactionMode === 'manual' && currentTab.transactionState === 'failed') return;
     const isResume = startIndex > 0;
     const startTime = isResume ? (currentTab?.startTime ?? Date.now()) : Date.now();
-    const manualMode = tabsRef.current.find((tab) => tab.id === runTabId)?.transactionMode === 'manual';
-    let sessionId: string | undefined = existingSessionId;
+    let sessionId: string;
     multiAbortRef.current = false;
     if (!isResume) clearPendingMultiRun(runTabId);
     setTabs((prev) => prev.map((t) => {
@@ -904,7 +924,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
       };
     }));
 
-    if (manualMode) {
+    {
       try {
         sessionId = await ensureTransactionSession(runTabId, opts.database, opts.allowWrite);
       } catch (error) {
@@ -1076,7 +1096,6 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
             acknowledged: override.acknowledged ?? pendingMultiRun.options.acknowledged,
           },
           resumePlan.startIndex,
-          pendingMultiRun.sessionId,
         );
         return;
       }
@@ -1102,17 +1121,10 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
       return;
     }
 
-    // A plain single-table SELECT * → show an editable table view of that table
-    // instead of running a read-only result grid.
-    const editable = analyzeEditableQuery(sql);
-    if (editable && activeTab.transactionMode === 'auto') {
-      setTabs((prev) => prev.map((t) => (t.id === activeTabId ? { ...t, query: sql, error: null, policyPrompt: null } : t)));
-      setEditView(editable);
-      return;
-    }
+    // Console SQL must use the tab's connection, including SELECT *. Opening an
+    // embedded table editor here would execute it on a different connection.
     setEditView(null);
 
-    if (activeTab.transactionMode === 'manual' && activeTab.transactionState === 'failed') return;
 
     // Analyze gate: for risky single statements (DML/DDL), call analyzeQuery and
     // show the RiskConfirmDialog before streaming. If analysis fails, fall through.
@@ -1164,10 +1176,8 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     );
 
     try {
-      const sessionId = activeTab.transactionMode === 'manual'
-        ? await ensureTransactionSession(activeTab.id, queryDatabase, allowWrite)
-        : undefined;
-      if (sessionId) updateTabTransaction(activeTab.id, { transactionState: 'opening' });
+      const sessionId = await ensureTransactionSession(activeTab.id, queryDatabase, allowWrite);
+      if (sessionId && activeTab.transactionState === 'idle') updateTabTransaction(activeTab.id, { transactionState: 'opening' });
       const res = await window.electronAPI.executeQueryStream(queryId, profileId, sql, {
         database: queryDatabase,
         sessionId,
@@ -1185,7 +1195,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
                   loading: false,
                   error: res.error || 'Failed to start query',
                   queryId: null,
-                  transactionState: t.transactionMode === 'manual' ? 'idle' : t.transactionState,
+                  transactionState: t.transactionState === 'opening' ? 'idle' : t.transactionState,
                   statementExecutions: t.statementExecutions.map((execution) =>
                     execution.state === 'running' ? { ...execution, state: 'error', message: res.error || 'Failed to start query' } : execution
                   ),
@@ -1203,7 +1213,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
                 loading: false,
                 error: e instanceof Error ? e.message : 'Execution request failed',
                 queryId: null,
-                transactionState: t.transactionMode === 'manual' ? 'idle' : t.transactionState,
+                transactionState: t.transactionState === 'opening' ? 'idle' : t.transactionState,
                 statementExecutions: t.statementExecutions.map((execution) =>
                   execution.state === 'running'
                     ? { ...execution, state: 'error', message: e instanceof Error ? e.message : 'Execution request failed' }
@@ -1329,7 +1339,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
 
     try {
       const sessions = tabsRef.current
-        .filter((tab) => tab.transactionMode === 'manual' && (transactionSessionsRef.current[tab.id] || tab.transactionSessionId))
+        .filter((tab) => transactionSessionsRef.current[tab.id] || tab.transactionSessionId)
         .map((tab) => closeTransactionSession(tab.id));
       await Promise.all(sessions);
       return true;
@@ -1366,7 +1376,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     setClosingTabs(true);
     try {
       const targets = tabsRef.current.filter((tab) => closeIds.includes(tab.id));
-      if (targets.some((tab) => tab.transactionMode === 'manual' && ['opening', 'active', 'failed'].includes(tab.transactionState))) {
+      if (targets.some((tab) => ['opening', 'active', 'failed'].includes(tab.transactionState))) {
         if (!window.confirm(`${targets.length}개 탭을 닫으면 미커밋 변경 사항이 Rollback 됩니다. 계속할까요?`)) return;
       }
       for (const tabId of closeIds) {
@@ -1627,7 +1637,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
               <Square size={13} /> Cancel
             </button>
           ) : (
-            <button className="btn btn-primary btn-sm" onClick={() => executeQuery()} disabled={!activeTab.query.trim() || (activeTab.transactionMode === 'manual' && activeTab.transactionState === 'failed')}>
+            <button className="btn btn-primary btn-sm" onClick={() => executeQuery()} disabled={!activeTab.query.trim()}>
               <Play size={13} /> Run
             </button>
           )}
@@ -1659,14 +1669,14 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
           {activeTab.loading && <span className="spinner" />}
           {activeTab.elapsedTimeMs !== null && <span className="elapsed">{activeTab.elapsedTimeMs} ms</span>}
           <div className="mode-toggle">
-            <button data-testid="query-mode-readonly" className={`mode-opt ${!resolveTabWriteMode(profileReadOnly, activeTab.writeMode) ? 'active' : ''}`} onClick={() => void changeWriteMode(activeTab.id, false)}>
+            <button data-testid="query-mode-readonly" disabled={activeTab.loading} className={`mode-opt ${!resolveTabWriteMode(profileReadOnly, activeTab.writeMode) ? 'active' : ''}`} onClick={() => void changeWriteMode(activeTab.id, false)}>
               <Lock size={11} /> Read-only
             </button>
             <button
               data-testid="query-mode-write"
               className={`mode-opt write ${resolveTabWriteMode(profileReadOnly, activeTab.writeMode) ? 'active' : ''}`}
               onClick={() => void changeWriteMode(activeTab.id, true)}
-              disabled={profileReadOnly}
+              disabled={profileReadOnly || activeTab.loading}
               title={profileReadOnly ? '이 연결은 Read-only입니다' : '현재 쿼리탭에서 쓰기를 허용합니다'}
             >
               <Pencil size={11} /> Write
@@ -1678,6 +1688,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
               <button
                 className={`mode-opt ${activeTab.transactionMode === 'auto' ? 'active' : ''}`}
                 data-testid="tx-mode-auto"
+                disabled={activeTab.loading}
                 aria-pressed={activeTab.transactionMode === 'auto'}
                 onClick={() => void setTransactionMode(activeTab.id, 'auto')}
                 title="각 쿼리를 자동으로 커밋합니다"
@@ -1685,6 +1696,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
               <button
                 className={`mode-opt ${activeTab.transactionMode === 'manual' ? 'active' : ''}`}
                 data-testid="tx-mode-manual"
+                disabled={activeTab.loading}
                 aria-pressed={activeTab.transactionMode === 'manual'}
                 onClick={() => void setTransactionMode(activeTab.id, 'manual')}
                 title="명시적으로 Commit 또는 Rollback 할 때까지 변경 사항을 보류합니다"
@@ -1694,7 +1706,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
               className={`transaction-status transaction-status-${activeTab.transactionState}`}
               data-testid="transaction-status"
               role="status"
-              title={activeTab.transactionMode === 'manual' ? '이 쿼리 탭 전용 트랜잭션' : '각 쿼리 실행 후 자동 커밋'}
+              title="이 쿼리 탭 전용 DB 세션의 트랜잭션 상태"
             >
               <Database size={12} /> {getTransactionStatusLabel(activeTab.transactionMode, activeTab.transactionState)}
             </span>

@@ -82,11 +82,12 @@ type ExecuteQueryRequest struct {
 }
 
 type QuerySessionRequest struct {
-	Action    string `json:"action"`
-	ProfileID string `json:"profileId"`
-	Database  string `json:"database"`
-	SessionID string `json:"sessionId"`
-	ReadOnly  bool   `json:"readOnly"`
+	Action     string `json:"action"`
+	ProfileID  string `json:"profileId"`
+	Database   string `json:"database"`
+	SessionID  string `json:"sessionId"`
+	ReadOnly   bool   `json:"readOnly"`
+	AutoCommit bool   `json:"autoCommit"`
 }
 
 func profileForDatabase(profile domain.ConnectionProfile, database string) domain.ConnectionProfile {
@@ -103,7 +104,7 @@ const defaultRowLimit = 1000
 
 // errRowLimitReached is an internal sentinel used to stop streaming once the
 // row cap is hit. It is treated as a successful (truncated) result, not a error.
-var errRowLimitReached = fmtError("row limit reached")
+var errRowLimitReached = domain.ErrRowLimitReached
 
 // writeQueryPolicyError emits a structured JSON error the renderer can act on
 // (e.g. prompt for write/destructive confirmation) before any stream starts.
@@ -237,8 +238,8 @@ func (h *QueryHandler) ExecuteQuery() http.Handler {
 			writeQueryPolicyError(w, gate.status, gate.code, gate.message, class.Verb)
 			return
 		}
-		if req.SessionID != "" && domain.IsManagedTransactionControl(req.Query) {
-			http.Error(w, "Use the query toolbar's Commit or Rollback controls for a managed manual transaction.", http.StatusBadRequest)
+		if req.SessionID == "" && domain.ParseTransactionCommand(req.Query).Action != "" {
+			http.Error(w, "Transaction SQL requires a dedicated query-tab session.", http.StatusBadRequest)
 			return
 		}
 
@@ -333,6 +334,7 @@ func (h *QueryHandler) ExecuteQuery() http.Handler {
 		// Execute stream
 		var rowsAffected int64
 		var executeErr error
+		transactionState := ""
 		if req.SessionID != "" {
 			sessionConnector, ok := connector.(ports.QuerySessionConnector)
 			if !ok {
@@ -342,6 +344,10 @@ func (h *QueryHandler) ExecuteQuery() http.Handler {
 					queryCtx, executionProfile, password, req.ProfileID, executionProfile.Database,
 					req.SessionID, req.Query, readOnly, onSessionStart, onHeader, onRow,
 				)
+				transactionState, err = sessionConnector.QuerySessionState(req.ProfileID, req.SessionID)
+				if err != nil {
+					transactionState = "failed"
+				}
 			}
 		} else {
 			rowsAffected, executeErr = connector.ExecuteQueryStream(queryCtx, executionProfile, password, req.Query, readOnly, onSessionStart, onHeader, onRow)
@@ -352,6 +358,9 @@ func (h *QueryHandler) ExecuteQuery() http.Handler {
 			errMap := map[string]any{
 				"type":    "error",
 				"message": executeErr.Error(),
+			}
+			if transactionState != "" {
+				errMap["transactionState"] = transactionState
 			}
 			data, _ := json.Marshal(errMap)
 			fmt.Fprintf(w, "%s\n", data)
@@ -365,6 +374,9 @@ func (h *QueryHandler) ExecuteQuery() http.Handler {
 			"rowsAffected": rowsAffected,
 			"truncated":    truncated,
 			"rowLimit":     limit,
+		}
+		if transactionState != "" {
+			doneMap["transactionState"] = transactionState
 		}
 		data, _ := json.Marshal(doneMap)
 		fmt.Fprintf(w, "%s\n", data)
@@ -414,7 +426,7 @@ func (h *QueryHandler) QuerySession() http.Handler {
 		case "open":
 			executionProfile := profileForDatabase(*profile, req.Database)
 			sessionID, err = sessionConnector.OpenQuerySession(
-				r.Context(), executionProfile, password, req.ProfileID, executionProfile.Database, req.ReadOnly || profile.ReadOnly,
+				r.Context(), executionProfile, password, req.ProfileID, executionProfile.Database, req.ReadOnly || profile.ReadOnly, req.AutoCommit,
 			)
 		case "commit":
 			err = sessionConnector.CommitQuerySession(r.Context(), req.ProfileID, req.SessionID)
@@ -422,8 +434,10 @@ func (h *QueryHandler) QuerySession() http.Handler {
 			err = sessionConnector.RollbackQuerySession(r.Context(), req.ProfileID, req.SessionID)
 		case "close":
 			err = sessionConnector.CloseQuerySession(req.ProfileID, req.SessionID)
+		case "configure":
+			err = sessionConnector.SetQuerySessionAutoCommit(req.ProfileID, req.SessionID, req.AutoCommit)
 		default:
-			http.Error(w, "action must be open, commit, rollback, or close", http.StatusBadRequest)
+			http.Error(w, "action must be open, configure, commit, rollback, or close", http.StatusBadRequest)
 			return
 		}
 		if err != nil {

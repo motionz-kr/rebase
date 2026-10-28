@@ -12,6 +12,7 @@ export interface QueryStreamChunk {
   data?: unknown[];
   message?: string;
   rowsAffected?: number;
+  transactionState?: 'idle' | 'active' | 'failed';
   truncated?: boolean;
   rowLimit?: number;
   code?: string;
@@ -330,7 +331,7 @@ declare global {
       getSchemaCompletion: (profileId: string, database: string) => Promise<ResultWrapper<{ tables: { name: string; columns: { name: string; type: string }[] }[] }>>;
       getSchemaGraph: (profileId: string, database: string) => Promise<ResultWrapper<SchemaGraph>>;
       executeQueryStream: (queryId: string, profileId: string, query: string, options?: { database?: string; sessionId?: string; allowWrite?: boolean; confirmDestructive?: boolean; maxRows?: number; fetchAll?: boolean; acknowledged?: boolean }) => Promise<ResultWrapper<{ success: boolean }>>;
-      querySession: (action: 'open' | 'commit' | 'rollback' | 'close', profileId: string, database?: string, sessionId?: string, readOnly?: boolean) => Promise<ResultWrapper<{ success: boolean; sessionId?: string }>>;
+      querySession: (action: 'open' | 'commit' | 'rollback' | 'close' | 'configure', profileId: string, database?: string, sessionId?: string, readOnly?: boolean, autoCommit?: boolean) => Promise<ResultWrapper<{ success: boolean; sessionId?: string }>>;
       cancelQuery: (queryId: string) => Promise<ResultWrapper<{ success: boolean }>>;
       analyzeQuery: (profileId: string, query: string, database: string) => Promise<ResultWrapper<AnalyzeResult>>;
       executeBatch: (

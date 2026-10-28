@@ -19,7 +19,7 @@ export function isPortOpen(host: string, port: number, timeoutMs = 1500): Promis
 // integration tests (127.0.0.1:3306, devdb, root). Password overridable via env.
 export const MYSQL = {
   host: '127.0.0.1',
-  port: 3306,
+  port: Number(process.env.E2E_MYSQL_PORT ?? 3306),
   database: 'devdb',
   username: 'root',
   password: process.env.E2E_MYSQL_PASSWORD ?? 'password1!',

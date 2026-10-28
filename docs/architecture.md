@@ -297,6 +297,34 @@ SQL result 전송은 ADR 0004에 따라 NDJSON streaming으로 시작한다.
 - renderer grid가 처리하지 못하는 경우 Electron main process와 renderer 사이에서 chunk 단위 backpressure를 적용한다.
 - cancellation은 stream close와 driver-specific cancel을 모두 수행한다.
 
+## Query-console sessions and transactions
+
+Each SQL query tab lazily opens an owner-bound, pinned DB connection in both
+Auto and Manual mode. Connection lifetime is independent of transaction mode:
+session variables, temporary objects, and explicit SQL transactions survive
+separate executions in the same tab. Other tabs and schema/analysis requests use
+separate connections. Console SELECTs use the same execution path as other SQL;
+they are not redirected into the table editor's separate connection.
+
+The shared SQL-session adapter serializes queries and controls. It executes
+native transaction SQL on the pinned connection, starts the next Manual
+transaction lazily, and lets the database honor authored BEGIN/COMMIT/ROLLBACK,
+savepoints, and dialect-specific boundaries. Auto never wraps a user statement
+in a new transaction or commits an explicitly opened transaction. The engine
+reports transaction state in stream completion/error messages; the renderer
+uses that state for controls and pending-work prompts. Stored procedures and
+dynamic SQL may change boundaries that cannot be inferred from the authored
+statement; the database remains authoritative, and close always attempts a
+rollback before releasing the dedicated connection.
+
+Server cancellation IDs and read-only connection settings are initialized once
+at session creation. No diagnostic query is inserted between user statements,
+preserving ROW_COUNT and similar session-scoped results. A lost/expired session
+fails explicitly and is never silently reopened or replayed. Stateless query
+execution rejects transaction-control SQL because it cannot maintain a
+transaction across requests. Atomic table-edit batches retain their own
+separate transaction lifecycle.
+
 ## Storage
 
 SQLite에는 metadata만 저장한다.
