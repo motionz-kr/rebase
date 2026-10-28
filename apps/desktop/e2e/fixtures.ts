@@ -37,7 +37,7 @@ export const test = base.extend<Fixtures>({
     } catch {
       /* already gone */
     }
-    fs.rmSync(userDataDir, { recursive: true, force: true });
+    fs.rmSync(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   },
   firstWindow: async ({ app }, use) => {
     const win = await app.firstWindow();

@@ -113,7 +113,7 @@ test.describe('query tab transactions', () => {
 
   test('keeps Manual writes pending after RELEASE and tracks an Auto savepoint transaction', async ({ firstWindow: win }) => {
     const before = countRows();
-    await win.locator('.sidebar-head button').click();
+    await win.getByRole('button', { name: '새 연결', exact: true }).click();
     const form = win.locator('.conn-form');
     await form.locator('select').first().selectOption('sqlite');
     await form.locator('label:text-is("Profile name") + input').fill('E2E SQLite savepoints');

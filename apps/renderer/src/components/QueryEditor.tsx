@@ -294,7 +294,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     delete pendingMultiRunsRef.current[tabId];
   };
   const createDatabaseTab = (targetDatabase: string, query: string): string => {
-    const id = `tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const id = `tab-${crypto.randomUUID()}`;
     const currentTabs = tabsRef.current;
     const nextTabs = [...currentTabs, newTab(id, `Query ${currentTabs.length + 1}`, targetDatabase, query)];
     tabsRef.current = nextTabs;

@@ -96,7 +96,7 @@ test.describe('query tab context menu', () => {
     await win.locator('.etab').nth(0).click({ button: 'right' });
     await expect(menu.getByRole('menuitem', { name: '왼쪽 탭 닫기' })).toBeDisabled();
     await expect(menu.getByRole('menuitem', { name: '오른쪽 탭 닫기' })).toBeEnabled();
-    await win.locator('.sidebar-head').click();
+    await win.locator('.sidebar-head h2').click();
     await expect(menu).toHaveCount(0);
     await win.locator('.etab').nth(1).click({ button: 'right' });
     await expect(menu.getByRole('menuitem', { name: '오른쪽 탭 닫기' })).toBeDisabled();
@@ -182,5 +182,8 @@ test.describe('query tab context menu', () => {
     await win.getByRole('menuitem', { name: '다른 탭 닫기' }).click();
     await expect(names(win)).toHaveText(['Query 1']);
     await expect(win.locator('.editor-toolbar .btn-danger')).toBeVisible();
+    // Release the deliberately long-running query before fixture teardown.
+    await win.locator('.editor-toolbar .btn-danger').click();
+    await expect(win.locator('.editor-toolbar .btn-danger')).toHaveCount(0);
   });
 });
