@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.39.1](https://github.com/motionz-kr/rebase/compare/v0.39.0...v0.39.1) (2026-10-28)
+
+
+### Bug Fixes
+
+* **query:** harden session IDs and regression fixtures ([c10df29](https://github.com/motionz-kr/rebase/commit/c10df29cc0a3228588ad0db5eb15f7996ee0b566))
+* **query:** preserve console sessions and explicit transactions ([8be3ca0](https://github.com/motionz-kr/rebase/commit/8be3ca0be29442bafeaf0cc31cdc9994af0c4bce))
+* **storage:** serialize metadata access and prevent SQLite busy errors ([d3a4e55](https://github.com/motionz-kr/rebase/commit/d3a4e55d3cd2a57f8fa687e3e84178de1b175025))
+
 ## [0.39.0](https://github.com/motionz-kr/rebase/compare/v0.38.0...v0.39.0) (2026-10-16)
 
 
