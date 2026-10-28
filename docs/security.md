@@ -16,6 +16,10 @@
 
 ## Secret Storage
 
+엔진 소유 metadata SQLite는 WAL, 연결별 5초 busy timeout, 엔진별 단일 연결
+풀을 사용한다. 이 설정은 사용자 DB에 적용하지 않고, 잠금 오류 때문에 사용자
+쓰기 SQL을 자동 재실행하지 않는다.
+
 SQLite에는 `secretRef`만 저장한다.
 
 저장 가능:

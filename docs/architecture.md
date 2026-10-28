@@ -327,7 +327,11 @@ separate transaction lifecycle.
 
 ## Storage
 
-SQLite에는 metadata만 저장한다.
+SQLite에는 metadata만 저장한다. 엔진 소유 metadata DB는 WAL 모드와 연결별
+5초 busy timeout을 사용하고, 엔진마다 하나의 pooled connection으로 짧은
+메타데이터 작업을 직렬화한다. Desktop과 MCP 엔진이 같은 파일을 사용해도
+읽기와 쓰기가 불필요하게 충돌하지 않도록 하며, 사용자 DB의 journal/transaction
+설정은 변경하지 않는다. 잠금 해소를 위해 사용자 SQL을 재실행하지 않는다.
 
 저장 가능:
 
