@@ -512,6 +512,10 @@ func (c *SQLServerConnector) ExecuteQueryStream(
 	onHeader func(columns []string) error,
 	onRow func(row []any) error,
 ) (int64, error) {
+	if domain.ParseTransactionCommand(query).Action != "" {
+		return 0, adapters.ErrQuerySessionRequired
+	}
+
 	db, err := c.connect(p, password, p.Database)
 	if err != nil {
 		return 0, err
@@ -584,7 +588,7 @@ func (c *SQLServerConnector) ExecuteQueryStream(
 	return rowsAffected, c.normalizeError(rows.Err())
 }
 
-func (c *SQLServerConnector) OpenQuerySession(ctx context.Context, p domain.ConnectionProfile, password, ownerID, database string, readOnly bool) (string, error) {
+func (c *SQLServerConnector) OpenQuerySession(ctx context.Context, p domain.ConnectionProfile, password, ownerID, database string, readOnly bool, autoCommit ...bool) (string, error) {
 	if database == "" {
 		database = p.Database
 	}
@@ -592,9 +596,16 @@ func (c *SQLServerConnector) OpenQuerySession(ctx context.Context, p domain.Conn
 	if err != nil {
 		return "", err
 	}
-	// go-mssqldb rejects TxOptions.ReadOnly. The HTTP policy gate remains the
-	// write guard, matching the existing SQL Server query path.
-	return c.querySessions.Open(ctx, ownerID, database, db, readOnly || p.ReadOnly, false)
+	// SQL Server has no connection-level read-only setting. The HTTP policy
+	// gate remains the write guard, matching the existing SQL Server query path.
+	return c.querySessions.Open(ctx, ownerID, database, db, readOnly || p.ReadOnly, sqlsession.Options{
+		AutoCommit: len(autoCommit) > 0 && autoCommit[0], BeginSQL: "BEGIN TRANSACTION", Dialect: "sqlserver",
+		Initialize: func(ctx context.Context, conn *sql.Conn) (int64, error) {
+			var id int64
+			err := conn.QueryRowContext(ctx, "SELECT @@SPID").Scan(&id)
+			return id, err
+		},
+	})
 }
 
 func (c *SQLServerConnector) ExecuteQuerySessionStream(
@@ -607,21 +618,26 @@ func (c *SQLServerConnector) ExecuteQuerySessionStream(
 	onHeader func(columns []string) error,
 	onRow func(row []any) error,
 ) (int64, error) {
-	lease, err := c.querySessions.Begin(ctx, ownerID, database, sessionID, readOnly)
+	lease, err := c.querySessions.Acquire(ctx, ownerID, database, sessionID, readOnly, query)
 	if err != nil {
 		return 0, c.normalizeError(err)
 	}
 	defer lease.Close()
 
-	var spid int64
-	if err := lease.Queryer.QueryRowContext(ctx, "SELECT @@SPID").Scan(&spid); err != nil {
-		return 0, c.normalizeError(err)
-	}
 	if onSessionStart != nil {
-		onSessionStart(spid)
+		onSessionStart(lease.ServerID)
 	}
 	rowsAffected, err := adapters.ExecuteSessionQuery(ctx, lease.Queryer, query, onHeader, onRow)
+	lease.Complete(query, err)
 	return rowsAffected, c.normalizeError(err)
+}
+
+func (c *SQLServerConnector) QuerySessionState(ownerID, sessionID string) (string, error) {
+	return c.querySessions.State(ownerID, sessionID)
+}
+
+func (c *SQLServerConnector) SetQuerySessionAutoCommit(ownerID, sessionID string, autoCommit bool) error {
+	return c.querySessions.SetAutoCommit(ownerID, sessionID, autoCommit)
 }
 
 func (c *SQLServerConnector) CommitQuerySession(ctx context.Context, ownerID, sessionID string) error {

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"flag"
 	"log"
@@ -79,7 +78,7 @@ func main() {
 	}
 
 	log.Printf("Using SQLite database: %s", actualDBPath)
-	db, err := sql.Open("sqlite", actualDBPath)
+	db, err := sqlite.OpenMetadataDatabase(context.Background(), actualDBPath)
 	if err != nil {
 		log.Fatalf("failed to open sqlite database: %v", err)
 	}

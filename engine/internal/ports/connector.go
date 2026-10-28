@@ -92,13 +92,15 @@ type SQLConnector interface {
 }
 
 // QuerySessionConnector extends SQL query execution with a dedicated,
-// owner-bound connection for manual per-console transactions.
+// owner-bound connection whose lifetime is independent of transaction mode.
 type QuerySessionConnector interface {
-	OpenQuerySession(ctx context.Context, p domain.ConnectionProfile, password, ownerID, database string, readOnly bool) (string, error)
+	OpenQuerySession(ctx context.Context, p domain.ConnectionProfile, password, ownerID, database string, readOnly bool, autoCommit ...bool) (string, error)
 	ExecuteQuerySessionStream(ctx context.Context, p domain.ConnectionProfile, password, ownerID, database, sessionID, query string, readOnly bool, onSessionStart func(sessionID int64), onHeader func(columns []string) error, onRow func(row []any) error) (int64, error)
 	CommitQuerySession(ctx context.Context, ownerID, sessionID string) error
 	RollbackQuerySession(ctx context.Context, ownerID, sessionID string) error
 	CloseQuerySession(ownerID, sessionID string) error
+	QuerySessionState(ownerID, sessionID string) (string, error)
+	SetQuerySessionAutoCommit(ownerID, sessionID string, autoCommit bool) error
 }
 
 type RedisKeyspaceInfo struct {

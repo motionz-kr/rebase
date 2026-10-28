@@ -136,7 +136,7 @@ test.describe('SQLite schema query context', () => {
     expect(activeBlockBox?.width ?? 0).toBeGreaterThan((editorBox?.width ?? 0) * 0.75);
     await win.keyboard.press('ControlOrMeta+Enter');
 
-    await expect(win.locator('.grid-cell[title="second"]')).toBeVisible({ timeout: 15_000 });
+    await expect(win.locator('.grid-head-cell').filter({ hasText: /^second$/ })).toBeVisible({ timeout: 15_000 });
     await expect(win.locator('.grid-cell[title="2"]')).toBeVisible();
     await expect(win.locator('.exec-sql')).toHaveText('SELECT 2 AS second');
     await expect(win.locator('.query-statement-glyph-success')).toHaveCount(1);

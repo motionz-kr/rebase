@@ -67,7 +67,7 @@ func TestManagerPersistsTransactionAcrossQueriesAndCommitsOrRollsBack(t *testing
 	ctx := context.Background()
 	path, db := openTestDB(t)
 	manager := NewManager(time.Hour)
-	id, err := manager.Open(ctx, "profile-1", path, db, false, true)
+	id, err := manager.Open(ctx, "profile-1", path, db, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +104,7 @@ func TestManagerTransactionOutlivesIndividualQueryRequestContext(t *testing.T) {
 	ctx := context.Background()
 	path, db := openTestDB(t)
 	manager := NewManager(time.Hour)
-	id, err := manager.Open(ctx, "profile-1", path, db, false, true)
+	id, err := manager.Open(ctx, "profile-1", path, db, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,12 +132,41 @@ func TestManagerTransactionOutlivesIndividualQueryRequestContext(t *testing.T) {
 	}
 }
 
+func TestManagerSQLRollbackStartsANewManualTransactionOnNextStatement(t *testing.T) {
+	ctx := context.Background()
+	path, db := openTestDB(t)
+	manager := NewManager(0)
+	id, err := manager.Open(ctx, "profile-1", path, db, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close("profile-1", id)
+	for _, query := range []string{
+		`INSERT INTO items(name) VALUES ('first')`,
+		`ROLLBACK`,
+		`INSERT INTO items(name) VALUES ('second')`,
+	} {
+		if err := runSessionStatement(t, manager, "profile-1", path, id, false, query); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := countItems(t, path); got != 0 {
+		t.Fatalf("next manual statement was implicitly committed after SQL ROLLBACK: count=%d", got)
+	}
+	if err := manager.Commit(ctx, "profile-1", id); err != nil {
+		t.Fatal(err)
+	}
+	if got := countItems(t, path); got != 1 {
+		t.Fatalf("count after commit=%d, want 1", got)
+	}
+}
+
 func TestManagerBindsOwnerDatabaseAndReadOnlyMode(t *testing.T) {
 	ctx := context.Background()
 	path, _ := openTestDB(t)
 	db := openReadOnlyTestDB(t, path)
 	manager := NewManager(time.Hour)
-	id, err := manager.Open(ctx, "profile-1", path, db, true, true)
+	id, err := manager.Open(ctx, "profile-1", path, db, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +191,7 @@ func TestManagerCloseAndIdleExpirationRollbackActiveTransaction(t *testing.T) {
 		t.Run(map[bool]string{false: "close", true: "idle expiration"}[expire], func(t *testing.T) {
 			path, db := openTestDB(t)
 			manager := NewManager(15 * time.Minute)
-			id, err := manager.Open(context.Background(), "profile-1", path, db, false, true)
+			id, err := manager.Open(context.Background(), "profile-1", path, db, false)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -176,6 +205,143 @@ func TestManagerCloseAndIdleExpirationRollbackActiveTransaction(t *testing.T) {
 			}
 			if got := countItems(t, path); got != 0 {
 				t.Fatalf("row count after %s = %d, want 0", map[bool]string{false: "close", true: "expiration"}[expire], got)
+			}
+		})
+	}
+}
+
+func TestAutoSessionKeepsConnectionAndHonorsSQLBoundaries(t *testing.T) {
+	ctx := context.Background()
+	path, db := openTestDB(t)
+	m := NewManager(0)
+	initializations := 0
+	id, err := m.Open(ctx, "p", path, db, false, Options{AutoCommit: true,
+		Initialize: func(ctx context.Context, conn *sql.Conn) (int64, error) {
+			initializations++
+			_, err := conn.ExecContext(ctx, `CREATE TEMP TABLE session_marker (value INT)`)
+			return 42, err
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close("p", id)
+	run := func(q string) {
+		t.Helper()
+		if err := runSessionStatement(t, m, "p", path, id, false, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	state := func(want string) {
+		t.Helper()
+		got, err := m.State("p", id)
+		if err != nil || got != want {
+			t.Fatalf("state=%s err=%v, want %s", got, err, want)
+		}
+	}
+	run(`INSERT INTO items(name) VALUES ('auto')`)
+	if countItems(t, path) != 1 {
+		t.Fatal("plain Auto DML did not commit")
+	}
+	state("idle")
+	run(`BEGIN`)
+	run(`INSERT INTO session_marker VALUES (1)`)
+	run(`INSERT INTO items(name) VALUES ('rollback')`)
+	state("active")
+	if countItems(t, path) != 1 {
+		t.Fatal("explicit transaction was committed early")
+	}
+	run(`SAVEPOINT checkpoint`)
+	run(`INSERT INTO items(name) VALUES ('savepoint')`)
+	run(`ROLLBACK TO SAVEPOINT checkpoint`)
+	state("active")
+	run(`ROLLBACK`)
+	state("idle")
+	if countItems(t, path) != 1 {
+		t.Fatal("SQL rollback failed")
+	}
+	run(`BEGIN`)
+	run(`INSERT INTO items(name) VALUES ('commit')`)
+	if err := m.Commit(ctx, "p", id); err != nil {
+		t.Fatal(err)
+	}
+	if countItems(t, path) != 2 {
+		t.Fatal("toolbar commit did not finish SQL transaction")
+	}
+	if err := m.SetAutoCommit("p", id, false); err != nil {
+		t.Fatal(err)
+	}
+	run(`INSERT INTO session_marker VALUES (2)`)
+	if initializations != 1 {
+		t.Fatalf("session initialized %d times", initializations)
+	}
+	if err := m.SetAutoCommit("p", id, true); err == nil {
+		t.Fatal("mode changed with pending work")
+	}
+	if err := m.Rollback(ctx, "p", id); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAutoSessionCloseAndExpirationRollbackAndRejectStaleReferences(t *testing.T) {
+	for _, expire := range []bool{false, true} {
+		t.Run(map[bool]string{false: "close", true: "expire"}[expire], func(t *testing.T) {
+			path, db := openTestDB(t)
+			m := NewManager(time.Hour)
+			defer m.Shutdown()
+			id, err := m.Open(context.Background(), "p", path, db, false, Options{AutoCommit: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			stale, _ := m.lookup(id)
+			for _, q := range []string{`BEGIN`, `INSERT INTO items(name) VALUES ('pending')`} {
+				if err := runSessionStatement(t, m, "p", path, id, false, q); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if expire {
+				m.ExpireIdle(time.Now().Add(2 * time.Hour))
+			} else if err := m.Close("p", id); err != nil {
+				t.Fatal(err)
+			}
+			if countItems(t, path) != 0 {
+				t.Fatal("session close committed work")
+			}
+			if stale.validate("p", path, false) != ErrClosed {
+				t.Fatal("queued operation could reuse closed session")
+			}
+			if _, err := m.Begin(context.Background(), "p", path, id, false); err != ErrNotFound {
+				t.Fatalf("stale session reopened: %v", err)
+			}
+			if err := m.Close("p", id); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestSQLiteSavepointReleaseDoesNotLeakManualWrites(t *testing.T) {
+	for _, auto := range []bool{false, true} {
+		t.Run(map[bool]string{false: "manual", true: "auto"}[auto], func(t *testing.T) {
+			path, db := openTestDB(t)
+			m := NewManager(0)
+			id, err := m.Open(context.Background(), "p", path, db, false, Options{AutoCommit: auto, Dialect: "sqlite"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer m.Close("p", id)
+			for _, q := range []string{`SAVEPOINT "outer checkpoint"`, `INSERT INTO items(name) VALUES ('first')`, `RELEASE SAVEPOINT "outer checkpoint"`, `INSERT INTO items(name) VALUES ('second')`} {
+				if err := runSessionStatement(t, m, "p", path, id, false, q); err != nil {
+					t.Fatal(err)
+				}
+			}
+			wantState, wantCount := "active", 0
+			if auto {
+				wantState, wantCount = "idle", 2
+			}
+			state, err := m.State("p", id)
+			if state != wantState || err != nil || countItems(t, path) != wantCount {
+				t.Fatalf("state=%s err=%v count=%d", state, err, countItems(t, path))
 			}
 		})
 	}

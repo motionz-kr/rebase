@@ -12,8 +12,7 @@ export interface DisconnectTransactionTab extends ConnectionTransactionSnapshot 
 }
 
 export function hasUncommittedTransaction(tab: ConnectionTransactionSnapshot): boolean {
-  return tab.transactionMode === 'manual'
-    && !!tab.transactionSessionId
+  return !!tab.transactionSessionId
     && ['opening', 'active', 'failed'].includes(tab.transactionState);
 }
 

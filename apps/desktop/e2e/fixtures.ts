@@ -33,11 +33,18 @@ export const test = base.extend<Fixtures>({
     // Graceful close can hang (engine child shutdown); cap it and force-kill.
     await Promise.race([app.close().catch(() => {}), new Promise((r) => setTimeout(r, 12000))]);
     try {
-      app.process()?.kill('SIGKILL');
+      const child = app.process();
+      if (child.exitCode === null && child.signalCode === null) {
+        await new Promise<void>((resolve) => {
+          const timeout = setTimeout(resolve, 2000);
+          child.once('exit', () => { clearTimeout(timeout); resolve(); });
+          child.kill('SIGKILL');
+        });
+      }
     } catch {
       /* already gone */
     }
-    fs.rmSync(userDataDir, { recursive: true, force: true });
+    fs.rmSync(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   },
   firstWindow: async ({ app }, use) => {
     const win = await app.firstWindow();

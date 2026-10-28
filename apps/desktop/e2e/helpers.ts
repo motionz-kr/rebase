@@ -4,7 +4,7 @@ import { MYSQL, REDIS } from './dbProbe';
 // Create a MySQL connection profile via the UI form and open it. Assumes a fresh
 // (profile-less) app instance. Leaves the connection panel visible.
 export async function connectMySql(win: Page, name = 'E2E MySQL') {
-  await win.locator('.sidebar-head button').click();
+  await win.getByRole('button', { name: '새 연결', exact: true }).click();
   const form = win.locator('.conn-form');
   await form.locator('label:text-is("Profile name") + input').fill(name);
   await form.locator('label:text-is("Host") + input').fill(MYSQL.host);
@@ -23,7 +23,7 @@ export async function connectMySql(win: Page, name = 'E2E MySQL') {
 // Create a Redis connection profile via the UI form and open it. Assumes a fresh
 // (profile-less) app instance. Leaves the Redis pane (keyspace + inspector) visible.
 export async function connectRedis(win: Page, name = 'E2E Redis') {
-  await win.locator('.sidebar-head button').click();
+  await win.getByRole('button', { name: '새 연결', exact: true }).click();
   const form = win.locator('.conn-form');
   // Switch the driver to Redis (hides the Database text field, shows DB index).
   await form.locator('select').first().selectOption('redis');

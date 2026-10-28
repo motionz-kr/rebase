@@ -646,12 +646,12 @@ app.whenReady().then(() => {
     }
   });
 
-  ipcMain.handle('query-session', async (_event, action, profileId, database, sessionId, readOnly) => {
+  ipcMain.handle('query-session', async (_event, action, profileId, database, sessionId, readOnly, autoCommit) => {
     try {
       const data = await requestEngine({
         method: 'POST',
         path: '/query/session',
-        body: { action, profileId, database, sessionId, readOnly },
+        body: { action, profileId, database, sessionId, readOnly, autoCommit },
       });
       return { success: true, data };
     } catch (err: any) {

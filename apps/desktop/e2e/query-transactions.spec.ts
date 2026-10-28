@@ -110,4 +110,40 @@ test.describe('query tab transactions', () => {
     await expect(win.getByTestId('query-mode-readonly')).toHaveClass(/active/);
     await expect(win.getByTestId('query-mode-write')).toBeDisabled();
   });
+
+  test('keeps Manual writes pending after RELEASE and tracks an Auto savepoint transaction', async ({ firstWindow: win }) => {
+    const before = countRows();
+    await win.getByRole('button', { name: '새 연결', exact: true }).click();
+    const form = win.locator('.conn-form');
+    await form.locator('select').first().selectOption('sqlite');
+    await form.locator('label:text-is("Profile name") + input').fill('E2E SQLite savepoints');
+    await form.locator('label:text-is("Database file")').locator('..').locator('input').fill(databaseFile);
+    await form.locator('button[type="submit"]').click();
+    await win.locator('.conn-list .conn-row').filter({ hasText: 'E2E SQLite savepoints' }).click();
+    await expect(win.locator('.conn-panel .editor-toolbar')).toBeVisible();
+    await win.getByTestId('query-mode-write').click();
+    await win.getByTestId('tx-mode-manual').click();
+    await typeQuery(win, [
+      'SAVEPOINT checkpoint;',
+      "INSERT INTO transaction_e2e VALUES (1001, 'pending');",
+      'RELEASE SAVEPOINT checkpoint;',
+      "INSERT INTO transaction_e2e VALUES (1002, 'still pending');",
+    ].join('\n'));
+    await win.locator('.editor-toolbar .btn-primary').click();
+    await expect(win.locator('.result-chip')).toHaveCount(4);
+    await expect(win.getByTestId('transaction-status')).toHaveText('미커밋 트랜잭션');
+    expect(countRows()).toBe(before);
+    await win.getByTestId('tx-rollback').click();
+    await expect(win.locator('.transaction-notice')).toHaveText('Rolled back');
+    expect(countRows()).toBe(before);
+
+    await win.getByTestId('tx-mode-auto').click();
+    await typeQuery(win, "SAVEPOINT checkpoint;\nINSERT INTO transaction_e2e VALUES (1003, 'committed on release');\nRELEASE SAVEPOINT checkpoint;");
+    await win.locator('.editor-toolbar .btn-primary').click();
+    await expect(win.locator('.result-chip')).toHaveCount(3);
+    await expect(win.getByTestId('transaction-status')).toHaveText('Auto-commit');
+    expect(countRows()).toBe(before + 1);
+    execFileSync('sqlite3', [databaseFile, 'DELETE FROM transaction_e2e WHERE id=1003;']);
+    expect(countRows()).toBe(before);
+  });
 });

@@ -41,8 +41,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     query: string,
     options?: { database?: string; sessionId?: string; allowWrite?: boolean; confirmDestructive?: boolean; maxRows?: number; fetchAll?: boolean; acknowledged?: boolean }
   ) => ipcRenderer.invoke('execute-query-stream', queryId, profileId, query, options),
-  querySession: (action: 'open' | 'commit' | 'rollback' | 'close', profileId: string, database = '', sessionId = '', readOnly = true) =>
-    ipcRenderer.invoke('query-session', action, profileId, database, sessionId, readOnly),
+  querySession: (action: 'open' | 'commit' | 'rollback' | 'close' | 'configure', profileId: string, database = '', sessionId = '', readOnly = true, autoCommit = false) =>
+    ipcRenderer.invoke('query-session', action, profileId, database, sessionId, readOnly, autoCommit),
   cancelQuery: (queryId: string) => ipcRenderer.invoke('cancel-query', queryId),
   analyzeQuery: (profileId: string, query: string, database: string) =>
     ipcRenderer.invoke('analyze-query', profileId, query, database),

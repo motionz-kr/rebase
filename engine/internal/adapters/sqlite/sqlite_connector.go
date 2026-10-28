@@ -337,6 +337,10 @@ func (c *SQLiteConnector) ExecuteQueryStream(
 	onHeader func(columns []string) error,
 	onRow func(row []any) error,
 ) (int64, error) {
+	if domain.ParseTransactionCommand(query).Action != "" {
+		return 0, adapters.ErrQuerySessionRequired
+	}
+
 	db, err := c.open(p, readOnly)
 	if err != nil {
 		return 0, err
@@ -399,12 +403,14 @@ func (c *SQLiteConnector) ExecuteQueryStream(
 	return rowsAffected, c.normalizeError(rows.Err())
 }
 
-func (c *SQLiteConnector) OpenQuerySession(ctx context.Context, p domain.ConnectionProfile, _ string, ownerID, database string, readOnly bool) (string, error) {
-	db, err := c.open(p, readOnly)
+func (c *SQLiteConnector) OpenQuerySession(ctx context.Context, p domain.ConnectionProfile, _ string, ownerID, database string, readOnly bool, autoCommit ...bool) (string, error) {
+	db, err := c.open(p, readOnly || p.ReadOnly)
 	if err != nil {
 		return "", err
 	}
-	return c.querySessions.Open(ctx, ownerID, database, db, readOnly || p.ReadOnly, false)
+	return c.querySessions.Open(ctx, ownerID, database, db, readOnly || p.ReadOnly, sqlsession.Options{
+		AutoCommit: len(autoCommit) > 0 && autoCommit[0], BeginSQL: "BEGIN", Dialect: "sqlite",
+	})
 }
 
 func (c *SQLiteConnector) ExecuteQuerySessionStream(
@@ -417,7 +423,7 @@ func (c *SQLiteConnector) ExecuteQuerySessionStream(
 	onHeader func(columns []string) error,
 	onRow func(row []any) error,
 ) (int64, error) {
-	lease, err := c.querySessions.Begin(ctx, ownerID, database, sessionID, readOnly)
+	lease, err := c.querySessions.Acquire(ctx, ownerID, database, sessionID, readOnly, query)
 	if err != nil {
 		return 0, c.normalizeError(err)
 	}
@@ -432,7 +438,16 @@ func (c *SQLiteConnector) ExecuteQuerySessionStream(
 	}
 
 	rowsAffected, err := adapters.ExecuteSessionQuery(qctx, lease.Queryer, query, onHeader, onRow)
+	lease.Complete(query, err)
 	return rowsAffected, c.normalizeError(err)
+}
+
+func (c *SQLiteConnector) QuerySessionState(ownerID, sessionID string) (string, error) {
+	return c.querySessions.State(ownerID, sessionID)
+}
+
+func (c *SQLiteConnector) SetQuerySessionAutoCommit(ownerID, sessionID string, autoCommit bool) error {
+	return c.querySessions.SetAutoCommit(ownerID, sessionID, autoCommit)
 }
 
 func (c *SQLiteConnector) CommitQuerySession(ctx context.Context, ownerID, sessionID string) error {
