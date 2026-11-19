@@ -3,13 +3,13 @@ import { MYSQL, REDIS } from './dbProbe';
 
 // Create a MySQL connection profile via the UI form and open it. Assumes a fresh
 // (profile-less) app instance. Leaves the connection panel visible.
-export async function connectMySql(win: Page, name = 'E2E MySQL') {
+export async function connectMySql(win: Page, name = 'E2E MySQL', database = MYSQL.database) {
   await win.getByRole('button', { name: '새 연결', exact: true }).click();
   const form = win.locator('.conn-form');
   await form.locator('label:text-is("Profile name") + input').fill(name);
   await form.locator('label:text-is("Host") + input').fill(MYSQL.host);
   await form.locator('label:text-is("Port") + input').fill(String(MYSQL.port));
-  await form.locator('label:text-is("Database") + input').fill(MYSQL.database);
+  await form.locator('label:text-is("Database") + input').fill(database);
   await form.locator('label:text-is("Username") + input').fill(MYSQL.username);
   await form.locator('label:has-text("Password") + input').fill(MYSQL.password);
   await form.locator('button[type="submit"]').click();
