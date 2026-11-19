@@ -24,9 +24,9 @@ type QueryClass struct {
 // classification. Unknown or ambiguous input is treated as a non-read-only
 // statement so that the caller's read-only gate blocks it by default.
 func ClassifyQuery(query string) QueryClass {
-	cleaned := stripSQLComments(query)
-	trimmed := strings.TrimSpace(cleaned)
-	if trimmed == "" {
+	tokens, complete := SQLTokens(query)
+	trimmed := strings.Join(tokens, " ")
+	if trimmed == "" && complete {
 		// Nothing to run; harmless.
 		return QueryClass{ReadOnly: true}
 	}
@@ -36,6 +36,9 @@ func ClassifyQuery(query string) QueryClass {
 	// so any extra statement marks the whole script unsafe.
 	if hasMultipleStatements(trimmed) {
 		return QueryClass{ReadOnly: false, Destructive: true, Verb: "MULTI"}
+	}
+	if !complete {
+		return QueryClass{Destructive: true, Verb: firstWord(trimmed)}
 	}
 
 	upper := strings.ToUpper(trimmed)
@@ -91,8 +94,9 @@ func IsManagedTransactionControl(query string) bool {
 }
 
 func containsWriteVerb(upper string) bool {
-	for _, v := range []string{"INSERT", "UPDATE", "DELETE", "MERGE", "DROP", "ALTER", "TRUNCATE", "CREATE", "GRANT", "REVOKE"} {
-		if strings.Contains(upper, v) {
+	for _, token := range strings.Fields(upper) {
+		switch token {
+		case "INSERT", "UPDATE", "DELETE", "REPLACE", "MERGE", "DROP", "ALTER", "TRUNCATE", "CREATE", "GRANT", "REVOKE", "CALL", "EXEC", "EXECUTE", "INTO":
 			return true
 		}
 	}
@@ -116,9 +120,8 @@ func firstWord(s string) string {
 }
 
 // hasMultipleStatements reports whether more than one statement is present.
-// A single trailing semicolon is allowed. This is intentionally naive: a
-// semicolon inside a string literal yields a false positive, which only makes
-// the classifier more conservative (the statement gets blocked), never less.
+// A single trailing semicolon is allowed. Call only on tokenized SQL, so quoted
+// semicolons and comment markers cannot be mistaken for statement boundaries.
 func hasMultipleStatements(s string) bool {
 	s = strings.TrimRight(s, "; \t\r\n")
 	return strings.Contains(s, ";")

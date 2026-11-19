@@ -58,4 +58,82 @@ func TestExecuteSessionQueryReturnsAffectedRowsAndSupportsReturning(t *testing.T
 	if len(returnedRows) != 1 || returnedRows[0][1] != "returned" {
 		t.Fatalf("RETURNING rows = %#v, want one returned row", returnedRows)
 	}
+	for _, query := range []string{
+		`UPDATE items SET name='returning output'`,
+		`WITH t AS (SELECT 'UPDATE' AS value) UPDATE items SET name=(SELECT value FROM t)`,
+	} {
+		var columns []string
+		var rows [][]any
+		n, err := ExecuteSessionQuery(context.Background(), tx, query,
+			func(c []string) error { columns = c; return nil },
+			func(r []any) error { rows = append(rows, r); return nil })
+		if err != nil || n != 2 || len(columns) != 0 || len(rows) != 0 {
+			t.Fatalf("non-returning UPDATE: columns=%v rows=%v affected=%d err=%v", columns, rows, n, err)
+		}
+	}
+}
+
+func TestExecuteSessionQueryPreservesQueryResults(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for _, query := range []string{
+		`WITH t AS (SELECT 7 AS updated_at, 8 AS created_at) SELECT updated_at, created_at FROM t`,
+		`WITH t AS (SELECT 'update; -- /*' AS value) SELECT value FROM t`,
+		`SELECT 'a;b' AS value`,
+	} {
+		t.Run(query, func(t *testing.T) {
+			var wantColumns []string
+			var wantRows [][]any
+			rows, err := db.Query(query)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = StreamRows(rows, func(c []string) error { wantColumns = c; return nil }, func(r []any) error { wantRows = append(wantRows, r); return nil })
+			rows.Close()
+			if err != nil {
+				t.Fatal(err)
+			}
+			var columns []string
+			var gotRows [][]any
+			n, err := ExecuteSessionQuery(context.Background(), db, query,
+				func(c []string) error { columns = c; return nil },
+				func(r []any) error { gotRows = append(gotRows, r); return nil })
+			if err != nil || n != 1 || !reflect.DeepEqual(columns, wantColumns) || !reflect.DeepEqual(gotRows, wantRows) {
+				t.Fatalf("got columns=%v rows=%v n=%d err=%v; want columns=%v rows=%v", columns, gotRows, n, err, wantColumns, wantRows)
+			}
+		})
+	}
+}
+
+func TestSessionQueryReturnsRows(t *testing.T) {
+	for _, tc := range []struct {
+		query string
+		want  bool
+	}{
+		{`WITH t AS (SELECT updated_at FROM items) SELECT * FROM t`, true},
+		{`WITH changed AS (DELETE FROM items RETURNING id) SELECT * FROM changed`, true},
+		{`WITH changed AS (DELETE FROM items RETURNING id) UPDATE items SET value=1`, false},
+		{`WITH t AS (SELECT 1) UPDATE items SET value=1`, false},
+		{`SELECT 'a;b'`, true},
+		{`(WITH t AS (SELECT updated_at FROM items) SELECT * FROM t)`, true},
+		{`WITH`, false},
+		{`WITH t AS (SELECT 1)`, false},
+		{`UPDATE items SET output=1`, false},
+		{`UPDATE items SET value='returning output'`, false},
+		{`UPDATE items SET value=1 /* RETURNING id */`, false},
+		{`UPDATE items SET "returning"=1`, false},
+		{`UPDATE items SET value=1 RETURNING id`, true},
+		{`UPDATE items SET value=1 OUTPUT inserted.id`, true},
+		{`UPDATE items SET value=1 OUTPUT inserted.id INTO @saved`, false},
+		{`CALL get_items()`, true},
+	} {
+		t.Run(tc.query, func(t *testing.T) {
+			if got := sessionQueryReturnsRows(tc.query); got != tc.want {
+				t.Fatalf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
 }

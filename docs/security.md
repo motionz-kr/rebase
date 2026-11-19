@@ -160,6 +160,14 @@ Destructive query 예시:
 
 SQL parsing은 완벽하지 않을 수 있으므로 앱의 분류는 advisory gate로 취급한다. 확정적으로 read-only라고 판단할 수 없는 query는 confirmation 또는 read-only DB session을 요구한다. `SELECT 1; DROP TABLE x` 같은 multi-statement와 dialect별 statement split은 파서만으로 신뢰하지 않는다.
 
+분류 시 열 이름에 포함된 `update` 같은 부분 문자열을 명령으로 취급하지 않는다.
+문자열·따옴표 식별자와 일반 주석은 SQL 키워드·문장 구분자에서 제외하며,
+닫히지 않은 인용부호, DB별 해석이 다른 백슬래시 이스케이프·중첩 주석,
+MySQL 실행 주석은 보수적으로 읽기 전용으로 확정하지 않는다.
+결과셋 반환 여부는 이 권한 분류와 별도로 외부 SQL 문장과 반환절을 기준으로
+판단한다. 따라서 쓰기를 포함한 CTE의 외부 SELECT도 권한 검사를 통과한 뒤
+결과를 전달하고, 쓰기 허용 여부 때문에 조회 결과를 폐기하지 않는다.
+
 ## Redis Safety
 
 Redis는 keyspace 전체 탐색과 삭제가 위험할 수 있다.

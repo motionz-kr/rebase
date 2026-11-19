@@ -2,14 +2,10 @@ package adapters
 
 import (
 	"context"
-	"regexp"
 
 	"github.com/smlee/database-local-engine/engine/internal/adapters/sqlsession"
 	"github.com/smlee/database-local-engine/engine/internal/domain"
 )
-
-var sessionResultClause = regexp.MustCompile(`(?i)\b(RETURNING|OUTPUT)\b`)
-var sessionOutputIntoClause = regexp.MustCompile(`(?i)\bOUTPUT\s+INTO\b`)
 
 // ExecuteSessionQuery streams result-producing SQL and uses ExecContext for
 // statements without result rows so affected-row counts remain available.
@@ -46,16 +42,64 @@ func ExecuteSessionQuery(
 }
 
 func sessionQueryReturnsRows(query string) bool {
-	class := domain.ClassifyQuery(query)
-	if class.ReadOnly || class.Verb == "CALL" {
-		return true
+	// Result delivery is independent of the permission gate. In particular,
+	// a write inside a CTE can be followed by a result-producing outer SELECT.
+	tokens, _ := domain.SQLTokens(query)
+	// Parenthesized SELECTs are also supported by the classifier.
+	for len(tokens) > 0 && tokens[0] == "(" {
+		tokens = tokens[1:]
 	}
-	// DML can return rows in PostgreSQL/SQLite (RETURNING), SQL Server
-	// (OUTPUT), and stored procedures can emit result sets via CALL.
-	if !sessionResultClause.MatchString(query) {
+	if len(tokens) == 0 {
 		return false
 	}
-	// SQL Server's OUTPUT INTO writes to another table without returning a
-	// result set to the client, so retain ExecContext for its affected count.
-	return !sessionOutputIntoClause.MatchString(query)
+	depth := 0
+	var outer []string
+	for _, token := range tokens {
+		switch token {
+		case "(":
+			depth++
+		case ")":
+			depth--
+		default:
+			if depth == 0 {
+				outer = append(outer, token)
+			}
+		}
+	}
+	verb := tokens[0]
+	if verb == "WITH" {
+	findStatement:
+		for i, token := range outer[1:] {
+			switch token {
+			case "SELECT", "INSERT", "UPDATE", "DELETE", "REPLACE", "MERGE":
+				verb = token
+				outer = outer[i+1:]
+				break findStatement
+			}
+		}
+	}
+	switch verb {
+	case "SELECT", "SHOW", "EXPLAIN", "DESCRIBE", "DESC", "PRAGMA", "CALL", "VALUES", "TABLE":
+		return true
+	case "INSERT", "UPDATE", "DELETE", "REPLACE", "MERGE":
+		for i, token := range outer {
+			if token == "RETURNING" {
+				return true
+			}
+			if token == "OUTPUT" {
+				if i+1 < len(outer) && outer[i+1] == "=" {
+					continue // ordinary unquoted column named output
+				}
+				// OUTPUT inserted.id INTO @saved writes to a destination rather
+				// than returning rows. Do not match INTO inside quoted values.
+				for _, following := range outer[i+1:] {
+					if following == "INTO" {
+						return false
+					}
+				}
+				return true
+			}
+		}
+	}
+	return false
 }
