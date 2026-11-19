@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.39.2](https://github.com/motionz-kr/rebase/compare/v0.39.1...v0.39.2) (2026-11-19)
+
+
+### Bug Fixes
+
+* **query:** CTE 조회 결과 누락 및 SQL 키워드 오인 수정 ([05cdd86](https://github.com/motionz-kr/rebase/commit/05cdd86b19e518a9cf56a53ad06d79b9dd0404cc))
+* **query:** preserve CTE results and distinguish SQL keywords from values ([878a0ed](https://github.com/motionz-kr/rebase/commit/878a0ed7ffdd5726b209680cb4eb5dd7b80be7d0))
+
 ## [0.39.1](https://github.com/motionz-kr/rebase/compare/v0.39.0...v0.39.1) (2026-10-28)
 
 
