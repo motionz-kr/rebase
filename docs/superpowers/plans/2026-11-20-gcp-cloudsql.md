@@ -255,3 +255,24 @@ File: new `apps/desktop/e2e/gcp-cloudsql.spec.ts` (model on `apps/desktop/e2e/ss
 - Controller (Opus) plans and supervises; implementers are Sonnet subagents; task and final reviews are run with
   the Codex CLI (`codex exec`, read-only sandbox) against the review package.
 - No push/merge without the user's go-ahead.
+
+## Verification (2026-11-20)
+
+Executed with Go 1.25.7 from `/tmp/gotc` (no system Go). Facts from the per-task reports and the SDD ledger.
+
+- `go test ./engine/...` all ok after Tasks 1, 2, 3, 5 (controller re-ran after Task 5: all ok);
+  `go vet` clean, `GOOS=windows go vet` clean for the cloudsql adapter.
+- `go test -race ./engine/internal/adapters/cloudsql/... ./engine/internal/adapters/ssm/... ./engine/internal/adapters/procgroup/...`:
+  cloudsql ok, ssm ok (Task 4). Windows lifecycle tests were not run (no Windows host).
+- `pnpm --filter renderer test`: 62 files / 467 tests passed (Task 6); renderer build and tsc clean.
+- Build: `pnpm build:engine`, `pnpm --filter renderer build`, `pnpm --filter desktop build` all OK.
+- E2E: `E2E_MYSQL_DATABASE=mysql E2E_POSTGRES_PORT=55432 pnpm --filter desktop exec playwright test e2e/gcp-cloudsql.spec.ts e2e/ssh.spec.ts`
+  -> 6 passed, 1 skipped (ssh postgres); `gcp-cloudsql.spec.ts` 4/4 passed. Local MySQL had no `devdb`, so MySQL flows
+  used `mysql`; PostgreSQL 15 ran in a disposable container on port 55432.
+- `e2e/ssm.spec.ts` MySQL tests fail ("invalid connection" on SELECT 75 after closing a broken manual session). The
+  same failure reproduces with an engine built from base `fe24728`, so it is pre-existing and not fixed on this branch.
+- E2E Keychain cleanup: spec removes the secrets it creates; `security dump-keychain` count 65 before and after, no new entries.
+- **Not done:** live verification against a real GCP Cloud SQL instance (real cloud-sql-proxy + GCP credentials).
+  The E2E uses a fake proxy; the readiness/error handling follows the behaviour measured with cloud-sql-proxy v2.19.0.
+- Rulings recorded in the ledger: SQL Server included; shared `procgroup` helpers; separate cloudsql/ssm managers;
+  two proxy launches (unsaved Test + saved profile) in E2E instead of one.
