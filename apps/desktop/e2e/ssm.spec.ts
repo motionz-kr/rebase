@@ -297,8 +297,14 @@ for (const db of [
       expect(fakeSSM.records()).toHaveLength(4);
       expect(fakeSSM.activeSessions()).toEqual([fakeSSM.records()[3].sessionId]);
       // Both engines hold live tunnels at the same time and must use distinct ports.
+      // Saving the profile above closed the desktop tunnel, so the UI tab's session is lost: the first
+      // run reports it without starting a tunnel; the rerun opens a new session on a new tunnel.
       await typeQuery(win, 'SELECT 78 AS ssm_parallel_desktop');
-      await win.locator('.conn-panel .editor-toolbar button', { hasText: 'Run' }).first().click();
+      await runButton.click();
+      await expect(win.locator('.conn-panel .alert.error')).toContainText(IDLE_LOSS_MESSAGE);
+      await expect(win.locator('.conn-panel .grid-body .grid-cell')).toHaveCount(0);
+      expect(fakeSSM.records()).toHaveLength(4);
+      await runButton.click();
       await expect(win.locator('.conn-panel .grid-body .grid-cell').first()).toHaveText('78');
       expect(fakeSSM.records()).toHaveLength(5);
       expect(fakeSSM.records()[3].port).not.toBe(fakeSSM.records()[4].port);
