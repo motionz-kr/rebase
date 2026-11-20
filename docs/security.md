@@ -63,7 +63,13 @@ document must provide a port forwarding session and honor the allocated port.
 The adapter exposes only loopback endpoints after readiness, bounds its output
 buffer, converts CLI output to curated errors and never forwards CLI logs to
 renderer/MCP stdout or activity storage. An SSM error never falls back to a
-direct DB connection or replays SQL. Existing MCP/query policies still apply.
+direct DB connection or replays SQL. A tunnel that dies under an open query
+session is reported as a lost connection with a curated message (no driver or CLI
+output); the dead session is never reused or reconnected inside a run and no
+statement is replayed on a new connection. Only the user's next explicit run opens
+a new session on a new tunnel. A transaction lost this way is aborted by the server
+and requires Rollback; a COMMIT that loses its connection has an unknown outcome
+that the user must verify on a new connection. Existing MCP/query policies still apply.
 The adapter retains the first complete SessionId from the plugin's startup
 output in memory and explicitly terminates only that owned session, using the
 original AWS profile and region. It never enumerates or bulk-terminates sessions.

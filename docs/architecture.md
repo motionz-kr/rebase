@@ -319,8 +319,35 @@ rollback before releasing the dedicated connection.
 
 Server cancellation IDs and read-only connection settings are initialized once
 at session creation. No diagnostic query is inserted between user statements,
-preserving ROW_COUNT and similar session-scoped results. A lost/expired session
-fails explicitly and is never silently reopened or replayed. Stateless query
+preserving ROW_COUNT and similar session-scoped results.
+
+A lost connection (a dropped SSM/SSH/Cloud SQL tunnel, a server-side kill or
+restart) is reported explicitly and never hidden by a reconnect inside a run.
+Adapters pass a driver-specific classifier to the driver-neutral `sqlsession`
+manager (`sql.ErrConnDone` and `driver.ErrBadConn` always count); the session
+then reports state `lost` or `lost_transaction`, and every later run on it
+fails at once with the same message without touching the dead connection.
+
+- Idle loss (`lost`): the statement that discovered the loss returns a curated
+  failure whose result is unknown. The renderer discards the session, so the
+  next user-initiated run opens a new session (a new tunnel if needed). A
+  multi-statement script stops at the failure and skips the remaining
+  statements.
+- Loss inside a transaction (`lost_transaction`): the server aborts the
+  uncommitted work when the connection closes. Run and Commit keep failing and
+  only Rollback is offered; it sends no SQL, discards the session and the
+  renderer shows that the transaction was cancelled. The next run opens a new
+  session.
+- Loss while a COMMIT executes (SQL `COMMIT`/`END`/`COMMIT AND CHAIN` or the
+  toolbar Commit): the outcome is unknown, since the server may have committed
+  before the connection dropped. The state is `lost` (not `lost_transaction`),
+  the message says to verify the data on a new connection, and nothing is
+  retried.
+- A failed statement is never replayed, and a run never reconnects: only a new
+  user action opens a new session. Closing a lost session issues no SQL.
+
+An expired session (idle timeout) or an unknown session id still fails
+explicitly and is never silently reopened. Stateless query
 execution rejects transaction-control SQL because it cannot maintain a
 transaction across requests. Atomic table-edit batches retain their own
 separate transaction lifecycle.
