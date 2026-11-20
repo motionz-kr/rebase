@@ -18,7 +18,7 @@ const TOTAL_CLEANUP_MS = 20_000;
 function run(deadline: number, cmd: string, args: string[]): string {
   const remaining = deadline - Date.now();
   if (remaining <= 0) throw new Error(`cleanup time budget (${TOTAL_CLEANUP_MS}ms) exhausted before ${cmd}`);
-  return execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: Math.min(CMD_TIMEOUT_MS, remaining) });
+  return execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: Math.min(CMD_TIMEOUT_MS, remaining), killSignal: 'SIGKILL' });
 }
 
 // The engine child can outlive Electron for a moment (SIGKILL on exit). Returns true
@@ -37,7 +37,8 @@ async function engineHasExited(userDataDir: string, deadline: number): Promise<b
   return false;
 }
 
-function readSecretRefs(deadline: number, metadataDb: string): string[] {
+// Returns null when the refs could not be read (so the caller keeps the temp dir).
+function readSecretRefs(deadline: number, metadataDb: string): string[] | null {
   const sql = 'SELECT secret_ref FROM connection_profiles;';
   // -init /dev/null: never load the user's ~/.sqliterc (it could change output or .open another DB).
   const base = ['-init', '/dev/null', '-batch', '-noheader', '-list'];
@@ -53,25 +54,38 @@ function readSecretRefs(deadline: number, metadataDb: string): string[] {
       if (args.length === base.length + 2) console.warn(`E2E Keychain cleanup could not read ${metadataDb}: ${(e as Error).message}`);
     }
   }
-  return [];
+  return null;
 }
 
-async function removeKeychainSecrets(userDataDir: string) {
+// Returns true when it is safe to delete userDataDir. When the engine exit or the refs
+// cannot be confirmed/processed, returns false: the temp metadata.db is then the only
+// record of which Keychain accounts belong to this test, so the caller must keep it.
+async function removeKeychainSecrets(userDataDir: string): Promise<boolean> {
   const metadataDb = path.join(userDataDir, 'metadata.db');
-  if (process.platform !== 'darwin' || !fs.existsSync(metadataDb)) return;
+  if (process.platform !== 'darwin' || !fs.existsSync(metadataDb)) return true;
   const deadline = Date.now() + TOTAL_CLEANUP_MS;
   if (!(await engineHasExited(userDataDir, deadline))) {
     // Never read or delete while an engine might still be writing this DB.
-    console.warn(`E2E Keychain cleanup skipped: could not confirm the engine for ${userDataDir} has exited`);
-    return;
+    console.warn(`E2E Keychain cleanup skipped: could not confirm the engine has exited; keeping ${userDataDir} for manual cleanup`);
+    return false;
   }
-  for (const ref of new Set(readSecretRefs(deadline, metadataDb))) {
+  const refs = readSecretRefs(deadline, metadataDb);
+  if (refs === null) {
+    console.warn(`E2E Keychain cleanup: keeping ${userDataDir} for manual cleanup`);
+    return false;
+  }
+  let ok = true;
+  for (const ref of new Set(refs)) {
     try {
       run(deadline, 'security', ['delete-generic-password', '-s', KEYCHAIN_SERVICE, '-a', ref]);
     } catch (e) {
-      if ((e as { status?: number }).status !== 44) console.warn(`E2E Keychain cleanup failed for ${ref}: ${(e as Error).message}`); // 44 = item not found
+      if ((e as { status?: number }).status === 44) continue; // item not found
+      ok = false;
+      console.warn(`E2E Keychain cleanup failed for ${ref}: ${(e as Error).message}`);
     }
   }
+  if (!ok) console.warn(`E2E Keychain cleanup incomplete: keeping ${userDataDir} for manual cleanup`);
+  return ok;
 }
 
 // Launches the built Electron app with an isolated, throwaway user-data dir so the
@@ -115,8 +129,9 @@ export const test = base.extend<Fixtures>({
     } catch {
       /* already gone */
     }
-    await removeKeychainSecrets(userDataDir);
-    fs.rmSync(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    if (await removeKeychainSecrets(userDataDir)) {
+      fs.rmSync(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    }
   },
   firstWindow: async ({ app }, use) => {
     const win = await app.firstWindow();
