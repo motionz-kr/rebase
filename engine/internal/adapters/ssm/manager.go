@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/smlee/database-local-engine/engine/internal/adapters/procgroup"
 	"github.com/smlee/database-local-engine/engine/internal/domain"
 	"github.com/smlee/database-local-engine/engine/internal/ports"
 )
@@ -44,14 +45,14 @@ func (s *session) alive() bool {
 }
 func (s *session) stop() {
 	s.once.Do(func() {
-		terminateProcessTree(s.cmd)
+		procgroup.Terminate(s.cmd)
 		select {
 		case <-s.done:
 		case <-time.After(time.Second):
 		}
 		// The CLI can exit before its plugin. Always finish cleaning the process
 		// group, including descendants that ignore SIGTERM and retain pipes.
-		killProcessTree(s.cmd)
+		procgroup.Kill(s.cmd)
 		select {
 		case <-s.done:
 		case <-time.After(time.Second):
@@ -211,7 +212,7 @@ func (m *Manager) start(ctx context.Context, p domain.ConnectionProfile) (*sessi
 		cmd.Env = os.Environ()
 	}
 	cmd.Env = append(cmd.Env, "AWS_PAGER=", "AWS_CLI_AUTO_PROMPT=off", "PATH="+filepath.Dir(pluginPath)+string(os.PathListSeparator)+os.Getenv("PATH"))
-	configureProcess(cmd)
+	procgroup.Configure(cmd)
 	cmd.WaitDelay = time.Second
 	output := &sessionOutput{ready: make(chan struct{})}
 	cmd.Stdout = output

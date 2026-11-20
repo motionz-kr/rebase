@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/smlee/database-local-engine/engine/internal/adapters/procgroup"
 	"github.com/smlee/database-local-engine/engine/internal/domain"
 )
 
@@ -27,8 +28,8 @@ func terminateRemoteSession(command func(context.Context, string, ...string) *ex
 		cmd.Env = os.Environ()
 	}
 	cmd.Env = append(cmd.Env, "AWS_PAGER=", "AWS_CLI_AUTO_PROMPT=off")
-	configureProcess(cmd)
-	cmd.Cancel = func() error { killProcessTree(cmd); return nil }
+	procgroup.Configure(cmd)
+	cmd.Cancel = func() error { procgroup.Kill(cmd); return nil }
 	cmd.WaitDelay = 100 * time.Millisecond
 	// Discard CLI output; it can contain credentials and must never reach MCP stdout.
 	if err := cmd.Run(); err != nil {
