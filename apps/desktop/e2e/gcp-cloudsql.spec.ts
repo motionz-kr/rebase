@@ -257,7 +257,9 @@ for (const db of [
         await expect.poll(async () => isPortOpen('127.0.0.1', tempLaunch.port)).toBe(false);
         expect(alive(launch.pid)).toBe(true);
         expect(await isPortOpen('127.0.0.1', launch.port)).toBe(true);
-        await win.locator('#gcp-instance').fill(INSTANCE);
+        // Discard the unsaved edit; the following steps start from the list.
+        await win.locator('.conn-modal').getByRole('button', { name: '닫기' }).click();
+        await expect(win.locator('.conn-form')).toHaveCount(0);
 
         // Independent MCP engine for the saved profile.
         await row.locator('button[title="Edit profile"]').click();
