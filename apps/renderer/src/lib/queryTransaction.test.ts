@@ -72,16 +72,16 @@ describe('lost query sessions', () => {
 describe('transaction control outcome', () => {
   it('keeps the existing notices for ordinary success', () => {
     expect(resolveTransactionControlOutcome('commit', { success: true, data: { success: true, transactionState: 'idle' } })).toEqual({
-      discard: false, transactionState: 'idle', notice: 'Committed', error: null,
+      discard: false, transactionState: 'idle', notice: 'Committed', error: null, clearContinuation: true,
     });
     expect(resolveTransactionControlOutcome('rollback', { success: true, data: { success: true } })).toEqual({
-      discard: false, transactionState: 'idle', notice: 'Rolled back', error: null,
+      discard: false, transactionState: 'idle', notice: 'Rolled back', error: null, clearContinuation: true,
     });
   });
 
   it('discards the session and explains it when a rollback finds the connection lost', () => {
     expect(resolveTransactionControlOutcome('rollback', { success: true, data: { success: true, transactionState: 'lost' } })).toEqual({
-      discard: true, transactionState: 'idle', notice: LOST_TRANSACTION_ROLLED_BACK_NOTICE, error: null,
+      discard: true, transactionState: 'idle', notice: LOST_TRANSACTION_ROLLED_BACK_NOTICE, error: null, clearContinuation: true,
     });
     expect(LOST_TRANSACTION_ROLLED_BACK_NOTICE).toBe('연결이 끊겨 트랜잭션이 취소되었습니다');
   });
@@ -94,10 +94,10 @@ describe('transaction control outcome', () => {
 
   it('keeps the failed state for an ordinary control failure', () => {
     expect(resolveTransactionControlOutcome('commit', { success: false, error: 'deadlock' })).toEqual({
-      discard: false, transactionState: 'failed', notice: 'deadlock', error: 'deadlock',
+      discard: false, transactionState: 'failed', notice: 'deadlock', error: 'deadlock', clearContinuation: false,
     });
     expect(resolveTransactionControlOutcome('rollback', { success: false })).toEqual({
-      discard: false, transactionState: 'failed', notice: '트랜잭션 작업에 실패했습니다.', error: '트랜잭션 작업에 실패했습니다.',
+      discard: false, transactionState: 'failed', notice: '트랜잭션 작업에 실패했습니다.', error: '트랜잭션 작업에 실패했습니다.', clearContinuation: false,
     });
     expect(resolveTransactionControlOutcome('commit', { success: false, error: 'x', transactionState: 'failed' }).transactionState).toBe('failed');
   });
@@ -105,15 +105,25 @@ describe('transaction control outcome', () => {
   it('discards the session and keeps the message when a failed commit lost the connection', () => {
     const message = '커밋 중 DB 연결이 끊겨 커밋 여부를 확인할 수 없습니다. 새 연결에서 데이터를 확인한 뒤 진행하세요.';
     expect(resolveTransactionControlOutcome('commit', { success: false, error: message, transactionState: 'lost' })).toEqual({
-      discard: true, transactionState: 'idle', notice: message, error: message,
+      discard: true, transactionState: 'idle', notice: message, error: message, clearContinuation: true,
     });
   });
 
   it('keeps the session and requires Rollback when a failed commit reports lost_transaction', () => {
     const message = '트랜잭션 중 DB 연결이 끊겼습니다. 커밋되지 않은 변경은 서버에서 취소됩니다. Rollback 후 다시 실행하세요.';
     expect(resolveTransactionControlOutcome('commit', { success: false, error: message, transactionState: 'lost_transaction' })).toEqual({
-      discard: false, transactionState: 'lost_transaction', notice: message, error: message,
+      discard: false, transactionState: 'lost_transaction', notice: message, error: message, clearContinuation: false,
     });
+  });
+
+  it('ends a paused script and its prompt whenever the control outcome discards the session', () => {
+    const message = '커밋 중 DB 연결이 끊겨 커밋 여부를 확인할 수 없습니다. 새 연결에서 데이터를 확인한 뒤 진행하세요.';
+    // Failed Commit that found the connection lost: the error stays visible, the script must not resume.
+    expect(resolveTransactionControlOutcome('commit', { success: false, error: message, transactionState: 'lost' }).clearContinuation).toBe(true);
+    expect(resolveTransactionControlOutcome('rollback', { success: true, data: { success: true, transactionState: 'lost' } }).clearContinuation).toBe(true);
+    // A failure that keeps the session (and the transaction to resolve) leaves the script paused.
+    expect(resolveTransactionControlOutcome('commit', { success: false, error: 'deadlock' }).clearContinuation).toBe(false);
+    expect(resolveTransactionControlOutcome('commit', { success: false, error: message, transactionState: 'lost_transaction' }).clearContinuation).toBe(false);
   });
 });
 

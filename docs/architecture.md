@@ -338,11 +338,24 @@ fails at once with the same message without touching the dead connection.
   only Rollback is offered; it sends no SQL, discards the session and the
   renderer shows that the transaction was cancelled. The next run opens a new
   session.
-- Loss while a COMMIT executes (SQL `COMMIT`/`END`/`COMMIT AND CHAIN` or the
-  toolbar Commit): the outcome is unknown, since the server may have committed
-  before the connection dropped. The state is `lost` (not `lost_transaction`),
-  the message says to verify the data on a new connection, and nothing is
-  retried.
+- Loss while a commit boundary executes inside an open transaction: the outcome
+  is unknown, since the server may have committed before the connection
+  dropped. Boundaries are SQL `COMMIT`/`END`/`COMMIT AND CHAIN`, the toolbar
+  Commit and, for MySQL, the implicit commits the session already tracks (DDL,
+  `LOCK TABLES`, `START TRANSACTION`, `SET autocommit=1`). The state is `lost`
+  (not `lost_transaction`), the message says to verify the data on a new
+  connection, and nothing is retried. Any error that ends a boundary statement
+  counts, including a user cancellation (the driver closes the socket on
+  cancel): the outcome stays uncertain, so when the closed connection is found
+  later (next statement or Rollback) it is reported as this commit-unknown loss
+  and never as a cancelled transaction. A later successful statement ends the
+  uncertainty. Cancelling an ordinary statement is not a loss; if its closed
+  connection is found later the transaction really was aborted
+  (`lost_transaction`).
+- Terminal socket errors (reset, broken pipe, EOF, a closed socket; never
+  timeouts or cancellation) count as loss in the MySQL and PostgreSQL
+  classifiers, so a tunnel dropping while a large statement is being sent is
+  found by that statement.
 - A failed statement is never replayed, and a run never reconnects: only a new
   user action opens a new session. Closing a lost session issues no SQL.
 

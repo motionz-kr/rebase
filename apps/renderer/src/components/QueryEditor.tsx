@@ -444,7 +444,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
       }
       clearPendingMultiRun(tabId);
       setTabs((prev) => prev.map((tab) => tab.id === tabId
-        ? { ...tab, transactionMode: mode, transactionState: 'idle', transactionNotice: rollbackNotice }
+        ? { ...tab, transactionMode: mode, transactionState: 'idle', transactionNotice: rollbackNotice, ...(rollbackNotice ? { policyPrompt: null } : {}) }
         : tab));
     } catch (error) {
       alert(error instanceof Error ? error.message : '트랜잭션 세션을 닫지 못했습니다.');
@@ -459,16 +459,17 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     const result = await window.electronAPI.querySession(action, profileId, '', sessionId);
     const outcome = resolveTransactionControlOutcome(action, result);
     if (outcome.discard) discardLostSession(tabId);
-    if (outcome.error) {
-      // Keep the engine's message visible; a lost session is already discarded above.
-      setTabs((prev) => prev.map((tab) => tab.id === tabId
-        ? { ...tab, transactionState: outcome.transactionState, transactionNotice: outcome.notice, error: outcome.error }
-        : tab));
-      return;
-    }
-    clearPendingMultiRun(tabId);
+    // A discarded session (even through a failed Commit) ends the paused script and
+    // its policy prompt: "Run anyway" must never resume on a new connection.
+    if (outcome.clearContinuation) clearPendingMultiRun(tabId);
     setTabs((prev) => prev.map((tab) => tab.id === tabId
-      ? { ...tab, transactionState: outcome.transactionState, transactionNotice: outcome.notice, error: null, policyPrompt: null }
+      ? {
+        ...tab,
+        transactionState: outcome.transactionState,
+        transactionNotice: outcome.notice,
+        error: outcome.error,
+        ...(outcome.clearContinuation ? { policyPrompt: null } : {}),
+      }
       : tab));
   };
 

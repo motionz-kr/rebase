@@ -271,4 +271,25 @@ test.describe('MySQL query-console transaction sessions', () => {
     await expect(win.locator('.policy-banner')).toHaveCount(0);
     expect(await snapshot()).toEqual(initial);
   });
+
+  test('a Commit that finds the connection lost also discards a paused script', async ({ firstWindow: win }) => {
+    await connectMySql(win, 'E2E MySQL paused script, lost commit');
+    await win.getByTestId('query-mode-write').click();
+    await observe(win);
+    // The unqualified DELETE pauses on the destructive confirmation gate; the
+    // transaction (and its session) stays open, so the script can still resume.
+    const paused = await run(win, ['START TRANSACTION', 'SELECT CONNECTION_ID()', `DELETE FROM ${method}`], true);
+    const cid = rows(paused).at(-1)![0];
+    await expect(win.locator('.policy-banner')).toBeVisible();
+    await withConn(c => c.query(`KILL CONNECTION ${cid}`));
+    await win.getByTestId('tx-commit').click();
+    // The failed Commit discarded the lost session: nothing is left to resume.
+    await expect(win.locator('.policy-banner')).toHaveCount(0);
+    await expect(win.getByTestId('transaction-status')).toHaveText('Auto-commit');
+    // The DELETE never reached the server, neither before nor after the loss.
+    expect(await snapshot()).toEqual(initial);
+    const again = rows(await run(win, ['SELECT CONNECTION_ID()']));
+    expect(again[0]![0]).not.toBe(cid);
+    expect(await snapshot()).toEqual(initial);
+  });
 });

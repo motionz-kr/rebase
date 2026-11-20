@@ -59,6 +59,10 @@ export interface TransactionControlOutcome {
   transactionState: QueryTransactionState;
   notice: string | null;
   error: string | null;
+  // The outcome ended the transaction context (success, or the session was
+  // discarded as lost): a paused script and its policy prompt must not resume,
+  // least of all on a new connection.
+  clearContinuation: boolean;
 }
 
 export function resolveTransactionControlOutcome(
@@ -72,18 +76,19 @@ export function resolveTransactionControlOutcome(
         transactionState: 'idle',
         notice: action === 'rollback' ? LOST_TRANSACTION_ROLLED_BACK_NOTICE : null,
         error: null,
+        clearContinuation: true,
       };
     }
-    return { discard: false, transactionState: 'idle', notice: action === 'commit' ? 'Committed' : 'Rolled back', error: null };
+    return { discard: false, transactionState: 'idle', notice: action === 'commit' ? 'Committed' : 'Rolled back', error: null, clearContinuation: true };
   }
   const message = result.error || '트랜잭션 작업에 실패했습니다.';
   if (shouldDiscardSession(result.transactionState)) {
-    return { discard: true, transactionState: 'idle', notice: message, error: message };
+    return { discard: true, transactionState: 'idle', notice: message, error: message, clearContinuation: true };
   }
   if (result.transactionState === 'lost_transaction') {
-    return { discard: false, transactionState: 'lost_transaction', notice: message, error: message };
+    return { discard: false, transactionState: 'lost_transaction', notice: message, error: message, clearContinuation: false };
   }
-  return { discard: false, transactionState: 'failed', notice: message, error: message };
+  return { discard: false, transactionState: 'failed', notice: message, error: message, clearContinuation: false };
 }
 
 // A multi-statement script stops at the first error and when its session was
