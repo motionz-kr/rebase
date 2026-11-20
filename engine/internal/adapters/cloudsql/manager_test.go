@@ -27,6 +27,16 @@ func TestProxyOutputDetectsReadinessSplitAcrossWrites(t *testing.T) {
 	}
 }
 
+func TestProxyOutputReadyEvenIfFloodedAfterMarker(t *testing.T) {
+	o := &proxyOutput{ready: make(chan struct{})}
+	_, _ = o.Write([]byte("Connection test passed\n" + strings.Repeat("y", 20000)))
+	select {
+	case <-o.ready:
+	default:
+		t.Fatal("readiness lost to truncation")
+	}
+}
+
 func TestProxyOutputIsBounded(t *testing.T) {
 	o := &proxyOutput{ready: make(chan struct{})}
 	chunk := strings.Repeat("x", 4096)

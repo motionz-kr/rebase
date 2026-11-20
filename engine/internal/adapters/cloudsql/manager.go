@@ -60,6 +60,8 @@ func (s *session) stop() {
 	})
 }
 
+var errStartCanceled = errors.New("Cloud SQL Proxy 준비 시간이 초과되었거나 취소되었습니다. gcloud 인증과 인스턴스 상태를 확인하세요")
+
 const readyMarker = "Connection test passed"
 
 // proxyOutput is bounded, concurrency-safe and never forwarded to stderr/stdout.
@@ -67,6 +69,7 @@ const readyMarker = "Connection test passed"
 type proxyOutput struct {
 	mu    sync.Mutex
 	text  string
+	seen  bool
 	ready chan struct{}
 	once  sync.Once
 }
@@ -74,10 +77,14 @@ type proxyOutput struct {
 func (o *proxyOutput) Write(p []byte) (int, error) {
 	o.mu.Lock()
 	o.text += string(p)
+	// Detect before trimming so a marker followed by a flood is never lost.
+	if strings.Contains(o.text, readyMarker) {
+		o.seen = true
+	}
 	if len(o.text) > 16384 {
 		o.text = o.text[len(o.text)-16384:]
 	}
-	ready := strings.Contains(o.text, readyMarker)
+	ready := o.seen
 	o.mu.Unlock()
 	if ready {
 		o.once.Do(func() { close(o.ready) })
@@ -89,6 +96,7 @@ func (o *proxyOutput) diagnostic() string { o.mu.Lock(); defer o.mu.Unlock(); re
 
 type Manager struct {
 	mu           sync.Mutex
+	drain        sync.WaitGroup // owned shutdown work; Add only under mu
 	entries      map[string]*entry
 	closed       bool
 	findProxy    func(string) (string, error)
@@ -146,9 +154,13 @@ func (m *Manager) ResolveEndpoint(ctx context.Context, p domain.ConnectionProfil
 		m.entries[key] = e
 		go func() { defer cancel(); e.session, e.err = m.start(startCtx, p); close(e.ready) }()
 	}
+	if stale != nil {
+		m.drain.Add(1)
+	}
 	m.mu.Unlock()
 	if stale != nil {
 		stale.stop()
+		m.drain.Done()
 	}
 	select {
 	case <-ctx.Done():
@@ -208,7 +220,7 @@ func (m *Manager) start(ctx context.Context, p domain.ConnectionProfile) (*sessi
 	select {
 	case <-ctx.Done():
 		s.stop()
-		return nil, errors.New("Cloud SQL Proxy 준비 시간이 초과되었거나 취소되었습니다. gcloud 인증과 인스턴스 상태를 확인하세요")
+		return nil, errStartCanceled
 	case <-s.done:
 		s.stop()
 		return nil, startupError(output.diagnostic())
@@ -224,7 +236,7 @@ func (m *Manager) start(ctx context.Context, p domain.ConnectionProfile) (*sessi
 			_ = conn.Close()
 			if ctx.Err() != nil {
 				s.stop()
-				return nil, ctx.Err()
+				return nil, errStartCanceled
 			}
 			return s, nil
 		}
@@ -253,6 +265,7 @@ func (m *Manager) closeEntries(profileID string, all bool) {
 			delete(m.entries, key)
 		}
 	}
+	m.drain.Add(len(entries))
 	m.mu.Unlock()
 	// Wait outside the map lock and stop separate process trees concurrently so
 	// shutdown has a fixed grace period independent of profile count.
@@ -260,6 +273,7 @@ func (m *Manager) closeEntries(profileID string, all bool) {
 	for _, e := range entries {
 		wg.Add(1)
 		go func() {
+			defer m.drain.Done()
 			defer wg.Done()
 			<-e.ready
 			if e.session != nil {
@@ -268,6 +282,10 @@ func (m *Manager) closeEntries(profileID string, all bool) {
 		}()
 	}
 	wg.Wait()
+	if all {
+		// Also wait for drains owned by concurrent CloseProfile/Close calls.
+		m.drain.Wait()
+	}
 }
 
 func (m *Manager) CloseProfile(profileID string) { m.closeEntries(profileID, false) }

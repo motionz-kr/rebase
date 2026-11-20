@@ -449,3 +449,66 @@ func TestCloseEscalatesToSIGKILLWithinGracePeriod(t *testing.T) {
 	}
 	assertGone(t, pids...)
 }
+
+func mustBeGone(t *testing.T, pid int) {
+	t.Helper()
+	if syscall.Kill(pid, 0) == nil {
+		t.Fatalf("process %d still alive when Close returned", pid)
+	}
+}
+
+func TestCloseWaitsForDrainStartedByCloseProfile(t *testing.T) {
+	h := newHarness(t, "ignoreterm") // CloseProfile takes ~1s: SIGTERM is ignored
+	if _, err := h.m.ResolveEndpoint(ctx5(t), defaultProfile()); err != nil {
+		t.Fatal(err)
+	}
+	pid := h.waitPids(t, 1)[0]
+	done := make(chan struct{})
+	go func() { h.m.CloseProfile("cvi"); close(done) }()
+	// Wait until CloseProfile has taken ownership (entry removed) but is still draining.
+	for deadline := time.Now().Add(3 * time.Second); ; {
+		h.m.mu.Lock()
+		n := len(h.m.entries)
+		h.m.mu.Unlock()
+		if n == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("entry never removed")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	select {
+	case <-done:
+		t.Skip("CloseProfile finished before overlap could be observed")
+	default:
+	}
+	h.m.Close()
+	mustBeGone(t, pid)
+	<-done
+}
+
+func TestConcurrentCloseCallsBothWaitForProcessExit(t *testing.T) {
+	h := newHarness(t, "ignoreterm")
+	if _, err := h.m.ResolveEndpoint(ctx5(t), defaultProfile()); err != nil {
+		t.Fatal(err)
+	}
+	pid := h.waitPids(t, 1)[0]
+	var wg sync.WaitGroup
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() { defer wg.Done(); h.m.Close(); mustBeGone(t, pid) }()
+	}
+	wg.Wait()
+}
+
+func TestCloseWaitsForCloseProfileOfInFlightStart(t *testing.T) {
+	h := newHarness(t, "never")
+	errc := make(chan error, 1)
+	go func() { _, err := h.m.ResolveEndpoint(ctx5(t), defaultProfile()); errc <- err }()
+	pid := h.waitPids(t, 1)[0]
+	go h.m.CloseProfile("cvi")
+	h.m.Close()
+	mustBeGone(t, pid)
+	<-errc
+}
