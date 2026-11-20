@@ -47,7 +47,7 @@ import type { TemplateDef } from './lib/templateTypes';
 import { loadAgentSettings } from './lib/agentSettings';
 import { createSqlQueryRequest, type SqlQueryRequest } from './lib/queryRequest';
 import { connectionsReducer, initialConnectionsState } from './state/connections';
-import { connectionRouteFromForm, type SSMConfig, type SSHConfig, type GCPCloudSQLConfig, type ConnectionMode } from './lib/connectionRoute';
+import { connectionRouteFromForm, type SSMConfig, type SSHConfig, type GCPCloudSQLConfig, type ConnectionMode, tlsModeForRoute } from './lib/connectionRoute';
 import { connectionDefaultsFromCandidate } from './lib/databaseDiscovery';
 import { DatabaseDiscoveryDialog } from './components/DatabaseDiscoveryDialog';
 import type { DiscoveredDatabase, McpConnectionProposal } from './global';
@@ -450,7 +450,7 @@ function App() {
       database: formDatabase,
       username: formDriver === 'sqlite' ? '' : formUsername,
       connectionUri: formConnectionUri,
-      tlsMode: formTlsMode,
+      tlsMode: tlsModeForRoute(formUsesGCPCloudSQL ? 'gcp_cloudsql' : 'direct', formTlsMode),
       readOnly: formReadOnly,
       safeMode: formSafeMode,
       tenantColumns: formTenantColumns,
@@ -486,7 +486,7 @@ function App() {
       database: formDatabase,
       username: formDriver === 'sqlite' ? '' : formUsername,
       connectionUri: formConnectionUri,
-      tlsMode: formTlsMode,
+      tlsMode: tlsModeForRoute(formUsesGCPCloudSQL ? 'gcp_cloudsql' : 'direct', formTlsMode),
       readOnly: formReadOnly,
       safeMode: formSafeMode,
       tenantColumns: formTenantColumns,
@@ -1115,10 +1115,10 @@ function App() {
               </div>
               <div>
                 <label>TLS mode</label>
-                <select value={formTlsMode} onChange={(e) => setFormTlsMode(e.target.value as 'none' | 'prefer' | 'require')}>
+                <select value={tlsModeForRoute(formUsesGCPCloudSQL ? 'gcp_cloudsql' : 'direct', formTlsMode)} onChange={(e) => setFormTlsMode(e.target.value as 'none' | 'prefer' | 'require')}>
                   <option value="none">None (plaintext)</option>
                   <option value="prefer">Prefer (opportunistic)</option>
-                  <option value="require">Require (encrypted)</option>
+                  <option value="require" disabled={formUsesGCPCloudSQL}>Require (encrypted)</option>
                 </select>
               </div>
               <div className="field-check">

@@ -36,20 +36,26 @@ export function connectionRouteFromForm(driver: string, mode: ConnectionMode, se
     } };
   }
   if (mode === 'ssh' && (driver === 'mysql' || driver === 'postgres')) {
-    return { connectionMode: 'ssh', ssm: undefined, ssh: ssh && {
+    return { connectionMode: 'ssh', ssm: undefined, gcpCloudSql: undefined, ssh: ssh && {
       host: ssh.host.trim(), port: ssh.port, username: ssh.username.trim(), identityFile: ssh.identityFile.trim(),
       ...(ssh.knownHostsFile?.trim() ? { knownHostsFile: ssh.knownHostsFile.trim() } : {}),
     } };
   }
   if (mode !== 'ssm' || (driver !== 'mysql' && driver !== 'postgres')) {
-    return { connectionMode: 'direct', ssm: undefined, ssh: undefined };
+    return { connectionMode: 'direct', ssm: undefined, ssh: undefined, gcpCloudSql: undefined };
   }
   return {
-    connectionMode: 'ssm', ssh: undefined,
+    connectionMode: 'ssm', ssh: undefined, gcpCloudSql: undefined,
     ssm: {
       profile: settings.profile.trim(), region: settings.region.trim(), instanceId: settings.instanceId.trim(),
       ...(settings.documentName?.trim() ? { documentName: settings.documentName.trim() } : {}),
       ...(settings.destinationMode ? { destinationMode: settings.destinationMode } : {}),
     },
   };
+}
+
+export type TlsMode = 'none' | 'prefer' | 'require';
+// cloud-sql-proxy already encrypts the hop; the engine only accepts none/prefer in Cloud SQL mode.
+export function tlsModeForRoute(mode: ConnectionMode, tls: TlsMode): TlsMode {
+  return mode === 'gcp_cloudsql' && tls === 'require' ? 'none' : tls;
 }

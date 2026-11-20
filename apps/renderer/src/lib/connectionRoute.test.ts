@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { connectionRouteFromForm } from './connectionRoute';
+import { connectionRouteFromForm, tlsModeForRoute } from './connectionRoute';
 
 describe('connection routing form', () => {
   it('preserves a custom document and document-owned destination', () => {
@@ -47,5 +47,32 @@ describe('GCP Cloud SQL route', () => {
     expect(connectionRouteFromForm('sqlite', 'gcp_cloudsql', ssm, undefined, gcp)).toEqual({ connectionMode: 'direct', ssm: undefined, ssh: undefined, gcpCloudSql: undefined });
     expect(connectionRouteFromForm('mysql', 'direct', ssm, undefined, gcp).gcpCloudSql).toBeUndefined();
     expect(connectionRouteFromForm('mysql', 'ssm', { profile: '', region: 'r', instanceId: 'i' }, undefined, gcp).gcpCloudSql).toBeUndefined();
+  });
+});
+
+describe('route switching over an existing profile', () => {
+  const ssm = { profile: 'p', region: 'r', instanceId: 'i-1' };
+  const ssh = { host: 'h', port: 22, username: 'u', identityFile: '/k' };
+  const gcp = { instanceConnectionName: 'p:r:i', authMode: 'credentials_file' as const, credentialsFile: '/k.json' };
+  const saved = { name: 'x', connectionMode: 'gcp_cloudsql', gcpCloudSql: gcp, ssm, ssh };
+  it('drops stale gcpCloudSql when merged for direct, ssm and ssh', () => {
+    for (const mode of ['direct', 'ssm', 'ssh'] as const) {
+      const merged = { ...saved, ...connectionRouteFromForm('mysql', mode, ssm, ssh, gcp) };
+      expect(merged.gcpCloudSql).toBeUndefined();
+    }
+  });
+  it('drops stale ssm/ssh when switching to gcp_cloudsql', () => {
+    const merged = { ...saved, ...connectionRouteFromForm('mysql', 'gcp_cloudsql', ssm, ssh, gcp) };
+    expect(merged.ssm).toBeUndefined();
+    expect(merged.ssh).toBeUndefined();
+    expect(merged.gcpCloudSql).toEqual(gcp);
+  });
+});
+
+describe('tlsModeForRoute', () => {
+  it('normalizes require to none only for Cloud SQL', () => {
+    expect(tlsModeForRoute('gcp_cloudsql', 'require')).toBe('none');
+    expect(tlsModeForRoute('gcp_cloudsql', 'prefer')).toBe('prefer');
+    expect(tlsModeForRoute('direct', 'require')).toBe('require');
   });
 });
