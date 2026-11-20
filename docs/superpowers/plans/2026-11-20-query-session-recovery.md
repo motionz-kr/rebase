@@ -107,3 +107,23 @@ Files: `apps/renderer/src/lib/queryTransaction.ts` (+ test), `apps/renderer/src/
 
 Controller (Opus) plans/supervises; Sonnet implements; Codex (`codex exec -s read-only`, stdin closed) reviews each task
 and the final branch. Never write to non-disposable DBs; E2E writes only to `e2e_*` tables they create and drop.
+
+## Verification (2026-11-20)
+
+Go 1.25.7 from `/tmp/gotc` (no system Go). Local MySQL had no `devdb` (`E2E_MYSQL_DATABASE=mysql`); PostgreSQL 15 ran in a
+disposable container on 55432 (`E2E_POSTGRES_PORT`, `E2E_SSM_POSTGRES_PORT`, `E2E_SSH_POSTGRES_PORT`, password `e2epass`).
+
+- Engine (HEAD `3bd468c`): `go test -count=1 ./engine/...` ok, `go vet ./engine/...` ok; `-race` on sqlsession, mysql and
+  transport ok; `-tags=integration -run '^$'` compile ok; MySQL `KILL CONNECTION` integration tests ok against local MySQL.
+- Renderer: `pnpm --filter renderer test` 62 files / 483 tests passed; `pnpm --filter renderer build` ok (pre-existing Vite
+  chunk-size warning); `pnpm --filter desktop build` ok; `pnpm build:engine` ok.
+- E2E on `bebd995`: `ssm.spec.ts` 6/6, `ssh.spec.ts`, `gcp-cloudsql.spec.ts`, `query-mysql-transactions.spec.ts`,
+  `query-transactions.spec.ts`, `connection-session-lifecycle.spec.ts` — 25/25 passed. After the final engine-only fix
+  (`3bd468c`): `query-mysql-transactions.spec.ts` + `query-transactions.spec.ts` 11/11 passed.
+- Earlier runs: the first run had four `ssm.spec.ts` failures at the `SELECT 78` step after a profile save (spec updated
+  to the new contract) and two environment failures where a stray Korean IME jamo was typed into the host/path input.
+- Codex reviews: per task and whole branch; findings fixed (COMMIT-time and cancelled-COMMIT unknown outcome, MySQL
+  implicit commits incl. any `SET … autocommit`, no SQL on lost cleanup, PG cancellation not classified as loss, MySQL
+  socket-write errors, control-failure state header, paused-script continuation cleared). Final verdict: ready.
+- Deferred: conservative `SET` matching also flags string literals containing `autocommit`; stored procedures/dynamic SQL
+  boundaries remain the documented limitation.
