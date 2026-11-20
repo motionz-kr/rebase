@@ -231,7 +231,8 @@ for (const db of [
         ]), { profileId: id, database: db.database });
         for (const r of results) expect(r.success).toBe(true);
         const records = fakeProxy.records();
-        expect(records).toHaveLength(2); // [0] was the unsaved connection test
+        // [0] was the unsaved connection test; opening the saved profile reuses one proxy for its test, queries and batches.
+        expect(records).toHaveLength(2);
         const launch = records[1];
         expect(launch.instance).toBe(INSTANCE);
         expect(launch.args).toContain('--gcloud-auth');
@@ -243,6 +244,20 @@ for (const db of [
         expect(launch.port).toBeGreaterThan(0);
         expect(records[0].args.slice(-1)[0]).toBe(INSTANCE);
         await win.screenshot({ path: test.info().outputPath('gcp-query.png') });
+
+        // Testing an edited route (not saved) runs on a temporary proxy and leaves the saved proxy alone.
+        await row.locator('button[title="Edit profile"]').click();
+        await win.locator('#gcp-instance').fill('e2e-proj:asia-northeast3:edited');
+        await win.locator('.conn-form').getByRole('button', { name: 'Test', exact: true }).click();
+        await expect(win.locator('.ssm-test-success')).toContainText('연결 테스트에 성공');
+        expect(fakeProxy.records()).toHaveLength(3);
+        const tempLaunch = fakeProxy.records()[2];
+        expect(tempLaunch.instance).toBe('e2e-proj:asia-northeast3:edited');
+        await expect.poll(() => alive(tempLaunch.pid)).toBe(false);
+        await expect.poll(async () => isPortOpen('127.0.0.1', tempLaunch.port)).toBe(false);
+        expect(alive(launch.pid)).toBe(true);
+        expect(await isPortOpen('127.0.0.1', launch.port)).toBe(true);
+        await win.locator('#gcp-instance').fill(INSTANCE);
 
         // Independent MCP engine for the saved profile.
         await row.locator('button[title="Edit profile"]').click();

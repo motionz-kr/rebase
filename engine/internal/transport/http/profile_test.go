@@ -117,44 +117,78 @@ func TestDisconnectProfileClosesTunnel(t *testing.T) {
 	}
 }
 
-func TestCloudSQLConnectionTestUsesEphemeralTunnelOwner(t *testing.T) {
+func cloudSQLTestRequest(t *testing.T, instance string) (*recordingTunnels, *ProfileHandler, *http.Request) {
+	t.Helper()
 	ctx := context.Background()
 	svc := application.NewConnectionService(ports.NewFakeProfileRepository(), ports.NewFakeSecretStore())
 	tunnels := &recordingTunnels{}
 	svc.SetTunnelManager(tunnels)
-	saved := &domain.ConnectionProfile{ID: "saved", Name: "cs", Driver: "mysql", Host: "h", Port: 3306, Database: "app"}
+	saved := &domain.ConnectionProfile{
+		ID: "saved", Name: "cs", Driver: "mysql", Host: "h", Port: 3306, Database: "app", ConnectionMode: "gcp_cloudsql",
+		GCPCloudSQL: &domain.GCPCloudSQLConfig{InstanceConnectionName: "my-project:asia-northeast3:db-1"},
+	}
 	if err := svc.CreateProfile(ctx, saved, "pw"); err != nil {
 		t.Fatal(err)
 	}
 	handler := NewProfileHandler("token", svc)
 	handler.mysqlConnector = mysql.NewMySQLConnector(svc)
-	body := `{"profile":{"id":"saved","name":"cs","driver":"mysql","connectionMode":"gcp_cloudsql","host":"h","port":3306,"database":"app","gcpCloudSql":{"instanceConnectionName":"my-project:asia-northeast3:db-1"}}}`
+	body := `{"profile":{"id":"saved","name":"cs","driver":"mysql","connectionMode":"gcp_cloudsql","host":"h","port":3306,"database":"app","gcpCloudSql":{"instanceConnectionName":"` + instance + `"}}}`
 	req := httptest.NewRequest(http.MethodPost, "/connection-test", strings.NewReader(body))
 	req.Header.Set("X-App-Engine-Token", "token")
-	handler.TestConnection().ServeHTTP(httptest.NewRecorder(), req)
+	return tunnels, handler, req
+}
 
+func TestCloudSQLConnectionTestOfEditedRouteUsesEphemeralOwner(t *testing.T) {
+	tunnels, handler, req := cloudSQLTestRequest(t, "my-project:asia-northeast3:db-2")
+	handler.TestConnection().ServeHTTP(httptest.NewRecorder(), req)
 	if len(tunnels.resolved) != 1 {
-		t.Fatalf("resolved = %v (profile JSON field names may differ)", tunnels.resolved)
+		t.Fatalf("resolved = %v", tunnels.resolved)
 	}
 	id := tunnels.resolved[0]
 	if id == "saved" || !strings.HasPrefix(id, "connection-test-") {
-		t.Fatalf("test must use an ephemeral routing ID, got %q", id)
+		t.Fatalf("edited route must use an ephemeral routing ID, got %q", id)
 	}
 	if len(tunnels.closed) != 1 || tunnels.closed[0] != id {
 		t.Fatalf("closed = %v, want only %q", tunnels.closed, id)
 	}
 }
 
-func TestConnectionTestRoutingIDOnlyChangesCloudSQL(t *testing.T) {
-	if got := connectionTestRoutingID(domain.ConnectionProfile{ID: "x", ConnectionMode: "ssm"}); got != "x" {
+func TestCloudSQLConnectionTestOfUnchangedRouteSharesSavedProxy(t *testing.T) {
+	tunnels, handler, req := cloudSQLTestRequest(t, "my-project:asia-northeast3:db-1")
+	handler.TestConnection().ServeHTTP(httptest.NewRecorder(), req)
+	if len(tunnels.resolved) != 1 || tunnels.resolved[0] != "saved" {
+		t.Fatalf("resolved = %v, want the saved ID", tunnels.resolved)
+	}
+	if len(tunnels.closed) != 0 {
+		t.Fatalf("saved proxy must not be released by the test: %v", tunnels.closed)
+	}
+}
+
+func TestConnectionTestRoutingID(t *testing.T) {
+	cfg := &domain.GCPCloudSQLConfig{InstanceConnectionName: "p-12345:r-x1:i"}
+	csql := domain.ConnectionProfile{ID: "x", ConnectionMode: "gcp_cloudsql", GCPCloudSQL: cfg}
+	if got := connectionTestRoutingID(domain.ConnectionProfile{ID: "x", ConnectionMode: "ssm"}, nil); got != "x" {
 		t.Errorf("ssm id changed: %q", got)
 	}
-	if got := connectionTestRoutingID(domain.ConnectionProfile{ConnectionMode: "gcp_cloudsql"}); got != "" {
+	if got := connectionTestRoutingID(domain.ConnectionProfile{ConnectionMode: "gcp_cloudsql"}, nil); got != "" {
 		t.Errorf("unsaved id changed: %q", got)
 	}
-	a := connectionTestRoutingID(domain.ConnectionProfile{ID: "x", ConnectionMode: "gcp_cloudsql"})
-	b := connectionTestRoutingID(domain.ConnectionProfile{ID: "x", ConnectionMode: "gcp_cloudsql"})
+	same := csql
+	same.GCPCloudSQL = &domain.GCPCloudSQLConfig{InstanceConnectionName: cfg.InstanceConnectionName}
+	if got := connectionTestRoutingID(same, &csql); got != "x" {
+		t.Errorf("identical route must keep id: %q", got)
+	}
+	diff := csql
+	diff.GCPCloudSQL = &domain.GCPCloudSQLConfig{InstanceConnectionName: cfg.InstanceConnectionName, PrivateIP: true}
+	a, b := connectionTestRoutingID(diff, &csql), connectionTestRoutingID(diff, &csql)
 	if a == b || a == "x" {
-		t.Errorf("ids must be unique ephemeral: %q %q", a, b)
+		t.Errorf("changed route needs unique ephemeral ids: %q %q", a, b)
+	}
+	other := domain.ConnectionProfile{ID: "x", ConnectionMode: "ssh"}
+	if got := connectionTestRoutingID(csql, &other); got == "x" {
+		t.Errorf("saved profile of another mode must not share: %q", got)
+	}
+	if got := connectionTestRoutingID(csql, nil); got == "x" {
+		t.Errorf("missing saved profile must not share: %q", got)
 	}
 }

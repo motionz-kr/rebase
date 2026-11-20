@@ -166,12 +166,30 @@ func (h *ProfileHandler) DisconnectProfile() http.Handler {
 	})
 }
 
-// connectionTestRoutingID gives Cloud SQL tests of saved profiles their own
-// ephemeral tunnel ownership, so testing edits neither reuses nor terminates
-// the proxy of the active saved connection. Other modes keep the profile ID.
-func connectionTestRoutingID(p domain.ConnectionProfile) string {
-	if p.ConnectionMode != "gcp_cloudsql" || p.ID == "" {
-		return p.ID
+func sameCloudSQLRoute(a, b domain.ConnectionProfile) bool {
+	if a.ConnectionMode != b.ConnectionMode {
+		return false
+	}
+	switch {
+	case a.GCPCloudSQL == nil && b.GCPCloudSQL == nil:
+		return true
+	case a.GCPCloudSQL == nil || b.GCPCloudSQL == nil:
+		return false
+	}
+	return *a.GCPCloudSQL == *b.GCPCloudSQL
+}
+
+// connectionTestRoutingID picks the tunnel owner for a connection test. A Cloud
+// SQL test of an edited saved profile (route differs from the saved one, or
+// the saved profile is another mode / missing) gets an ephemeral owner so it
+// neither reuses nor terminates the saved connection's proxy. An unchanged
+// route keeps the saved ID and shares its proxy. Other modes keep the ID.
+func connectionTestRoutingID(submitted domain.ConnectionProfile, saved *domain.ConnectionProfile) string {
+	if submitted.ConnectionMode != "gcp_cloudsql" || submitted.ID == "" {
+		return submitted.ID
+	}
+	if saved != nil && sameCloudSQLRoute(*saved, submitted) {
+		return submitted.ID
 	}
 	var b [8]byte
 	_, _ = rand.Read(b[:])
@@ -210,9 +228,12 @@ func (h *ProfileHandler) TestConnection() http.Handler {
 
 		if profile.ID == "" {
 			defer h.service.CloseProfileTunnel("")
-		} else if routingID := connectionTestRoutingID(profile); routingID != profile.ID {
-			profile.ID = routingID
-			defer h.service.CloseProfileTunnel(routingID)
+		} else if profile.ConnectionMode == "gcp_cloudsql" {
+			saved, _, _ := h.service.GetProfile(r.Context(), profile.ID)
+			if routingID := connectionTestRoutingID(profile, saved); routingID != profile.ID {
+				profile.ID = routingID
+				defer h.service.CloseProfileTunnel(routingID)
+			}
 		}
 		var err error
 		switch profile.Driver {
