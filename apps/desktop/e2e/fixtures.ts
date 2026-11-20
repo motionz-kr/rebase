@@ -10,16 +10,40 @@ import { execFileSync } from 'child_process';
 // after the app exits we delete exactly the refs listed in this test's own DB.
 const KEYCHAIN_SERVICE = 'AntigravityDBDesktop';
 
-function removeKeychainSecrets(metadataDb: string) {
-  if (process.platform !== 'darwin' || !fs.existsSync(metadataDb)) return;
-  let refs: string[];
-  try {
-    refs = execFileSync('sqlite3', ['-readonly', metadataDb, 'SELECT secret_ref FROM connection_profiles;'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
-      .split('\n').map((r) => r.trim()).filter(Boolean);
-  } catch {
-    return; // table/db missing or unreadable: nothing was created
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// The engine child can outlive Electron for a moment (SIGKILL on exit); don't read
+// the DB while it may still be writing. Capped at 5s.
+async function waitForEngineExit(userDataDir: string) {
+  for (let i = 0; i < 50; i++) {
+    try { execFileSync('pgrep', ['-f', userDataDir], { stdio: 'ignore' }); } catch { return; } // pgrep exits 1 when nothing matches
+    await sleep(100);
   }
-  for (const ref of new Set(refs)) {
+}
+
+function readSecretRefs(metadataDb: string): string[] {
+  const sql = 'SELECT secret_ref FROM connection_profiles;';
+  // The engine runs metadata.db in WAL mode. After a clean engine shutdown the
+  // -wal/-shm files are gone, and a pure `-readonly` connection then fails with
+  // "unable to open database file" (it cannot recreate them). Fall back to a normal
+  // open, which is safe here: the engine is dead and the DB is this test's own temp copy.
+  for (const args of [['-readonly', metadataDb, sql], [metadataDb, sql]]) {
+    try {
+      return execFileSync('sqlite3', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+        .split('\n').map((r) => r.trim()).filter(Boolean);
+    } catch (e) {
+      if (/no such table/i.test(String((e as { stderr?: unknown }).stderr))) return []; // nothing was created
+      if (args.length === 2) console.warn(`E2E Keychain cleanup could not read ${metadataDb}: ${(e as Error).message}`);
+    }
+  }
+  return [];
+}
+
+async function removeKeychainSecrets(userDataDir: string) {
+  const metadataDb = path.join(userDataDir, 'metadata.db');
+  if (process.platform !== 'darwin' || !fs.existsSync(metadataDb)) return;
+  await waitForEngineExit(userDataDir);
+  for (const ref of new Set(readSecretRefs(metadataDb))) {
     try {
       execFileSync('security', ['delete-generic-password', '-s', KEYCHAIN_SERVICE, '-a', ref], { stdio: 'ignore' });
     } catch (e) {
@@ -69,7 +93,7 @@ export const test = base.extend<Fixtures>({
     } catch {
       /* already gone */
     }
-    removeKeychainSecrets(path.join(userDataDir, 'metadata.db'));
+    await removeKeychainSecrets(userDataDir);
     fs.rmSync(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   },
   firstWindow: async ({ app }, use) => {
