@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.40.1](https://github.com/motionz-kr/rebase/compare/v0.40.0...v0.40.1) (2026-11-20)
+
+
+### Bug Fixes
+
+* **engine:** report affected rows for plain DML on Postgres and SQLite ([937b419](https://github.com/motionz-kr/rebase/commit/937b41922f9be6dee26d1873854d2f609148b631))
+* **grid:** open the result export menu and add a UTF-8 BOM to CSV ([0806a82](https://github.com/motionz-kr/rebase/commit/0806a82b08153bf9a44551531b3c3922f5d18a48))
+* **query:** fix result export menu and show applied row counts ([6bb97ae](https://github.com/motionz-kr/rebase/commit/6bb97ae7c3c29df63b9612ba9b327d341df1115b))
+* **query:** show applied row counts for multi-statement runs and transactions ([05cdc49](https://github.com/motionz-kr/rebase/commit/05cdc49a3691e0e95b528e3ec3e6be2c758095c8))
+
 ## [0.40.0](https://github.com/motionz-kr/rebase/compare/v0.39.2...v0.40.0) (2026-11-20)
 
 
