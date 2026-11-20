@@ -2,6 +2,31 @@ import { test as base, _electron as electron, type ElectronApplication, type Pag
 import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
+import { execFileSync } from 'child_process';
+
+// The engine stores every profile password in the REAL login Keychain (service
+// AntigravityDBDesktop, account = profile secret_ref), independent of the temp
+// metadata.db. Without cleanup each E2E run leaves dozens of entries behind, so
+// after the app exits we delete exactly the refs listed in this test's own DB.
+const KEYCHAIN_SERVICE = 'AntigravityDBDesktop';
+
+function removeKeychainSecrets(metadataDb: string) {
+  if (process.platform !== 'darwin' || !fs.existsSync(metadataDb)) return;
+  let refs: string[];
+  try {
+    refs = execFileSync('sqlite3', ['-readonly', metadataDb, 'SELECT secret_ref FROM connection_profiles;'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+      .split('\n').map((r) => r.trim()).filter(Boolean);
+  } catch {
+    return; // table/db missing or unreadable: nothing was created
+  }
+  for (const ref of new Set(refs)) {
+    try {
+      execFileSync('security', ['delete-generic-password', '-s', KEYCHAIN_SERVICE, '-a', ref], { stdio: 'ignore' });
+    } catch (e) {
+      if ((e as { status?: number }).status !== 44) console.warn(`E2E Keychain cleanup failed for ${ref}: ${(e as Error).message}`); // 44 = item not found
+    }
+  }
+}
 
 // Launches the built Electron app with an isolated, throwaway user-data dir so the
 // real connection store is never read or mutated. ELECTRON_IS_DEV=0 forces the
@@ -44,6 +69,7 @@ export const test = base.extend<Fixtures>({
     } catch {
       /* already gone */
     }
+    removeKeychainSecrets(path.join(userDataDir, 'metadata.db'));
     fs.rmSync(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   },
   firstWindow: async ({ app }, use) => {
