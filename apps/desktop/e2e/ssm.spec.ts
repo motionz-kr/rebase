@@ -7,6 +7,8 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
+const IDLE_LOSS_MESSAGE = 'DB 연결이 끊겼습니다. 이 문장의 결과는 확인되지 않았습니다. 다시 실행하면 새 연결로 실행합니다.';
+
 type TunnelRecord = { sessionId: string; pid: number; port: number; profile: string; region: string; host: string; documentName: string; parameterNames: string[] };
 type TerminationRecord = { sessionId: string; profile: string; region: string };
 type FakeSSM = { dir: string; log: string; env: Record<string, string>; records(): TunnelRecord[]; terminations(): TerminationRecord[]; activeSessions(): string[] };
@@ -241,8 +243,16 @@ for (const db of [
       expect(broken.some((chunk) => chunk.type === 'row')).toBe(false);
       expect(fakeSSM.records()).toHaveLength(2); // A broken manual transaction is never replayed on a new tunnel.
       await win.evaluate(({ profileId, database, sessionId }) => window.electronAPI.querySession('close', profileId, database, sessionId, true), { profileId: id, database: db.database, sessionId });
+      // The UI tab's own query session is still bound to the killed tunnel. The first run reports the
+      // lost connection (it is never replayed and never reconnects inside the run); running it again
+      // is a new user action, which opens a new session and starts a new tunnel.
+      const runButton = win.locator('.conn-panel .editor-toolbar button', { hasText: 'Run' }).first();
       await typeQuery(win, 'SELECT 75 AS ssm_value');
-      await win.locator('.conn-panel .editor-toolbar button', { hasText: 'Run' }).first().click();
+      await runButton.click();
+      await expect(win.locator('.conn-panel .alert.error')).toContainText(IDLE_LOSS_MESSAGE);
+      await expect(win.locator('.conn-panel .grid-body .grid-cell')).toHaveCount(0);
+      expect(fakeSSM.records()).toHaveLength(2);
+      await runButton.click();
       await expect(win.locator('.conn-panel .grid-body .grid-cell').first()).toContainText('75');
       expect(fakeSSM.records()).toHaveLength(3);
       await win.screenshot({ path: test.info().outputPath('ssm-query.png') });

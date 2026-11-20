@@ -18,6 +18,8 @@ const dml = [
   `UPDATE ${policy} p SET p.enabled=0, p.revision=p.revision+1 WHERE p.accountId=261 AND p.revision=1 AND NOT EXISTS (SELECT 1 FROM (SELECT accountId FROM ${method} WHERE accountId=261 AND type='SMS') x)`,
   'SELECT ROW_COUNT() AS changed_rows',
 ];
+const IDLE_LOSS_MESSAGE = 'DB 연결이 끊겼습니다. 이 문장의 결과는 확인되지 않았습니다. 다시 실행하면 새 연결로 실행합니다.';
+const TX_LOSS_MESSAGE = '트랜잭션 중 DB 연결이 끊겼습니다. 커밋되지 않은 변경은 서버에서 취소됩니다. Rollback 후 다시 실행하세요.';
 const initial = { enabled: 1, revision: 1, methods: 1 };
 const changed = { enabled: 0, revision: 2, methods: 0 };
 
@@ -193,9 +195,48 @@ test.describe('MySQL query-console transaction sessions', () => {
     expect(typeof cid).toBe('number');
     await withConn(c => c.query(`KILL CONNECTION ${cid}`));
     const first = await run(win, ['SELECT 1'], true);
-    expect(first.some(c => c.type === 'error')).toBe(true);
+    expect(first.filter(c => c.type === 'error')).toMatchObject([{ message: TX_LOSS_MESSAGE, transactionState: 'lost_transaction' }]);
     const second = await run(win, [dml[0], 'SELECT 1'], true);
-    expect(second.some(c => c.type === 'error')).toBe(true);
+    expect(second.filter(c => c.type === 'error')).toMatchObject([{ message: TX_LOSS_MESSAGE, transactionState: 'lost_transaction' }]);
+    expect(await snapshot()).toEqual(initial);
+    // The transaction was lost with its connection: only Rollback is offered, and Rollback is
+    // local (no SQL), so it discards the dead session and tells the user the changes were cancelled.
+    await expect(win.getByTestId('transaction-status')).toHaveText('연결 끊김 · 롤백 필요');
+    await expect(win.getByTestId('tx-commit')).toBeDisabled();
+    await expect(win.getByTestId('tx-rollback')).toBeEnabled();
+    await win.getByTestId('tx-rollback').click();
+    await expect(win.locator('.transaction-notice')).toHaveText('연결이 끊겨 트랜잭션이 취소되었습니다');
+    await expect(win.getByTestId('transaction-status')).toHaveText('Auto-commit');
+    // The next user run opens a new session on a new connection.
+    expect(rows(await run(win, ['SELECT 1']))).toEqual([[1]]);
+    const next = rows(await run(win, ['SELECT CONNECTION_ID()']));
+    expect(next[0]![0]).not.toBe(cid);
+    expect(await snapshot()).toEqual(initial);
+  });
+
+  test('a lost idle session fails once, skips the rest of a script, and the next run reconnects', async ({ firstWindow: win }) => {
+    await connectMySql(win, 'E2E MySQL lost idle session');
+    await win.getByTestId('query-mode-write').click();
+    await observe(win);
+    const opened = rows(await run(win, ['SELECT CONNECTION_ID()']));
+    const cid = opened.at(-1)![0];
+    await expect(win.getByTestId('transaction-status')).toHaveText('Auto-commit');
+    await withConn(c => c.query(`KILL CONNECTION ${cid}`));
+    // The first statement discovers the loss. The write after it must never reach the server.
+    const script = await run(win, ['SELECT 1', `UPDATE ${policy} SET revision=revision+1 WHERE accountId=261`, 'SELECT 2'], true);
+    await expect(win.locator('.query-statement-glyph-error')).toHaveCount(1);
+    await expect(win.locator('.query-statement-glyph-skipped')).toHaveCount(2);
+    const settled = await win.evaluate(() => (window as Window & { txChunks?: QueryStreamChunk[] }).txChunks!);
+    expect(settled.filter(c => c.type === 'error')).toMatchObject([{ message: IDLE_LOSS_MESSAGE, transactionState: 'lost' }]);
+    expect(settled.filter(c => c.type === 'row' || c.type === 'done')).toEqual([]);
+    expect(script.filter(c => c.type === 'error')).toHaveLength(1);
+    expect(await snapshot()).toEqual(initial);
+    // An idle loss needs no Rollback: the dead session is already discarded.
+    await expect(win.getByTestId('transaction-status')).toHaveText('Auto-commit');
+    await expect(win.getByTestId('tx-rollback')).toBeDisabled();
+    // Running again is a new user action: new session, new connection.
+    const again = rows(await run(win, ['SELECT CONNECTION_ID()']));
+    expect(again[0]![0]).not.toBe(cid);
     expect(await snapshot()).toEqual(initial);
   });
 
