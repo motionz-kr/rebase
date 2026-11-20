@@ -34,4 +34,9 @@ describe('connection lifecycle', () => {
       { id: 'tab-3', transactionMode: 'manual', transactionState: 'failed', transactionSessionId: 'c' },
     ]).map((tab) => tab.id)).toEqual(['tab-1', 'tab-3']);
   });
+
+  it('protects a lost transaction until it is rolled back, but not a lost session', () => {
+    expect(hasUncommittedTransaction({ transactionMode: 'manual', transactionState: 'lost_transaction', transactionSessionId: 'x' })).toBe(true);
+    expect(hasUncommittedTransaction({ transactionMode: 'manual', transactionState: 'lost', transactionSessionId: 'x' })).toBe(false);
+  });
 });

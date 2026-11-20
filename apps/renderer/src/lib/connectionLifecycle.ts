@@ -1,5 +1,7 @@
+import { hasPendingTransaction, type QueryTransactionState } from './queryTransaction';
+
 export type ConnectionTransactionMode = 'auto' | 'manual';
-export type ConnectionTransactionState = 'idle' | 'opening' | 'active' | 'failed';
+export type ConnectionTransactionState = QueryTransactionState;
 
 export interface ConnectionTransactionSnapshot {
   transactionMode: ConnectionTransactionMode;
@@ -12,8 +14,7 @@ export interface DisconnectTransactionTab extends ConnectionTransactionSnapshot 
 }
 
 export function hasUncommittedTransaction(tab: ConnectionTransactionSnapshot): boolean {
-  return !!tab.transactionSessionId
-    && ['opening', 'active', 'failed'].includes(tab.transactionState);
+  return !!tab.transactionSessionId && hasPendingTransaction(tab.transactionState);
 }
 
 export function getDisconnectTransactionTabs<T extends DisconnectTransactionTab>(tabs: T[]): T[] {

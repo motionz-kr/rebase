@@ -1267,7 +1267,9 @@
   font-size: 11px;
 }
 .transaction-status-active { color: var(--amber); }
-.transaction-status-failed { color: var(--red); }
+.transaction-status-failed,
+.transaction-status-lost,
+.transaction-status-lost_transaction { color: var(--red); }
 .transaction-status-opening { color: var(--accent); }
 .query-profile-policy {
   color: var(--amber);
