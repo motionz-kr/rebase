@@ -36,6 +36,8 @@ Background: `8be3ca0` pinned a connection per query tab and made a lost session 
 - Exact curated messages (engine, Korean):
   - idle loss: `DB 연결이 끊겼습니다. 이 문장의 결과는 확인되지 않았습니다. 다시 실행하면 새 연결로 실행합니다.`
   - loss in transaction (every run, and Commit): `트랜잭션 중 DB 연결이 끊겼습니다. 커밋되지 않은 변경은 서버에서 취소됩니다. Rollback 후 다시 실행하세요.`
+  - loss while a COMMIT (SQL `COMMIT`/`END`/`COMMIT AND CHAIN` or toolbar Commit) is executing — outcome unknown, state
+    `lost` (not `lost_transaction`): `커밋 중 DB 연결이 끊겨 커밋 여부를 확인할 수 없습니다. 새 연결에서 데이터를 확인한 뒤 진행하세요.`
 - Renderer notice after rolling back a lost transaction: `연결이 끊겨 트랜잭션이 취소되었습니다`.
 - Status labels (renderer): `lost` → `연결 끊김`, `lost_transaction` → `연결 끊김 · 롤백 필요`.
 - Existing transaction semantics, policy gates and other tests must not change behaviour.
