@@ -17,6 +17,9 @@ type fakeServer struct {
 	mu   sync.Mutex
 	down error
 	log  []string
+	// applyThenDrop: this statement is applied on the "server" but its reply is
+	// lost, after which the connection is down (a COMMIT whose OK never arrives).
+	applyThenDrop string
 }
 
 func (f *fakeServer) kill(err error) {
@@ -38,6 +41,10 @@ func (f *fakeServer) run(query string) error {
 		return f.down
 	}
 	f.log = append(f.log, query)
+	if f.applyThenDrop != "" && query == f.applyThenDrop {
+		f.down = errDriverDropped
+		return errDriverDropped
+	}
 	return nil
 }
 
@@ -216,8 +223,8 @@ func TestLostBeginOfImplicitTransactionIsIdleLoss(t *testing.T) {
 	}})
 	server.kill(errDriverDropped)
 	// Manual mode opens the transaction before the user's statement; nothing ran yet.
-	if err := run(manager, id, "SELECT 1"); !errors.Is(err, errDriverDropped) {
-		t.Fatalf("run = %v", err)
+	if err := run(manager, id, "SELECT 1"); !errors.Is(err, ErrConnectionLost) {
+		t.Fatalf("run = %v, want ErrConnectionLost", err)
 	}
 	if got := mustState(t, manager, id); got != StateLost {
 		t.Fatalf("state = %q, want %q", got, StateLost)
@@ -243,5 +250,143 @@ func TestLostStateRequiresTheOwner(t *testing.T) {
 	_ = run(manager, id, "SELECT 1")
 	if _, err := manager.State("someone-else", id); !errors.Is(err, ErrOwnerMismatch) {
 		t.Fatalf("State by another owner = %v, want ErrOwnerMismatch", err)
+	}
+}
+
+func isDropped(err error) bool { return errors.Is(err, errDriverDropped) }
+
+// completeStatement is what adapters do: run on the leased connection, then Complete.
+func completeStatement(manager *Manager, id, query string) error {
+	lease, err := manager.Acquire(context.Background(), "owner", "db", id, false, query)
+	if err != nil {
+		return err
+	}
+	defer lease.Close()
+	_, err = lease.Queryer.ExecContext(context.Background(), query)
+	return lease.Complete(query, err)
+}
+
+func TestCompleteReturnsTheCuratedErrorWhenItDetectsLoss(t *testing.T) {
+	manager, server, id := openFakeSession(t, Options{BeginSQL: "BEGIN", IsConnectionLost: isDropped})
+	if err := completeStatement(manager, id, "INSERT INTO t VALUES (1)"); err != nil {
+		t.Fatal(err)
+	}
+	server.kill(errDriverDropped)
+	if err := completeStatement(manager, id, "INSERT INTO t VALUES (2)"); !errors.Is(err, ErrConnectionLostInTransaction) {
+		t.Fatalf("loss inside a transaction = %v, want ErrConnectionLostInTransaction", err)
+	}
+	// An ordinary failure is returned untouched.
+	other, server2, id2 := openFakeSession(t, Options{AutoCommit: true, IsConnectionLost: isDropped})
+	boom := errors.New("duplicate key")
+	server2.kill(boom)
+	if err := completeStatement(other, id2, "INSERT INTO t VALUES (1)"); !errors.Is(err, boom) {
+		t.Fatalf("ordinary error = %v", err)
+	}
+}
+
+func TestCommitLostWhileExecutingHasAnUnknownOutcome(t *testing.T) {
+	for name, commit := range map[string]func(*Manager, string) error{
+		"SQL COMMIT":           func(m *Manager, id string) error { return completeStatement(m, id, "COMMIT") },
+		"SQL END":              func(m *Manager, id string) error { return completeStatement(m, id, "END") },
+		"SQL COMMIT AND CHAIN": func(m *Manager, id string) error { return completeStatement(m, id, "COMMIT AND CHAIN") },
+		"toolbar commit":       func(m *Manager, id string) error { return m.Commit(context.Background(), "owner", id) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			manager, server, id := openFakeSession(t, Options{BeginSQL: "BEGIN", IsConnectionLost: isDropped})
+			if err := completeStatement(manager, id, "INSERT INTO t VALUES (1)"); err != nil {
+				t.Fatal(err)
+			}
+			// The server applies the COMMIT, but the reply is lost.
+			server.mu.Lock()
+			server.applyThenDrop = map[string]string{"SQL END": "END", "SQL COMMIT AND CHAIN": "COMMIT AND CHAIN"}[name]
+			if server.applyThenDrop == "" {
+				server.applyThenDrop = "COMMIT"
+			}
+			server.mu.Unlock()
+
+			if err := commit(manager, id); !errors.Is(err, ErrCommitOutcomeUnknown) {
+				t.Fatalf("commit error = %v, want ErrCommitOutcomeUnknown", err)
+			}
+			if got := mustState(t, manager, id); got != StateLost {
+				t.Fatalf("state = %q, want %q (the commit may be durable, so there is nothing to roll back)", got, StateLost)
+			}
+			// Every later action repeats the unknown outcome and sends no SQL.
+			server.kill(nil)
+			before := server.statements()
+			if err := run(manager, id, "SELECT 1"); !errors.Is(err, ErrCommitOutcomeUnknown) {
+				t.Fatalf("run = %v, want ErrCommitOutcomeUnknown", err)
+			}
+			if err := manager.Commit(context.Background(), "owner", id); !errors.Is(err, ErrCommitOutcomeUnknown) {
+				t.Fatalf("second commit = %v, want ErrCommitOutcomeUnknown", err)
+			}
+			if err := manager.Rollback(context.Background(), "owner", id); err != nil {
+				t.Fatalf("rollback = %v", err)
+			}
+			if got := mustState(t, manager, id); got != StateLost {
+				t.Fatalf("state after rollback = %q", got)
+			}
+			if after := server.statements(); len(after) != len(before) {
+				t.Fatalf("SQL reached a lost session: %v", after[len(before):])
+			}
+		})
+	}
+}
+
+func TestLossBeforeCommitStillNeedsARollback(t *testing.T) {
+	manager, server, id := openFakeSession(t, Options{BeginSQL: "BEGIN", IsConnectionLost: isDropped})
+	if err := completeStatement(manager, id, "INSERT INTO t VALUES (1)"); err != nil {
+		t.Fatal(err)
+	}
+	server.kill(errDriverDropped)
+	if err := completeStatement(manager, id, "INSERT INTO t VALUES (2)"); !errors.Is(err, ErrConnectionLostInTransaction) {
+		t.Fatalf("insert = %v", err)
+	}
+	if got := mustState(t, manager, id); got != StateLostTransaction {
+		t.Fatalf("state = %q, want %q", got, StateLostTransaction)
+	}
+	if err := manager.Commit(context.Background(), "owner", id); !errors.Is(err, ErrConnectionLostInTransaction) {
+		t.Fatalf("commit after earlier loss = %v, want ErrConnectionLostInTransaction", err)
+	}
+}
+
+func TestCleanupOfALostSessionIssuesNoSQL(t *testing.T) {
+	for name, cleanup := range map[string]func(*Manager, string){
+		"Close":      func(m *Manager, id string) { _ = m.Close("owner", id) },
+		"ExpireIdle": func(m *Manager, id string) { m.ExpireIdle(time.Now().Add(2 * time.Hour)) },
+		"Shutdown":   func(m *Manager, id string) { m.Shutdown() },
+	} {
+		t.Run(name, func(t *testing.T) {
+			manager, server, id := openFakeSession(t, Options{BeginSQL: "BEGIN", IsConnectionLost: isDropped})
+			if err := completeStatement(manager, id, "INSERT INTO t VALUES (1)"); err != nil {
+				t.Fatal(err)
+			}
+			server.kill(errDriverDropped)
+			_ = completeStatement(manager, id, "INSERT INTO t VALUES (2)")
+			// The server comes back for an unrelated reason; a ROLLBACK sent now
+			// would reach it and could end someone else's work on a reused handle.
+			server.kill(nil)
+			before := server.statements()
+			cleanup(manager, id)
+			if after := server.statements(); len(after) != len(before) {
+				t.Fatalf("%s sent SQL on a lost session: %v", name, after[len(before):])
+			}
+			if _, err := manager.State("owner", id); !errors.Is(err, ErrNotFound) {
+				t.Fatalf("session must be removed after %s, State = %v", name, err)
+			}
+		})
+	}
+}
+
+func TestCleanupOfAHealthySessionStillRollsBack(t *testing.T) {
+	manager, server, id := openFakeSession(t, Options{BeginSQL: "BEGIN"})
+	if err := completeStatement(manager, id, "INSERT INTO t VALUES (1)"); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Close("owner", id); err != nil {
+		t.Fatal(err)
+	}
+	stmts := server.statements()
+	if len(stmts) == 0 || stmts[len(stmts)-1] != "ROLLBACK" {
+		t.Fatalf("Close must roll back an open transaction, statements: %v", stmts)
 	}
 }

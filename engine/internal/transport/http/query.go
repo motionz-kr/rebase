@@ -422,46 +422,68 @@ func (h *QueryHandler) QuerySession() http.Handler {
 			return
 		}
 
-		var sessionID string
-		transactionState := ""
-		switch req.Action {
-		case "open":
-			executionProfile := profileForDatabase(*profile, req.Database)
-			sessionID, err = sessionConnector.OpenQuerySession(
-				r.Context(), executionProfile, password, req.ProfileID, executionProfile.Database, req.ReadOnly || profile.ReadOnly, req.AutoCommit,
-			)
-		case "commit":
-			err = sessionConnector.CommitQuerySession(r.Context(), req.ProfileID, req.SessionID)
-			if err == nil {
-				transactionState, _ = sessionConnector.QuerySessionState(req.ProfileID, req.SessionID)
-			}
-		case "rollback":
-			err = sessionConnector.RollbackQuerySession(r.Context(), req.ProfileID, req.SessionID)
-			if err == nil {
-				// A rolled-back lost transaction reports "lost" so the renderer
-				// can discard the session.
-				transactionState, _ = sessionConnector.QuerySessionState(req.ProfileID, req.SessionID)
-			}
-		case "close":
-			err = sessionConnector.CloseQuerySession(req.ProfileID, req.SessionID)
-		case "configure":
-			err = sessionConnector.SetQuerySessionAutoCommit(req.ProfileID, req.SessionID, req.AutoCommit)
-		default:
-			http.Error(w, "action must be open, configure, commit, rollback, or close", http.StatusBadRequest)
-			return
-		}
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusConflict)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(sessionControlResponse(sessionID, transactionState))
+		serveSessionControl(r.Context(), w, sessionConnector, *profile, password, req)
 	})
 }
+
+// serveSessionControl runs one query-session action and writes the response.
+//
+// Errors keep the plain-text body the desktop main process surfaces verbatim
+// (requestEngine rejects with the body as the message). When the session state is
+// known, commit/rollback errors also carry it in the X-Transaction-State header so
+// a failed COMMIT that discovered a lost connection still reports lost/lost_transaction.
+func serveSessionControl(ctx context.Context, w http.ResponseWriter, sessionConnector ports.QuerySessionConnector, profile domain.ConnectionProfile, password string, req QuerySessionRequest) {
+	var sessionID string
+	var err error
+	switch req.Action {
+	case "open":
+		executionProfile := profileForDatabase(profile, req.Database)
+		sessionID, err = sessionConnector.OpenQuerySession(
+			ctx, executionProfile, password, req.ProfileID, executionProfile.Database, req.ReadOnly || profile.ReadOnly, req.AutoCommit,
+		)
+	case "commit":
+		err = sessionConnector.CommitQuerySession(ctx, req.ProfileID, req.SessionID)
+	case "rollback":
+		err = sessionConnector.RollbackQuerySession(ctx, req.ProfileID, req.SessionID)
+	case "close":
+		err = sessionConnector.CloseQuerySession(req.ProfileID, req.SessionID)
+	case "configure":
+		err = sessionConnector.SetQuerySessionAutoCommit(req.ProfileID, req.SessionID, req.AutoCommit)
+	default:
+		http.Error(w, "action must be open, configure, commit, rollback, or close", http.StatusBadRequest)
+		return
+	}
+
+	// commit/rollback report the resulting state (a rolled-back lost transaction
+	// is "lost"; a failed commit may have just discovered the loss).
+	transactionState := ""
+	if req.Action == "commit" || req.Action == "rollback" {
+		if state, stateErr := sessionConnector.QuerySessionState(req.ProfileID, req.SessionID); stateErr == nil {
+			transactionState = state
+		}
+	}
+	if err != nil {
+		if transactionState != "" {
+			w.Header().Set(transactionStateHeader, transactionState)
+		}
+		http.Error(w, queryErrorMessage(transactionState, err), http.StatusConflict)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(sessionControlResponse(sessionID, transactionState))
+}
+
+// transactionStateHeader carries the session state on failed control responses.
+const transactionStateHeader = "X-Transaction-State"
 
 // queryErrorMessage shows the curated text instead of the raw driver error once
 // the session's connection is lost. The text lives in sqlsession.
 func queryErrorMessage(transactionState string, err error) string {
+	for _, curated := range []error{sqlsession.ErrCommitOutcomeUnknown, sqlsession.ErrConnectionLostInTransaction, sqlsession.ErrConnectionLost} {
+		if errors.Is(err, curated) {
+			return curated.Error()
+		}
+	}
 	switch transactionState {
 	case sqlsession.StateLost:
 		return sqlsession.ErrConnectionLost.Error()

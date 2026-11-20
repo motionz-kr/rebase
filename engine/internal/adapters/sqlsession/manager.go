@@ -29,6 +29,10 @@ var (
 	// the transport shows them instead of the raw driver error.
 	ErrConnectionLost              = errors.New("DB 연결이 끊겼습니다. 이 문장의 결과는 확인되지 않았습니다. 다시 실행하면 새 연결로 실행합니다.")
 	ErrConnectionLostInTransaction = errors.New("트랜잭션 중 DB 연결이 끊겼습니다. 커밋되지 않은 변경은 서버에서 취소됩니다. Rollback 후 다시 실행하세요.")
+	// ErrCommitOutcomeUnknown: the connection dropped while a COMMIT was executing,
+	// so the server may or may not have committed. The session is plain "lost":
+	// there is nothing safe to roll back or to re-run.
+	ErrCommitOutcomeUnknown = errors.New("커밋 중 DB 연결이 끊겨 커밋 여부를 확인할 수 없습니다. 새 연결에서 데이터를 확인한 뒤 진행하세요.")
 )
 
 // Session states reported by State.
@@ -70,6 +74,7 @@ type session struct {
 	active, failed, closed bool
 	// lost: the connection dropped; lostInTx: a transaction was open at that moment.
 	lost, lostInTx    bool
+	lostInCommit      bool
 	isConnectionLost  func(error) bool
 	beginSQL, dialect string
 	serverID          int64
@@ -88,9 +93,10 @@ type Queryer interface {
 type Lease struct {
 	Queryer      Queryer
 	ServerID     int64
-	complete     func(string, error)
+	complete     func(string, error) error
 	query        string
 	completeOnce sync.Once
+	result       error
 	Rows         *sql.Rows
 	release      func()
 	once         sync.Once
@@ -106,7 +112,7 @@ func (l *Lease) Close() error {
 			}
 		}
 		if l.query != "" {
-			l.Complete(l.query, err)
+			_ = l.Complete(l.query, err)
 		}
 		l.release()
 	})
@@ -193,7 +199,7 @@ func (m *Manager) Query(ctx context.Context, ownerID, database, id string, readO
 	}
 	rows, err := lease.Queryer.QueryContext(ctx, query)
 	if err != nil {
-		lease.Complete(query, err)
+		_ = lease.Complete(query, err)
 		_ = lease.Close()
 		return nil, err
 	}
@@ -204,12 +210,17 @@ func (m *Manager) Query(ctx context.Context, ownerID, database, id string, readO
 
 // Complete must be called after consuming/closing rows and before releasing the
 // lease. State is metadata; native SQL on the pinned connection owns boundaries.
-func (l *Lease) Complete(query string, err error) {
+// It returns err, except that a dropped connection is returned as the matching
+// curated error (ErrConnectionLost, ErrConnectionLostInTransaction or
+// ErrCommitOutcomeUnknown); the raw driver error is never shown for it.
+func (l *Lease) Complete(query string, err error) error {
 	l.completeOnce.Do(func() {
+		l.result = err
 		if l.complete != nil {
-			l.complete(query, err)
+			l.result = l.complete(query, err)
 		}
 	})
+	return l.result
 }
 
 func (m *Manager) Begin(ctx context.Context, ownerID, database, id string, readOnly bool) (*Lease, error) {
@@ -229,7 +240,9 @@ func (m *Manager) Acquire(ctx context.Context, ownerID, database, id string, rea
 	command := domain.ParseTransactionCommand(query)
 	if !s.autoCommit && !s.active && (command.Action == "" || command.Action == "savepoint") && !domain.IsSessionStatement(query) {
 		if _, err := s.conn.ExecContext(ctx, s.beginSQL); err != nil {
-			s.markLostIfDropped(err)
+			if s.markLostIfDropped(err, false) {
+				err = s.lostError()
+			}
 			s.mu.Unlock()
 			return nil, err
 		}
@@ -270,7 +283,7 @@ func (m *Manager) State(ownerID, id string) (string, error) {
 }
 
 // markLostIfDropped records a dropped connection. It never touches the connection.
-func (s *session) markLostIfDropped(err error) bool {
+func (s *session) markLostIfDropped(err error, commit bool) bool {
 	if err == nil || s.lost {
 		return s.lost
 	}
@@ -280,12 +293,15 @@ func (s *session) markLostIfDropped(err error) bool {
 		return false
 	}
 	s.lost = true
-	s.lostInTx = s.active
+	// A COMMIT that lost its connection may be durable: not a transaction to roll back.
+	s.lostInCommit = commit
+	s.lostInTx = s.active && !commit
 	s.closed = true
 	return true
 }
 
-func (s *session) complete(query string, err error) {
+func (s *session) complete(query string, err error) error {
+	reported := err
 	if errors.Is(err, domain.ErrRowLimitReached) {
 		err = nil
 	}
@@ -293,8 +309,10 @@ func (s *session) complete(query string, err error) {
 		if s.active {
 			s.failed = true
 		}
-		s.markLostIfDropped(err)
-		return
+		if s.markLostIfDropped(err, domain.ParseTransactionCommand(query).Action == "commit") {
+			return s.lostError()
+		}
+		return reported
 	}
 	command := domain.ParseTransactionCommand(query)
 	switch command.Action {
@@ -339,6 +357,7 @@ func (s *session) complete(query string, err error) {
 			s.failed = false
 		}
 	}
+	return reported
 }
 
 func (m *Manager) Commit(ctx context.Context, ownerID, id string) error {
@@ -378,7 +397,7 @@ func (m *Manager) finish(ctx context.Context, ownerID, id, statement string) err
 		return nil
 	}
 	_, err = s.conn.ExecContext(ctx, statement)
-	s.complete(statement, err)
+	err = s.complete(statement, err)
 	s.lastUsed = time.Now()
 	return err
 }
@@ -477,6 +496,9 @@ func (m *Manager) remove(id string, expected *session) {
 }
 
 func (s *session) lostError() error {
+	if s.lostInCommit {
+		return ErrCommitOutcomeUnknown
+	}
 	if s.lostInTx {
 		return ErrConnectionLostInTransaction
 	}
@@ -512,12 +534,16 @@ func (s *session) validateIdentity(ownerID, database string, readOnly bool) erro
 func (s *session) closeLocked() error {
 	// Always issue rollback: procedures or SQL not understood by state tracking
 	// can also open transactions. Never return a live transaction to a pool.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	_, rollbackErr := s.conn.ExecContext(ctx, "ROLLBACK")
-	// PostgreSQL/SQLite may report no active transaction; closing the dedicated
-	// DB still rolls back at the server. No user query is retried.
-	_ = rollbackErr
+	// A lost connection gets no SQL at all: the server already ended the session,
+	// and the handle must only be released.
+	if !s.lost {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, rollbackErr := s.conn.ExecContext(ctx, "ROLLBACK")
+		// PostgreSQL/SQLite may report no active transaction; closing the dedicated
+		// DB still rolls back at the server. No user query is retried.
+		_ = rollbackErr
+	}
 	s.closed = true
 	connErr := s.conn.Close()
 	dbErr := s.db.Close()

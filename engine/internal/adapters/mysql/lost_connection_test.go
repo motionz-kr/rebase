@@ -262,8 +262,9 @@ func TestOpenQuerySessionWiresTheClassifierForDroppedConnections(t *testing.T) {
 			server.dropAll()
 			time.Sleep(50 * time.Millisecond)
 
-			if err := run("SELECT 75"); err == nil {
-				t.Fatal("run on a dropped connection must fail")
+			// The statement that discovers the loss already reports the curated error.
+			if err := run("SELECT 75"); !errors.Is(err, tc.wantErr) {
+				t.Fatalf("first run = %v, want %v", err, tc.wantErr)
 			}
 			state, err := connector.QuerySessionState("owner", id)
 			if err != nil || state != tc.wantState {
@@ -271,6 +272,44 @@ func TestOpenQuerySessionWiresTheClassifierForDroppedConnections(t *testing.T) {
 			}
 			if err := run("SELECT 75"); !errors.Is(err, tc.wantErr) {
 				t.Fatalf("second run = %v, want %v", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// The server receives COMMIT but the connection drops before the reply: the
+// outcome is unknown, so the session is plain "lost" with the commit message.
+func TestCommitLostOnTheWireHasAnUnknownOutcome(t *testing.T) {
+	for name, commit := range map[string]func(context.Context, *MySQLConnector, domain.ConnectionProfile, string) error{
+		"toolbar commit": func(ctx context.Context, c *MySQLConnector, _ domain.ConnectionProfile, id string) error {
+			return c.CommitQuerySession(ctx, "owner", id)
+		},
+		"SQL COMMIT": func(ctx context.Context, c *MySQLConnector, p domain.ConnectionProfile, id string) error {
+			_, err := c.ExecuteQuerySessionStream(ctx, p, "", "owner", "app", id, "COMMIT", false, nil,
+				func([]string) error { return nil }, func([]any) error { return nil })
+			return err
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			server := newFakeMySQLServer(t)
+			server.onQuery = func(query string) bool { return query == "COMMIT" }
+			connector := NewMySQLConnector()
+			t.Cleanup(connector.querySessions.Shutdown)
+			ctx := context.Background()
+			profile := server.profile()
+			id, err := connector.OpenQuerySession(ctx, profile, "", "owner", "app", false, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := connector.ExecuteQuerySessionStream(ctx, profile, "", "owner", "app", id, "UPDATE t SET a = 1", false, nil,
+				func([]string) error { return nil }, func([]any) error { return nil }); err != nil {
+				t.Fatal(err)
+			}
+			if err := commit(ctx, connector, profile, id); !errors.Is(err, sqlsession.ErrCommitOutcomeUnknown) {
+				t.Fatalf("commit = %v, want ErrCommitOutcomeUnknown", err)
+			}
+			if state, err := connector.QuerySessionState("owner", id); err != nil || state != sqlsession.StateLost {
+				t.Fatalf("state = %q, %v; want lost", state, err)
 			}
 		})
 	}

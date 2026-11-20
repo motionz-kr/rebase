@@ -366,7 +366,7 @@ func (c *MySQLConnector) ExecuteQuerySessionStream(
 		onSessionStart(lease.ServerID)
 	}
 	rowsAffected, err := adapters.ExecuteSessionQuery(ctx, lease.Queryer, query, onHeader, onRow)
-	lease.Complete(query, err)
+	err = lease.Complete(query, err)
 	return rowsAffected, c.normalizeError(err)
 }
 

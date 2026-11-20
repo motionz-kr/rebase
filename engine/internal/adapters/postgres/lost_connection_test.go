@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"syscall"
@@ -23,10 +24,14 @@ func TestIsConnectionLostRecognisesResetSockets(t *testing.T) {
 		t.Error("wrapped connection reset must be lost")
 	}
 	for name, err := range map[string]error{
-		"nil":          nil,
-		"sql error":    &pqDriver.Error{Code: "42601", Message: "syntax error"},
-		"context":      context.Canceled,
-		"read timeout": &net.OpError{Op: "read", Net: "tcp", Err: os.ErrDeadlineExceeded},
+		"nil":                        nil,
+		"sql error":                  &pqDriver.Error{Code: "42601", Message: "syntax error"},
+		"context":                    context.Canceled,
+		"read timeout":               &net.OpError{Op: "read", Net: "tcp", Err: os.ErrDeadlineExceeded},
+		"op error wrapping cancel":   &net.OpError{Op: "read", Net: "tcp", Err: context.Canceled},
+		"op error wrapping deadline": &net.OpError{Op: "read", Net: "tcp", Err: context.DeadlineExceeded},
+		"wrapped op error cancel":    errors.Join(errors.New("scan"), &net.OpError{Op: "read", Net: "tcp", Err: context.Canceled}),
+		"cancel wrapping op error":   fmt.Errorf("query: %w", errors.Join(context.Canceled, reset)),
 	} {
 		if isConnectionLost(err) {
 			t.Errorf("%s must not be lost", name)

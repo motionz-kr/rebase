@@ -391,8 +391,12 @@ func (c *PostgreSQLConnector) OpenQuerySession(ctx context.Context, p domain.Con
 
 // isConnectionLost covers what lib/pq does not already report as driver.ErrBadConn:
 // a read-side socket error on an established connection (reset by peer) comes back
-// as a *net.OpError. Timeouts are not a lost connection.
+// as a *net.OpError. Timeouts and (wrapped) cancellation are not a lost connection.
 func isConnectionLost(err error) bool {
+	// Cancellation and deadlines are the caller giving up, not the socket dying.
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
 	var opErr *net.OpError
 	return errors.As(err, &opErr) && !opErr.Timeout()
 }
@@ -417,7 +421,7 @@ func (c *PostgreSQLConnector) ExecuteQuerySessionStream(
 		onSessionStart(lease.ServerID)
 	}
 	rowsAffected, err := adapters.ExecuteSessionQuery(ctx, lease.Queryer, query, onHeader, onRow)
-	lease.Complete(query, err)
+	err = lease.Complete(query, err)
 	return rowsAffected, c.normalizeError(err)
 }
 
