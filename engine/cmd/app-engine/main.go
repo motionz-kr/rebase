@@ -616,7 +616,7 @@ func runMCPServer(svc *application.ConnectionService, activity ports.MCPActivity
 	case "sqlite":
 		conn = sqlite.NewSQLiteConnector()
 	case "sqlserver":
-		conn = sqlserver.NewSQLServerConnector()
+		conn = sqlserver.NewSQLServerConnector(svc)
 	default:
 		log.Fatalf("mcp: unsupported driver %q (SQL drivers only)", profile.Driver)
 	}
@@ -695,7 +695,7 @@ func loadUnifiedMCPProfiles(ctx context.Context, svc *application.ConnectionServ
 		case "sqlite":
 			conn = sqlite.NewSQLiteConnector()
 		case "sqlserver":
-			conn = sqlserver.NewSQLServerConnector()
+			conn = sqlserver.NewSQLServerConnector(svc)
 		default:
 			continue
 		}

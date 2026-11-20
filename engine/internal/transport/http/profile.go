@@ -33,7 +33,7 @@ func NewProfileHandler(token string, service *application.ConnectionService) *Pr
 		postgresConnector:  postgres.NewPostgreSQLConnector(service),
 		redisConnector:     redis.NewRedisConnector(),
 		sqliteConnector:    sqlite.NewSQLiteConnector(),
-		sqlserverConnector: sqlserver.NewSQLServerConnector(),
+		sqlserverConnector: sqlserver.NewSQLServerConnector(service),
 		mongoConnector:     mongo.NewMongoConnector(),
 	}
 }

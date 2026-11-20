@@ -9,6 +9,7 @@ import (
 
 	"github.com/smlee/database-local-engine/engine/internal/adapters/mysql"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/postgres"
+	"github.com/smlee/database-local-engine/engine/internal/adapters/sqlserver"
 	"github.com/smlee/database-local-engine/engine/internal/domain"
 	"github.com/smlee/database-local-engine/engine/internal/ports"
 )
@@ -29,10 +30,15 @@ func (r *routeFailure) ResolveEndpoint(ctx context.Context, p domain.ConnectionP
 // Every operation that opens a DB connection must fail before contacting the
 // destination when tunnel resolution fails, including the separate query/session path.
 func TestTunnelRoutingContract(t *testing.T) {
-	for _, mode := range []string{"ssm", "ssh"} {
-		for _, driver := range []string{"mysql", "postgres"} {
+	driversByMode := map[string][]string{
+		"ssm":          {"mysql", "postgres"},
+		"ssh":          {"mysql", "postgres"},
+		"gcp_cloudsql": {"mysql", "postgres", "sqlserver"},
+	}
+	for mode, drivers := range driversByMode {
+		for _, driver := range drivers {
 			t.Run(mode+"/"+driver, func(t *testing.T) {
-				p := domain.ConnectionProfile{ID: "p", Driver: driver, Host: "127.0.0.1", Port: 1, Database: "app", ConnectionMode: mode, SSH: &domain.SSHConfig{Host: "bastion", Port: 22, Username: "ec2-user", IdentityFile: "/key.pem"}, SSM: &domain.SSMConfig{Region: "ap-northeast-2", InstanceID: "i-0123456789abcdef0"}}
+				p := domain.ConnectionProfile{ID: "p", Driver: driver, Host: "127.0.0.1", Port: 1, Database: "app", ConnectionMode: mode, SSH: &domain.SSHConfig{Host: "bastion", Port: 22, Username: "ec2-user", IdentityFile: "/key.pem"}, SSM: &domain.SSMConfig{Region: "ap-northeast-2", InstanceID: "i-0123456789abcdef0"}, GCPCloudSQL: &domain.GCPCloudSQLConfig{InstanceConnectionName: "my-project:asia-northeast3:db1"}, TLSMode: "none"}
 				operations := map[string]func(context.Context, ports.SQLConnector) error{
 					"connection test": func(ctx context.Context, c ports.SQLConnector) error { return c.TestConnection(ctx, p, "") },
 					"databases": func(ctx context.Context, c ports.SQLConnector) error {
@@ -96,10 +102,13 @@ func TestTunnelRoutingContract(t *testing.T) {
 						failure := errors.New("tunnel unavailable: do not dial DB")
 						resolver := &routeFailure{err: failure}
 						var c ports.SQLConnector
-						if driver == "mysql" {
+						switch driver {
+						case "mysql":
 							c = mysql.NewMySQLConnector(resolver)
-						} else {
+						case "postgres":
 							c = postgres.NewPostgreSQLConnector(resolver)
+						default:
+							c = sqlserver.NewSQLServerConnector(resolver)
 						}
 						if err := run(ctx, c); !errors.Is(err, failure) {
 							t.Fatalf("expected resolver failure; got %v", err)

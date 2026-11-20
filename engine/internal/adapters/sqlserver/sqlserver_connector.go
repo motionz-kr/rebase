@@ -19,10 +19,17 @@ import (
 
 // SQLServerConnector talks to Microsoft SQL Server (and T-SQL-compatible
 // servers such as Azure SQL Edge) via github.com/microsoft/go-mssqldb.
-type SQLServerConnector struct{ querySessions *sqlsession.Manager }
+type SQLServerConnector struct {
+	querySessions *sqlsession.Manager
+	endpoints     ports.ConnectionEndpointResolver
+}
 
-func NewSQLServerConnector() *SQLServerConnector {
-	return &SQLServerConnector{querySessions: sqlsession.NewManager(15 * time.Minute)}
+func NewSQLServerConnector(resolvers ...ports.ConnectionEndpointResolver) *SQLServerConnector {
+	c := &SQLServerConnector{querySessions: sqlsession.NewManager(15 * time.Minute)}
+	if len(resolvers) > 0 {
+		c.endpoints = resolvers[0]
+	}
+	return c
 }
 
 // dsn builds a sqlserver:// URL DSN. Passwords may contain reserved characters,
@@ -55,7 +62,16 @@ func (c *SQLServerConnector) dsn(p domain.ConnectionProfile, password, database 
 	return u.String()
 }
 
-func (c *SQLServerConnector) connect(p domain.ConnectionProfile, password, database string) (*sql.DB, error) {
+func (c *SQLServerConnector) connect(ctx context.Context, p domain.ConnectionProfile, password, database string) (*sql.DB, error) {
+	if c.endpoints != nil {
+		endpoint, err := c.endpoints.ResolveEndpoint(ctx, p)
+		if err != nil {
+			return nil, err
+		}
+		p.Host, p.Port = endpoint.Host, endpoint.Port
+	} else if p.ConnectionMode != "" && p.ConnectionMode != "direct" {
+		return nil, fmt.Errorf("connection endpoint resolver is unavailable")
+	}
 	db, err := sql.Open("sqlserver", c.dsn(p, password, database))
 	if err != nil {
 		return nil, c.normalizeError(err)
@@ -64,7 +80,7 @@ func (c *SQLServerConnector) connect(p domain.ConnectionProfile, password, datab
 }
 
 func (c *SQLServerConnector) TestConnection(ctx context.Context, p domain.ConnectionProfile, password string) error {
-	db, err := c.connect(p, password, p.Database)
+	db, err := c.connect(ctx, p, password, p.Database)
 	if err != nil {
 		return err
 	}
@@ -75,7 +91,7 @@ func (c *SQLServerConnector) TestConnection(ctx context.Context, p domain.Connec
 // ListDatabases returns user databases (database_id > 4 skips the system DBs
 // master/tempdb/model/msdb).
 func (c *SQLServerConnector) ListDatabases(ctx context.Context, p domain.ConnectionProfile, password string) ([]ports.DatabaseInfo, error) {
-	db, err := c.connect(p, password, p.Database)
+	db, err := c.connect(ctx, p, password, p.Database)
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +115,7 @@ func (c *SQLServerConnector) ListDatabases(ctx context.Context, p domain.Connect
 }
 
 func (c *SQLServerConnector) ListTables(ctx context.Context, p domain.ConnectionProfile, password string, database string) ([]ports.TableInfo, error) {
-	db, err := c.connect(p, password, database)
+	db, err := c.connect(ctx, p, password, database)
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +139,7 @@ func (c *SQLServerConnector) ListTables(ctx context.Context, p domain.Connection
 }
 
 func (c *SQLServerConnector) ListViews(ctx context.Context, p domain.ConnectionProfile, password string, database string) ([]ports.TableInfo, error) {
-	db, err := c.connect(p, password, database)
+	db, err := c.connect(ctx, p, password, database)
 	if err != nil {
 		return nil, err
 	}
@@ -149,7 +165,7 @@ func (c *SQLServerConnector) ListViews(ctx context.Context, p domain.ConnectionP
 // GetViewDDL returns the stored definition of a view from sys.sql_modules. The
 // view name is bound as a positional parameter (@p1) supported by go-mssqldb.
 func (c *SQLServerConnector) GetViewDDL(ctx context.Context, p domain.ConnectionProfile, password string, database string, view string) (string, error) {
-	db, err := c.connect(p, password, database)
+	db, err := c.connect(ctx, p, password, database)
 	if err != nil {
 		return "", err
 	}
@@ -170,7 +186,7 @@ func (c *SQLServerConnector) GetViewDDL(ctx context.Context, p domain.Connection
 // ordered by ordinal position. The table name is bound positionally; it is
 // referenced twice in the query so we pass it as @p1 and @p2.
 func (c *SQLServerConnector) DescribeTable(ctx context.Context, p domain.ConnectionProfile, password string, database string, table string) (ports.TableDescription, error) {
-	db, err := c.connect(p, password, database)
+	db, err := c.connect(ctx, p, password, database)
 	if err != nil {
 		return ports.TableDescription{}, err
 	}
@@ -213,7 +229,7 @@ func (c *SQLServerConnector) DescribeTable(ctx context.Context, p domain.Connect
 // ListColumns returns every base-table column in the database as flat
 // (table, column, type) refs for editor autocompletion.
 func (c *SQLServerConnector) ListColumns(ctx context.Context, p domain.ConnectionProfile, password string, database string) ([]ports.ColumnRef, error) {
-	db, err := c.connect(p, password, database)
+	db, err := c.connect(ctx, p, password, database)
 	if err != nil {
 		return nil, err
 	}
@@ -243,7 +259,7 @@ func (c *SQLServerConnector) ListColumns(ctx context.Context, p domain.Connectio
 
 // ListForeignKeys returns the foreign-key column bindings of a single table.
 func (c *SQLServerConnector) ListForeignKeys(ctx context.Context, p domain.ConnectionProfile, password string, database string, table string) ([]ports.ForeignKey, error) {
-	db, err := c.connect(p, password, database)
+	db, err := c.connect(ctx, p, password, database)
 	if err != nil {
 		return nil, err
 	}
@@ -278,7 +294,7 @@ func (c *SQLServerConnector) ListForeignKeys(ctx context.Context, p domain.Conne
 // ListIndexes returns the table's indexes (one entry per index, columns in
 // key order). Heap rows (i.type = 0) are excluded.
 func (c *SQLServerConnector) ListIndexes(ctx context.Context, p domain.ConnectionProfile, password string, database string, table string) ([]ports.Index, error) {
-	db, err := c.connect(p, password, database)
+	db, err := c.connect(ctx, p, password, database)
 	if err != nil {
 		return nil, err
 	}
@@ -318,7 +334,7 @@ func (c *SQLServerConnector) ListIndexes(ctx context.Context, p domain.Connectio
 // GetSchemaGraph returns every base table with its columns plus all FK edges in
 // the database, for the ER diagram.
 func (c *SQLServerConnector) GetSchemaGraph(ctx context.Context, p domain.ConnectionProfile, password string, database string) (ports.SchemaGraph, error) {
-	db, err := c.connect(p, password, database)
+	db, err := c.connect(ctx, p, password, database)
 	if err != nil {
 		return ports.SchemaGraph{}, err
 	}
@@ -399,7 +415,7 @@ func (c *SQLServerConnector) GetSchemaGraph(ctx context.Context, p domain.Connec
 // assembling full column types, identity flags and the PK column list, then
 // delegating string assembly to BuildCreateTableDDL.
 func (c *SQLServerConnector) GetTableDDL(ctx context.Context, p domain.ConnectionProfile, password string, database string, table string) (string, error) {
-	db, err := c.connect(p, password, database)
+	db, err := c.connect(ctx, p, password, database)
 	if err != nil {
 		return "", err
 	}
@@ -516,7 +532,7 @@ func (c *SQLServerConnector) ExecuteQueryStream(
 		return 0, adapters.ErrQuerySessionRequired
 	}
 
-	db, err := c.connect(p, password, p.Database)
+	db, err := c.connect(ctx, p, password, p.Database)
 	if err != nil {
 		return 0, err
 	}
@@ -592,7 +608,7 @@ func (c *SQLServerConnector) OpenQuerySession(ctx context.Context, p domain.Conn
 	if database == "" {
 		database = p.Database
 	}
-	db, err := c.connect(p, password, database)
+	db, err := c.connect(ctx, p, password, database)
 	if err != nil {
 		return "", err
 	}
@@ -657,7 +673,7 @@ func (c *SQLServerConnector) CloseQuerySession(ownerID, sessionID string) error 
 // returned by the server, not user input, so formatting it into the statement
 // is safe.
 func (c *SQLServerConnector) CancelSession(ctx context.Context, p domain.ConnectionProfile, password string, sessionID int64) error {
-	db, err := c.connect(p, password, p.Database)
+	db, err := c.connect(ctx, p, password, p.Database)
 	if err != nil {
 		return err
 	}
@@ -671,7 +687,7 @@ func (c *SQLServerConnector) CancelSession(ctx context.Context, p domain.Connect
 // failure it rolls back and returns the 0-based index of the failed statement;
 // on success it commits and returns the total rows affected with failedIndex -1.
 func (c *SQLServerConnector) ExecuteBatch(ctx context.Context, p domain.ConnectionProfile, password string, statements []string) (int64, int, error) {
-	db, err := c.connect(p, password, p.Database)
+	db, err := c.connect(ctx, p, password, p.Database)
 	if err != nil {
 		return 0, -1, err
 	}
