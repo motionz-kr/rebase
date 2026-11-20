@@ -342,7 +342,8 @@ fails at once with the same message without touching the dead connection.
   is unknown, since the server may have committed before the connection
   dropped. Boundaries are SQL `COMMIT`/`END`/`COMMIT AND CHAIN`, the toolbar
   Commit and, for MySQL, the implicit commits the session already tracks (DDL,
-  `LOCK TABLES`, `START TRANSACTION`, `SET autocommit=1`). The state is `lost`
+  `LOCK TABLES`, `START TRANSACTION` and any `SET` that mentions `autocommit`
+  in any form, e.g. lists, `@@session.autocommit`, any value). The state is `lost`
   (not `lost_transaction`), the message says to verify the data on a new
   connection, and nothing is retried. Any error that ends a boundary statement
   counts, including a user cancellation (the driver closes the socket on

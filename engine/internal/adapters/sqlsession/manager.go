@@ -321,10 +321,7 @@ func (s *session) isCommitBoundary(query string) bool {
 	if s.dialect != "mysql" {
 		return false
 	}
-	if value, ok := mysqlAutoCommit(query); ok {
-		return value
-	}
-	return action == "begin" || mysqlImplicitCommit(query)
+	return action == "begin" || mysqlMayChangeAutoCommit(query) || mysqlImplicitCommit(query)
 }
 
 // completeStatement records the outcome of a statement. hadTx tells whether a

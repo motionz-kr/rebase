@@ -9,6 +9,18 @@ import (
 
 var autoCommitSetting = regexp.MustCompile(`(?i)^SET\s+(?:(?:SESSION|LOCAL)\s+|@@(?:SESSION\.|LOCAL\.)?)?AUTOCOMMIT\s*(?::=|=)\s*(0|1|ON|OFF)\s*;?$`)
 
+// mentionsAutoCommit matches any SET statement naming autocommit, whatever its
+// spelling (lists, @@autocommit, SESSION/LOCAL, any value or expression).
+var mentionsAutoCommit = regexp.MustCompile(`(?is)^SET\b.*\bAUTOCOMMIT\b`)
+
+// mysqlMayChangeAutoCommit is deliberately broader than mysqlAutoCommit, which
+// tracks session state only for the simple single-assignment form. Turning
+// autocommit on commits pending work, so for loss classification any SET that
+// mentions it counts as a possible commit boundary.
+func mysqlMayChangeAutoCommit(query string) bool {
+	return mentionsAutoCommit.MatchString(domain.StatementText(query))
+}
+
 func mysqlAutoCommit(query string) (bool, bool) {
 	match := autoCommitSetting.FindStringSubmatch(domain.StatementText(query))
 	if match == nil {

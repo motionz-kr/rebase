@@ -496,14 +496,18 @@ func TestImplicitCommitBoundariesWithLostReplyHaveAnUnknownOutcome(t *testing.T)
 	}
 }
 
-func TestAutocommitOffAndPostgresDDLAreNotCommitBoundaries(t *testing.T) {
-	// SET autocommit=0 commits nothing; PostgreSQL DDL is transactional.
+func TestOrdinaryStatementsAndPostgresDDLAreNotCommitBoundaries(t *testing.T) {
+	// A SET without autocommit commits nothing; PostgreSQL DDL is transactional.
 	for name, tc := range map[string]struct {
 		opts      Options
 		statement string
 	}{
-		"mysql autocommit off": {mysqlOptions(), "SET autocommit=0"},
-		"postgres ddl":         {Options{BeginSQL: "BEGIN", Dialect: "postgres", IsConnectionLost: isDropped}, "CREATE TABLE x (a int)"},
+		"mysql SET without autocommit":   {mysqlOptions(), "SET @probe=1, time_zone='+09:00'"},
+		"mysql SET NAMES":                {mysqlOptions(), "SET NAMES utf8mb4"},
+		"mysql SELECT mentioning it":     {mysqlOptions(), "SELECT @@autocommit"},
+		"mysql UPDATE of a column named": {mysqlOptions(), "UPDATE t SET autocommit = 1"},
+		"postgres SET autocommit":        {Options{BeginSQL: "BEGIN", Dialect: "postgres", IsConnectionLost: isDropped}, "SET autocommit = on"},
+		"postgres ddl":                   {Options{BeginSQL: "BEGIN", Dialect: "postgres", IsConnectionLost: isDropped}, "CREATE TABLE x (a int)"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			manager, server, id := openFakeSession(t, tc.opts)
@@ -518,6 +522,56 @@ func TestAutocommitOffAndPostgresDDLAreNotCommitBoundaries(t *testing.T) {
 				t.Fatalf("state = %q", got)
 			}
 		})
+	}
+}
+
+// Any MySQL SET that mentions autocommit may commit pending writes (the setting
+// flips to 1), whatever its spelling, so losing its reply is a commit-unknown loss.
+func TestEveryAutocommitSETFormIsAPossibleCommitBoundary(t *testing.T) {
+	for _, statement := range []string{
+		"SET autocommit=1, @probe=1",
+		"SET @probe=1, autocommit=1",
+		"SET @@autocommit=1",
+		"SET @@session.autocommit = 1",
+		"SET @@local.autocommit=ON",
+		"SET SESSION autocommit=1",
+		"SET LOCAL autocommit = TRUE",
+		"set session AUTOCOMMIT = on , sql_mode = ''",
+		"SET autocommit := 1;",
+		"SET /* keep */ autocommit=1",
+		"-- note\nSET autocommit=1",
+		"SET autocommit=0",
+		"SET autocommit = @flag",
+		"SET\tautocommit\n=\n1",
+	} {
+		for _, how := range []string{"dropped", "cancelled"} {
+			t.Run(statement+"/"+how, func(t *testing.T) {
+				manager, server, id := openFakeSession(t, mysqlOptions())
+				if err := completeStatement(manager, id, "INSERT INTO t VALUES (1)"); err != nil {
+					t.Fatal(err)
+				}
+				server.set(func(f *fakeServer) {
+					if how == "dropped" {
+						f.applyThenDrop = statement
+					} else {
+						f.applyThenCancel = statement
+					}
+				})
+				err := completeStatement(manager, id, statement)
+				if how == "cancelled" {
+					if !errors.Is(err, context.Canceled) {
+						t.Fatalf("cancelled = %v", err)
+					}
+					err = completeStatement(manager, id, "SELECT 1")
+				}
+				if !errors.Is(err, ErrCommitOutcomeUnknown) {
+					t.Fatalf("%q = %v, want ErrCommitOutcomeUnknown", statement, err)
+				}
+				if got := mustState(t, manager, id); got != StateLost {
+					t.Fatalf("state = %q, want %q", got, StateLost)
+				}
+			})
+		}
 	}
 }
 
