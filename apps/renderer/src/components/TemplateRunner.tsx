@@ -4,6 +4,7 @@ import type { Driver } from '../lib/ddlBuilder';
 import { renderTemplate } from '../lib/templateRender';
 import { buildSummary, formatSummary, type SummaryFormat } from '../lib/templateSummary';
 import { toCsv } from '../lib/gridExport';
+import { download } from '../lib/gridFormat';
 import { ResultGrid } from './ResultGrid';
 import { ResultNarrator } from './ResultNarrator';
 
@@ -81,12 +82,7 @@ export function TemplateRunner({ template, profileId, driver, tables, columns, r
 
   function downloadCsv() {
     if (!result) return;
-    const blob = new Blob([toCsv(result.columns, result.rows)], { type: 'text/csv' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `${template.id}.csv`;
-    a.click();
-    URL.revokeObjectURL(a.href);
+    download(`${template.id}.csv`, toCsv(result.columns, result.rows), 'text/csv');
   }
 
   return (

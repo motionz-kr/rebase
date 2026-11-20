@@ -13,9 +13,18 @@ export function tsTimestamp(d: Date = new Date()): string {
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 }
 
-// Trigger a browser download of `text` as `filename`.
+export const UTF8_BOM = '\uFEFF';
+
+// Excel opens a BOM-less UTF-8 CSV as the system code page (Korean text turns into
+// mojibake). The BOM is added at save time only; toCsv() output stays pure.
+export function withExportBom(text: string, mime: string): string {
+  if (!/^text\/csv\b/i.test(mime) || text.startsWith(UTF8_BOM)) return text;
+  return UTF8_BOM + text;
+}
+
+// Trigger a browser download of `text` as `filename`. CSV gets a UTF-8 BOM here.
 export function download(filename: string, text: string, mime: string): void {
-  const blob = new Blob([text], { type: mime });
+  const blob = new Blob([withExportBom(text, mime)], { type: mime });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
