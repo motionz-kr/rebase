@@ -20,6 +20,12 @@ type fakeServer struct {
 	// applyThenDrop: this statement is applied on the "server" but its reply is
 	// lost, after which the connection is down (a COMMIT whose OK never arrives).
 	applyThenDrop string
+	// applyThenCancel: this statement is applied, then the caller's context is
+	// cancelled before the reply arrives. Like go-sql-driver/mysql, the connection
+	// is closed by the cancellation (later statements get driver.ErrBadConn) unless
+	// cancelKeepsConn is set.
+	applyThenCancel string
+	cancelKeepsConn bool
 }
 
 func (f *fakeServer) kill(err error) {
@@ -41,6 +47,12 @@ func (f *fakeServer) run(query string) error {
 		return f.down
 	}
 	f.log = append(f.log, query)
+	if f.applyThenCancel != "" && query == f.applyThenCancel {
+		if !f.cancelKeepsConn {
+			f.down = driver.ErrBadConn
+		}
+		return context.Canceled
+	}
 	if f.applyThenDrop != "" && query == f.applyThenDrop {
 		f.down = errDriverDropped
 		return errDriverDropped
@@ -388,5 +400,165 @@ func TestCleanupOfAHealthySessionStillRollsBack(t *testing.T) {
 	stmts := server.statements()
 	if len(stmts) == 0 || stmts[len(stmts)-1] != "ROLLBACK" {
 		t.Fatalf("Close must roll back an open transaction, statements: %v", stmts)
+	}
+}
+
+func (f *fakeServer) set(fn func(*fakeServer)) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	fn(f)
+}
+
+func mysqlOptions() Options {
+	return Options{BeginSQL: "START TRANSACTION", Dialect: "mysql", IsConnectionLost: isDropped}
+}
+
+func TestCommitCancelledBeforeItsReplyHasAnUnknownOutcome(t *testing.T) {
+	for name, commit := range map[string]func(*Manager, string) error{
+		"SQL COMMIT":     func(m *Manager, id string) error { return completeStatement(m, id, "COMMIT") },
+		"toolbar commit": func(m *Manager, id string) error { return m.Commit(context.Background(), "owner", id) },
+	} {
+		for _, discover := range []string{"next statement", "toolbar rollback"} {
+			t.Run(name+"/"+discover, func(t *testing.T) {
+				manager, server, id := openFakeSession(t, mysqlOptions())
+				if err := completeStatement(manager, id, "UPDATE t SET a = 1"); err != nil {
+					t.Fatal(err)
+				}
+				server.set(func(f *fakeServer) { f.applyThenCancel = "COMMIT" })
+
+				if err := commit(manager, id); !errors.Is(err, context.Canceled) {
+					t.Fatalf("cancelled commit = %v, want context.Canceled (not a loss yet)", err)
+				}
+				if got := mustState(t, manager, id); got != StateFailed {
+					t.Fatalf("state right after the cancel = %q, want %q", got, StateFailed)
+				}
+				var err error
+				if discover == "next statement" {
+					err = completeStatement(manager, id, "SELECT 1")
+				} else {
+					err = manager.Rollback(context.Background(), "owner", id)
+				}
+				if !errors.Is(err, ErrCommitOutcomeUnknown) {
+					t.Fatalf("discovering the closed connection = %v, want ErrCommitOutcomeUnknown", err)
+				}
+				if got := mustState(t, manager, id); got != StateLost {
+					t.Fatalf("state = %q, want %q: the COMMIT is in the server log %v, so rollback must not be offered", got, StateLost, server.statements())
+				}
+				if err := manager.Rollback(context.Background(), "owner", id); err != nil {
+					t.Fatalf("rollback after loss = %v", err)
+				}
+				if got := mustState(t, manager, id); got != StateLost {
+					t.Fatalf("state after rollback = %q", got)
+				}
+			})
+		}
+	}
+}
+
+func TestImplicitCommitBoundariesWithLostReplyHaveAnUnknownOutcome(t *testing.T) {
+	for _, statement := range []string{
+		"SET autocommit=1",
+		"SET SESSION AUTOCOMMIT = ON",
+		"CREATE TABLE x (a int)",
+		"ALTER TABLE t ADD COLUMN b int",
+		"TRUNCATE TABLE t",
+		"START TRANSACTION",
+		"LOCK TABLES t WRITE",
+	} {
+		for _, how := range []string{"dropped", "cancelled"} {
+			t.Run(statement+"/"+how, func(t *testing.T) {
+				manager, server, id := openFakeSession(t, mysqlOptions())
+				if err := completeStatement(manager, id, "INSERT INTO t VALUES (1)"); err != nil {
+					t.Fatal(err)
+				}
+				server.set(func(f *fakeServer) {
+					if how == "dropped" {
+						f.applyThenDrop = statement
+					} else {
+						f.applyThenCancel = statement
+					}
+				})
+				err := completeStatement(manager, id, statement)
+				if how == "cancelled" {
+					if !errors.Is(err, context.Canceled) {
+						t.Fatalf("cancelled = %v", err)
+					}
+					err = completeStatement(manager, id, "SELECT 1")
+				}
+				if !errors.Is(err, ErrCommitOutcomeUnknown) {
+					t.Fatalf("%s = %v, want ErrCommitOutcomeUnknown", statement, err)
+				}
+				if got := mustState(t, manager, id); got != StateLost {
+					t.Fatalf("state = %q, want %q", got, StateLost)
+				}
+			})
+		}
+	}
+}
+
+func TestAutocommitOffAndPostgresDDLAreNotCommitBoundaries(t *testing.T) {
+	// SET autocommit=0 commits nothing; PostgreSQL DDL is transactional.
+	for name, tc := range map[string]struct {
+		opts      Options
+		statement string
+	}{
+		"mysql autocommit off": {mysqlOptions(), "SET autocommit=0"},
+		"postgres ddl":         {Options{BeginSQL: "BEGIN", Dialect: "postgres", IsConnectionLost: isDropped}, "CREATE TABLE x (a int)"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			manager, server, id := openFakeSession(t, tc.opts)
+			if err := completeStatement(manager, id, "INSERT INTO t VALUES (1)"); err != nil {
+				t.Fatal(err)
+			}
+			server.set(func(f *fakeServer) { f.applyThenDrop = tc.statement })
+			if err := completeStatement(manager, id, tc.statement); !errors.Is(err, ErrConnectionLostInTransaction) {
+				t.Fatalf("%s = %v, want ErrConnectionLostInTransaction", tc.statement, err)
+			}
+			if got := mustState(t, manager, id); got != StateLostTransaction {
+				t.Fatalf("state = %q", got)
+			}
+		})
+	}
+}
+
+func TestOrdinaryQueryCancellationStaysDistinctFromCommitUncertainty(t *testing.T) {
+	manager, server, id := openFakeSession(t, mysqlOptions())
+	if err := completeStatement(manager, id, "UPDATE t SET a = 1"); err != nil {
+		t.Fatal(err)
+	}
+	server.set(func(f *fakeServer) { f.applyThenCancel = "SELECT slow" })
+	if err := completeStatement(manager, id, "SELECT slow"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled select = %v", err)
+	}
+	if got := mustState(t, manager, id); got != StateFailed {
+		t.Fatalf("state after a cancelled SELECT = %q, want %q", got, StateFailed)
+	}
+	// The closed connection is found later: the transaction really was aborted.
+	if err := completeStatement(manager, id, "SELECT 1"); !errors.Is(err, ErrConnectionLostInTransaction) {
+		t.Fatalf("later statement = %v, want ErrConnectionLostInTransaction", err)
+	}
+	if got := mustState(t, manager, id); got != StateLostTransaction {
+		t.Fatalf("state = %q, want %q", got, StateLostTransaction)
+	}
+}
+
+func TestCommitUncertaintyEndsWithTheNextSuccessfulStatement(t *testing.T) {
+	// A cancelled COMMIT on a connection that survives: once a statement succeeds
+	// again, a later, unrelated loss is an ordinary lost transaction.
+	manager, server, id := openFakeSession(t, mysqlOptions())
+	if err := completeStatement(manager, id, "UPDATE t SET a = 1"); err != nil {
+		t.Fatal(err)
+	}
+	server.set(func(f *fakeServer) { f.applyThenCancel = "COMMIT"; f.cancelKeepsConn = true })
+	if err := completeStatement(manager, id, "COMMIT"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled commit = %v", err)
+	}
+	server.set(func(f *fakeServer) { f.applyThenCancel = "" })
+	if err := completeStatement(manager, id, "UPDATE t SET a = 2"); err != nil {
+		t.Fatal(err)
+	}
+	server.kill(errDriverDropped)
+	if err := completeStatement(manager, id, "UPDATE t SET a = 3"); !errors.Is(err, ErrConnectionLostInTransaction) {
+		t.Fatalf("later loss = %v, want ErrConnectionLostInTransaction", err)
 	}
 }

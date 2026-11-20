@@ -30,6 +30,9 @@ type fakeMySQLServer struct {
 	// onQuery runs for every COM_QUERY other than the session bootstrap
 	// (SELECT CONNECTION_ID()); returning true closes the socket without replying.
 	onQuery func(query string) (dropWithoutReply bool)
+	// resetMidRequest: a command packet larger than 1 MiB is read only partially,
+	// then the socket is reset (a tunnel dropping while a big statement is sent).
+	resetMidRequest bool
 }
 
 func newFakeMySQLServer(t *testing.T) *fakeMySQLServer {
@@ -112,8 +115,20 @@ func (s *fakeMySQLServer) serve(conn net.Conn) {
 		return
 	}
 	for {
-		_, payload, err := readPacket(reader)
-		if err != nil || len(payload) == 0 {
+		header := make([]byte, 4)
+		if _, err := io.ReadFull(reader, header); err != nil {
+			return
+		}
+		size := int(header[0]) | int(header[1])<<8 | int(header[2])<<16
+		if s.resetMidRequest && size > 1<<20 {
+			_, _ = io.CopyN(io.Discard, reader, 64<<10)
+			if tcp, ok := conn.(*net.TCPConn); ok {
+				_ = tcp.SetLinger(0) // close sends RST
+			}
+			return
+		}
+		payload := make([]byte, size)
+		if _, err := io.ReadFull(reader, payload); err != nil || len(payload) == 0 {
 			return
 		}
 		switch payload[0] {
@@ -312,5 +327,113 @@ func TestCommitLostOnTheWireHasAnUnknownOutcome(t *testing.T) {
 				t.Fatalf("state = %q, %v; want lost", state, err)
 			}
 		})
+	}
+}
+
+const bigStatement = 8 << 20
+
+func bigQuery() string { return "SELECT '" + strings.Repeat("x", bigStatement) + "'" }
+
+// A tunnel that drops while a large statement is being sent: the driver closes the
+// connection but, for a partially written packet, returns the raw socket error
+// instead of ErrInvalidConn.
+func TestRealDriverSocketErrorDuringRequestTransmissionIsLost(t *testing.T) {
+	server := newFakeMySQLServer(t)
+	server.resetMidRequest = true
+	db, err := sql.Open("mysql", "root@tcp(127.0.0.1:"+strconv.Itoa(server.port())+")/app?timeout=2s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	conn, err := db.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	_, first := conn.ExecContext(context.Background(), bigQuery())
+	if first == nil {
+		t.Fatal("a statement cut off mid-transmission must fail")
+	}
+	t.Logf("driver error during transmission: %T %v", first, first)
+	if errors.Is(first, mysqlDriver.ErrInvalidConn) {
+		t.Skip("driver reported ErrInvalidConn; the raw-socket-error path was not exercised on this platform")
+	}
+	if !isConnectionLost(first) {
+		t.Fatalf("%T %v is not classified as a lost connection", first, first)
+	}
+}
+
+func TestSessionDroppedDuringRequestTransmissionIsLost(t *testing.T) {
+	server := newFakeMySQLServer(t)
+	server.resetMidRequest = true
+	connector := NewMySQLConnector()
+	t.Cleanup(connector.querySessions.Shutdown)
+	ctx := context.Background()
+	id, err := connector.OpenQuerySession(ctx, server.profile(), "", "owner", "app", false, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = connector.ExecuteQuerySessionStream(ctx, server.profile(), "", "owner", "app", id, bigQuery(), false, nil,
+		func([]string) error { return nil }, func([]any) error { return nil })
+	if !errors.Is(err, sqlsession.ErrConnectionLost) {
+		t.Fatalf("run = %v, want ErrConnectionLost", err)
+	}
+	if state, err := connector.QuerySessionState("owner", id); err != nil || state != sqlsession.StateLost {
+		t.Fatalf("state = %q, %v; want lost", state, err)
+	}
+}
+
+// The user cancels while the server holds back the reply to COMMIT: the driver
+// closes the socket and returns the context error. The commit may be durable, so
+// when the closed connection is found the session is "lost" with the commit-unknown
+// message, never "lost_transaction" (which would offer a rollback notice).
+func TestCancelledCommitIsNotReportedAsACancelledTransaction(t *testing.T) {
+	server := newFakeMySQLServer(t)
+	arrived := make(chan struct{}, 1)
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	server.onQuery = func(query string) bool {
+		if query == "COMMIT" {
+			arrived <- struct{}{}
+			<-release // the reply is withheld until the test ends
+		}
+		return false
+	}
+	connector := NewMySQLConnector()
+	t.Cleanup(connector.querySessions.Shutdown)
+	profile := server.profile()
+	id, err := connector.OpenQuerySession(context.Background(), profile, "", "owner", "app", false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := func(ctx context.Context, query string) error {
+		_, err := connector.ExecuteQuerySessionStream(ctx, profile, "", "owner", "app", id, query, false, nil,
+			func([]string) error { return nil }, func([]any) error { return nil })
+		return err
+	}
+	if err := run(context.Background(), "UPDATE t SET a = 1"); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan error, 1)
+	go func() { result <- run(ctx, "COMMIT") }()
+	select {
+	case <-arrived:
+	case <-time.After(5 * time.Second):
+		t.Fatal("COMMIT never reached the server")
+	}
+	cancel()
+	if err := <-result; !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled commit = %v, want context.Canceled", err)
+	}
+	if state, _ := connector.QuerySessionState("owner", id); state != sqlsession.StateFailed {
+		t.Fatalf("state right after the cancel = %q, want failed", state)
+	}
+	if err := run(context.Background(), "SELECT 1"); !errors.Is(err, sqlsession.ErrCommitOutcomeUnknown) {
+		t.Fatalf("next run = %v, want ErrCommitOutcomeUnknown", err)
+	}
+	if state, _ := connector.QuerySessionState("owner", id); state != sqlsession.StateLost {
+		t.Fatalf("state = %q, want lost", state)
 	}
 }

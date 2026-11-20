@@ -73,8 +73,12 @@ type session struct {
 	sqlAutoCommitOff       bool
 	active, failed, closed bool
 	// lost: the connection dropped; lostInTx: a transaction was open at that moment.
-	lost, lostInTx    bool
-	lostInCommit      bool
+	lost, lostInTx bool
+	lostInCommit   bool
+	// commitUncertain: a commit boundary ended with an error that did not prove
+	// the connection lost (e.g. cancelled: the driver then closes the socket). The
+	// server may have committed, so a loss found later is a commit-unknown loss.
+	commitUncertain   bool
 	isConnectionLost  func(error) bool
 	beginSQL, dialect string
 	serverID          int64
@@ -237,6 +241,7 @@ func (m *Manager) Acquire(ctx context.Context, ownerID, database, id string, rea
 		s.mu.Unlock()
 		return nil, err
 	}
+	hadTx := s.active
 	command := domain.ParseTransactionCommand(query)
 	if !s.autoCommit && !s.active && (command.Action == "" || command.Action == "savepoint") && !domain.IsSessionStatement(query) {
 		if _, err := s.conn.ExecContext(ctx, s.beginSQL); err != nil {
@@ -249,7 +254,8 @@ func (m *Manager) Acquire(ctx context.Context, ownerID, database, id string, rea
 		s.active = true
 	}
 	s.lastUsed = time.Now()
-	return &Lease{Queryer: s.conn, ServerID: s.serverID, complete: s.complete,
+	complete := func(q string, err error) error { return s.completeStatement(q, err, hadTx) }
+	return &Lease{Queryer: s.conn, ServerID: s.serverID, complete: complete,
 		release: func() { s.lastUsed = time.Now(); s.mu.Unlock() }}, nil
 }
 
@@ -294,26 +300,55 @@ func (s *session) markLostIfDropped(err error, commit bool) bool {
 	}
 	s.lost = true
 	// A COMMIT that lost its connection may be durable: not a transaction to roll back.
-	s.lostInCommit = commit
-	s.lostInTx = s.active && !commit
+	unknown := commit || s.commitUncertain
+	s.lostInCommit = unknown
+	s.lostInTx = s.active && !unknown
 	s.closed = true
 	return true
 }
 
 func (s *session) complete(query string, err error) error {
+	return s.completeStatement(query, err, s.active)
+}
+
+// isCommitBoundary reports statements that commit pending work: COMMIT/END and,
+// for MySQL, the implicit commits the session state already tracks.
+func (s *session) isCommitBoundary(query string) bool {
+	action := domain.ParseTransactionCommand(query).Action
+	if action == "commit" {
+		return true
+	}
+	if s.dialect != "mysql" {
+		return false
+	}
+	if value, ok := mysqlAutoCommit(query); ok {
+		return value
+	}
+	return action == "begin" || mysqlImplicitCommit(query)
+}
+
+// completeStatement records the outcome of a statement. hadTx tells whether a
+// transaction (possibly with pending writes) was open before it started.
+func (s *session) completeStatement(query string, err error, hadTx bool) error {
 	reported := err
 	if errors.Is(err, domain.ErrRowLimitReached) {
 		err = nil
 	}
 	if err != nil {
+		boundary := hadTx && s.isCommitBoundary(query)
 		if s.active {
 			s.failed = true
 		}
-		if s.markLostIfDropped(err, domain.ParseTransactionCommand(query).Action == "commit") {
+		if s.markLostIfDropped(err, boundary) {
 			return s.lostError()
+		}
+		if boundary {
+			// Any error, even a cancellation: the commit may already be durable.
+			s.commitUncertain = true
 		}
 		return reported
 	}
+	s.commitUncertain = false
 	command := domain.ParseTransactionCommand(query)
 	switch command.Action {
 	case "begin":

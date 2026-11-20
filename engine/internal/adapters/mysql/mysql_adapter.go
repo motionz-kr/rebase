@@ -341,9 +341,11 @@ func (c *MySQLConnector) OpenQuerySession(ctx context.Context, p domain.Connecti
 // go-sql-driver/mysql returns ErrInvalidConn for the statement that discovers a
 // closed tunnel, proxy restart or server-side KILL (it read EOF/reset from the
 // socket) and closes the connection; later statements get driver.ErrBadConn,
-// which sqlsession already treats as lost.
+// which sqlsession already treats as lost. A partial packet write that fails
+// (tunnel dropped while a large statement is being sent) closes the connection
+// but returns the raw socket error, so terminal socket errors count too.
 func isConnectionLost(err error) bool {
-	return errors.Is(err, mysqlDriver.ErrInvalidConn)
+	return errors.Is(err, mysqlDriver.ErrInvalidConn) || adapters.IsTerminalNetworkError(err)
 }
 
 func (c *MySQLConnector) ExecuteQuerySessionStream(
