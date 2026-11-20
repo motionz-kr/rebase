@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.40.0](https://github.com/motionz-kr/rebase/compare/v0.39.2...v0.40.0) (2026-11-20)
+
+
+### Features
+
+* **cloudsql:** build cloud-sql-proxy command and map startup errors ([#231](https://github.com/motionz-kr/rebase/issues/231)) ([0dbb199](https://github.com/motionz-kr/rebase/commit/0dbb199be55a6b4ab466d31501087cc15df87441))
+* **cloudsql:** Disconnect closes the profile's tunnel/proxy ([#231](https://github.com/motionz-kr/rebase/issues/231)) ([41b6ca4](https://github.com/motionz-kr/rebase/commit/41b6ca467bd2c186e50860a6c61ae53462b4c154))
+* **cloudsql:** manage cloud-sql-proxy lifecycle for connections ([#231](https://github.com/motionz-kr/rebase/issues/231)) ([3ed0b18](https://github.com/motionz-kr/rebase/commit/3ed0b184c974fc1a8857de5414113782114bb971))
+* **domain:** validate GCP Cloud SQL connection route ([#231](https://github.com/motionz-kr/rebase/issues/231)) ([e9809a6](https://github.com/motionz-kr/rebase/commit/e9809a6121f992153225eb663a7dc4df30cadb2d))
+* **engine:** connect GCP Cloud SQL through managed cloud-sql-proxy ([c0b6b26](https://github.com/motionz-kr/rebase/commit/c0b6b26c8c799aca32aa88ae691788746269a0e5))
+* **renderer:** GCP Cloud SQL connection route form ([#231](https://github.com/motionz-kr/rebase/issues/231)) ([7236cfa](https://github.com/motionz-kr/rebase/commit/7236cfa23f7534fda4dfab63fb41fb4edafacae4))
+* **sqlite:** persist GCP Cloud SQL connection route ([#231](https://github.com/motionz-kr/rebase/issues/231)) ([0bf053b](https://github.com/motionz-kr/rebase/commit/0bf053bd00ef41a51627b5e15c54e450758172f5))
+* **sqlserver:** route connections through tunnel endpoints ([#231](https://github.com/motionz-kr/rebase/issues/231)) ([8b1c3d2](https://github.com/motionz-kr/rebase/commit/8b1c3d2a31482db6e6636da8630c1464b1722230))
+
+
+### Bug Fixes
+
+* **cloudsql:** connection test uses ephemeral owner only when route differs ([#231](https://github.com/motionz-kr/rebase/issues/231)) ([8b86857](https://github.com/motionz-kr/rebase/commit/8b86857c7598d4b2ed5b1cf677b16a0f25a2b9c9))
+* **cloudsql:** own concurrent shutdown drains, keep readiness, curate cancel error ([#231](https://github.com/motionz-kr/rebase/issues/231)) ([c002eab](https://github.com/motionz-kr/rebase/commit/c002eab5f8dd5c4699be44157cd590f22e0753be))
+* **cloudsql:** tighten key-file error mapping and proxy search order ([#231](https://github.com/motionz-kr/rebase/issues/231)) ([1a41bf2](https://github.com/motionz-kr/rebase/commit/1a41bf2f7098374cc91cef1baa04384f62f02a12))
+* **engine:** any MySQL SET mentioning autocommit may commit pending work ([#234](https://github.com/motionz-kr/rebase/issues/234)) ([bebd995](https://github.com/motionz-kr/rebase/commit/bebd995b01465eabe487e9598b1e365212ecca00))
+* **engine:** match autocommit SET boundaries without quote-aware parsing ([#234](https://github.com/motionz-kr/rebase/issues/234)) ([3bd468c](https://github.com/motionz-kr/rebase/commit/3bd468cabb2020d94ccc30cfca2323625106e245))
+* **engine:** report lost query sessions instead of reusing dead connections ([#234](https://github.com/motionz-kr/rebase/issues/234)) ([3b62c8a](https://github.com/motionz-kr/rebase/commit/3b62c8a3a692184cd2ca07d18c34f27e40f2edcf))
+* **engine:** treat cancelled and implicit commits as unknown outcomes, classify socket errors ([#234](https://github.com/motionz-kr/rebase/issues/234)) ([7e181f1](https://github.com/motionz-kr/rebase/commit/7e181f13bcbacb59097b33bd8e199d645878b700))
+* **engine:** unknown COMMIT outcome, no SQL on lost cleanup, state on failed controls ([#234](https://github.com/motionz-kr/rebase/issues/234)) ([06526f4](https://github.com/motionz-kr/rebase/commit/06526f41328e7ee9e4c5ca3c3dc4adfc0f3af24f))
+* **http:** test connection of a changed route never uses the saved profile's owner ([#231](https://github.com/motionz-kr/rebase/issues/231)) ([0e6ef1f](https://github.com/motionz-kr/rebase/commit/0e6ef1f150de4cafa38f1b5d617466873f457d97))
+* **query:** recover query tabs after their DB connection drops ([07c0dbd](https://github.com/motionz-kr/rebase/commit/07c0dbdeb6f61801c8ab1701669a3d0dc44af813))
+* **renderer:** a discarded session also ends a paused script; docs for commit-unknown ([#234](https://github.com/motionz-kr/rebase/issues/234)) ([038bca2](https://github.com/motionz-kr/rebase/commit/038bca2aba72511ff2d8557b4ba0c75dd50afb6d))
+* **renderer:** clear stale GCP config on route change and block TLS require for Cloud SQL ([#231](https://github.com/motionz-kr/rebase/issues/231)) ([f735b10](https://github.com/motionz-kr/rebase/commit/f735b10b5b6f0ac90b210d63101c7a4fb14f543d))
+* **renderer:** discard lost query sessions so the next run reconnects ([#234](https://github.com/motionz-kr/rebase/issues/234)) ([3042ec9](https://github.com/motionz-kr/rebase/commit/3042ec9b544ca36759c3d5fa7ffefcb6d5a275e9))
+* **renderer:** stop scripts on a lost session and keep the rollback notice ([#234](https://github.com/motionz-kr/rebase/issues/234)) ([3b9a08a](https://github.com/motionz-kr/rebase/commit/3b9a08aec375f559844f31a67378f23eedf8370d))
+* **tunnel:** close a profile's tunnels held by other routes on resolve ([#231](https://github.com/motionz-kr/rebase/issues/231)) ([531db04](https://github.com/motionz-kr/rebase/commit/531db047bb6d1bedbe79705d352619329532e65c))
+
 ## [0.39.2](https://github.com/motionz-kr/rebase/compare/v0.39.1...v0.39.2) (2026-11-19)
 
 
