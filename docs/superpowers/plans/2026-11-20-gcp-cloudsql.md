@@ -273,7 +273,22 @@ Executed with Go 1.25.7 from `/tmp/gotc` (no system Go). Facts from the per-task
 - `e2e/ssm.spec.ts` MySQL tests fail ("invalid connection" on SELECT 75 after closing a broken manual session). The
   same failure reproduces with an engine built from base `fe24728`, so it is pre-existing and not fixed on this branch.
 - E2E Keychain cleanup: spec removes the secrets it creates; `security dump-keychain` count 65 before and after, no new entries.
-- **Not done:** live verification against a real GCP Cloud SQL instance (real cloud-sql-proxy + GCP credentials).
-  The E2E uses a fake proxy; the readiness/error handling follows the behaviour measured with cloud-sql-proxy v2.19.0.
+- Real proxy readiness check: cloud-sql-proxy v2.19.0 `--gcloud-auth --run-connection-test` against
+  `mso-platform-481505:asia-northeast3:cs-intelligence-db` printed `Connection test passed` (no DB login).
+- **Not done:** a full app flow against a real GCP Cloud SQL instance (DB login through the engine-managed proxy).
+  The E2E uses a fake proxy.
 - Rulings recorded in the ledger: SQL Server included; shared `procgroup` helpers; separate cloudsql/ssm managers;
   two proxy launches (unsaved Test + saved profile) in E2E instead of one.
+
+### Final verification after review fixes (HEAD 993cdae)
+
+- Codex final reviews: three rounds; Disconnect cleanup, superseded/route-changed proxies, edit-form test isolation and
+  SQL Server integration-test compile were fixed; final verdict: no remaining Critical/Important code findings.
+- `go test ./engine/...`, `go test -race` (cloudsql, tunnel), `go vet` (incl. `GOOS=windows`), `-tags=integration` compile: ok.
+- `pnpm --filter renderer test`: 62 files / 467 tests passed. `pnpm build`: ok (pre-existing Vite chunk-size warning).
+- E2E with `E2E_MYSQL_DATABASE=mysql`, PostgreSQL container on 55432 (`E2E_POSTGRES_PORT`, `E2E_SSM_POSTGRES_PORT`,
+  `E2E_SSH_POSTGRES_PORT` = 55432, password `e2epass`): `gcp-cloudsql.spec.ts` 4/4 passed, `ssh.spec.ts` 3/3 passed;
+  `ssm.spec.ts` 2 passed, 4 failed — all four at the same pre-existing step (`SELECT 75` in a query tab whose session
+  was bound to the deliberately killed tunnel), unrelated to Disconnect; reproduced for MySQL on base `fe24728`.
+- Known deferred: an independent MCP engine keeps a deleted/disabled profile's proxy until it exits; Windows-only
+  discovery test path expectation.
