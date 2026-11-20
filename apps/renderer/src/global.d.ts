@@ -112,6 +112,7 @@ export interface ConnectionProfile {
   connectionMode?: import('./lib/connectionRoute').ConnectionMode;
   ssh?: import('./lib/connectionRoute').SSHConfig;
   ssm?: import('./lib/connectionRoute').SSMConfig;
+  gcpCloudSql?: import('./lib/connectionRoute').GCPCloudSQLConfig;
   readOnly?: boolean;
   safeMode?: boolean;
   tenantColumns?: string;

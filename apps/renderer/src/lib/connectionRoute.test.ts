@@ -26,3 +26,26 @@ it('converts SSH references and clears stale SSH settings on other routes', () =
   expect(connectionRouteFromForm('sqlite', 'ssh', { profile: '', region: '', instanceId: '' }, ssh).ssh).toBeUndefined();
   expect(connectionRouteFromForm('mysql', 'direct', { profile: '', region: '', instanceId: '' }, ssh).ssh).toBeUndefined();
 });
+
+describe('GCP Cloud SQL route', () => {
+  const ssm = { profile: '', region: '', instanceId: '' };
+  it('trims fields and omits default/empty optional values', () => {
+    expect(connectionRouteFromForm('mysql', 'gcp_cloudsql', ssm, undefined, { instanceConnectionName: ' p:asia-northeast3:db ', authMode: 'gcloud', credentialsFile: ' /k.json ', privateIp: false, proxyPath: '  ' })).toEqual({
+      connectionMode: 'gcp_cloudsql', ssm: undefined, ssh: undefined, gcpCloudSql: { instanceConnectionName: 'p:asia-northeast3:db' },
+    });
+  });
+  it('keeps adc, private IP and proxy path', () => {
+    expect(connectionRouteFromForm('postgres', 'gcp_cloudsql', ssm, undefined, { instanceConnectionName: 'p:r:i', authMode: 'adc', credentialsFile: '/k.json', privateIp: true, proxyPath: ' /opt/cloud-sql-proxy ' }).gcpCloudSql)
+      .toEqual({ instanceConnectionName: 'p:r:i', authMode: 'adc', privateIp: true, proxyPath: '/opt/cloud-sql-proxy' });
+  });
+  it('includes credentialsFile only for credentials_file', () => {
+    expect(connectionRouteFromForm('sqlserver', 'gcp_cloudsql', ssm, undefined, { instanceConnectionName: 'p:r:i', authMode: 'credentials_file', credentialsFile: ' /Users/me/sa.json ' }).gcpCloudSql)
+      .toEqual({ instanceConnectionName: 'p:r:i', authMode: 'credentials_file', credentialsFile: '/Users/me/sa.json' });
+  });
+  it('falls back to direct for unsupported drivers and clears gcp on other modes', () => {
+    const gcp = { instanceConnectionName: 'p:r:i' };
+    expect(connectionRouteFromForm('sqlite', 'gcp_cloudsql', ssm, undefined, gcp)).toEqual({ connectionMode: 'direct', ssm: undefined, ssh: undefined, gcpCloudSql: undefined });
+    expect(connectionRouteFromForm('mysql', 'direct', ssm, undefined, gcp).gcpCloudSql).toBeUndefined();
+    expect(connectionRouteFromForm('mysql', 'ssm', { profile: '', region: 'r', instanceId: 'i' }, undefined, gcp).gcpCloudSql).toBeUndefined();
+  });
+});
