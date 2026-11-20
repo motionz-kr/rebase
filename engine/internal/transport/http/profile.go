@@ -166,29 +166,48 @@ func (h *ProfileHandler) DisconnectProfile() http.Handler {
 	})
 }
 
-func sameCloudSQLRoute(a, b domain.ConnectionProfile) bool {
-	if a.ConnectionMode != b.ConnectionMode {
-		return false
+func normalizedMode(m string) string {
+	if m == "direct" {
+		return ""
 	}
-	switch {
-	case a.GCPCloudSQL == nil && b.GCPCloudSQL == nil:
-		return true
-	case a.GCPCloudSQL == nil || b.GCPCloudSQL == nil:
-		return false
-	}
-	return *a.GCPCloudSQL == *b.GCPCloudSQL
+	return m
 }
 
-// connectionTestRoutingID picks the tunnel owner for a connection test. A Cloud
-// SQL test of an edited saved profile (route differs from the saved one, or
-// the saved profile is another mode / missing) gets an ephemeral owner so it
-// neither reuses nor terminates the saved connection's proxy. An unchanged
-// route keeps the saved ID and shares its proxy. Other modes keep the ID.
-func connectionTestRoutingID(submitted domain.ConnectionProfile, saved *domain.ConnectionProfile) string {
-	if submitted.ConnectionMode != "gcp_cloudsql" || submitted.ID == "" {
-		return submitted.ID
+func samePtr[T comparable](a, b *T) bool {
+	if a == nil || b == nil {
+		return a == b
 	}
-	if saved != nil && sameCloudSQLRoute(*saved, submitted) {
+	return *a == *b
+}
+
+// sameRoute reports whether two profiles reach the database through the same
+// route: same mode ("" and "direct" are equal) and, for tunnel modes, the same
+// tunnel configuration (plus the destination for SSM/SSH).
+func sameRoute(a, b domain.ConnectionProfile) bool {
+	if normalizedMode(a.ConnectionMode) != normalizedMode(b.ConnectionMode) {
+		return false
+	}
+	switch normalizedMode(a.ConnectionMode) {
+	case "gcp_cloudsql":
+		return samePtr(a.GCPCloudSQL, b.GCPCloudSQL)
+	case "ssm":
+		return samePtr(a.SSM, b.SSM) && a.Host == b.Host && a.Port == b.Port
+	case "ssh":
+		return samePtr(a.SSH, b.SSH) && a.Host == b.Host && a.Port == b.Port
+	}
+	return true
+}
+
+// connectionTestRoutingID picks the tunnel owner for a connection test of a
+// saved profile. A test whose route differs from the saved one (or whose saved
+// profile is missing) gets an ephemeral owner, so it can neither reuse nor
+// close the saved connection's proxy, whatever the mode. An unchanged route
+// keeps the saved ID and shares its tunnel. Unsaved profiles keep "".
+func connectionTestRoutingID(submitted domain.ConnectionProfile, saved *domain.ConnectionProfile) string {
+	if submitted.ID == "" {
+		return ""
+	}
+	if saved != nil && sameRoute(*saved, submitted) {
 		return submitted.ID
 	}
 	var b [8]byte
@@ -228,7 +247,7 @@ func (h *ProfileHandler) TestConnection() http.Handler {
 
 		if profile.ID == "" {
 			defer h.service.CloseProfileTunnel("")
-		} else if profile.ConnectionMode == "gcp_cloudsql" {
+		} else {
 			saved, _, _ := h.service.GetProfile(r.Context(), profile.ID)
 			if routingID := connectionTestRoutingID(profile, saved); routingID != profile.ID {
 				profile.ID = routingID

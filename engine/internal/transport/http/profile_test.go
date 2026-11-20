@@ -167,28 +167,65 @@ func TestCloudSQLConnectionTestOfUnchangedRouteSharesSavedProxy(t *testing.T) {
 func TestConnectionTestRoutingID(t *testing.T) {
 	cfg := &domain.GCPCloudSQLConfig{InstanceConnectionName: "p-12345:r-x1:i"}
 	csql := domain.ConnectionProfile{ID: "x", ConnectionMode: "gcp_cloudsql", GCPCloudSQL: cfg}
-	if got := connectionTestRoutingID(domain.ConnectionProfile{ID: "x", ConnectionMode: "ssm"}, nil); got != "x" {
-		t.Errorf("ssm id changed: %q", got)
+	ssmP := domain.ConnectionProfile{ID: "x", ConnectionMode: "ssm", Host: "db", Port: 3306, SSM: &domain.SSMConfig{Region: "ap-northeast-2", InstanceID: "i-0123456789abcdef0"}}
+	sshP := domain.ConnectionProfile{ID: "x", ConnectionMode: "ssh", Host: "db", Port: 3306, SSH: &domain.SSHConfig{Host: "b", Port: 22}}
+	direct := domain.ConnectionProfile{ID: "x", Host: "db", Port: 3306}
+
+	ephemeral := func(name string, submitted domain.ConnectionProfile, saved *domain.ConnectionProfile) {
+		t.Helper()
+		a, b := connectionTestRoutingID(submitted, saved), connectionTestRoutingID(submitted, saved)
+		if a == "x" || a == b || !strings.HasPrefix(a, "connection-test-") {
+			t.Errorf("%s: want unique ephemeral ids, got %q %q", name, a, b)
+		}
+	}
+	keep := func(name string, submitted domain.ConnectionProfile, saved *domain.ConnectionProfile) {
+		t.Helper()
+		if got := connectionTestRoutingID(submitted, saved); got != "x" {
+			t.Errorf("%s: identical route must keep id, got %q", name, got)
+		}
 	}
 	if got := connectionTestRoutingID(domain.ConnectionProfile{ConnectionMode: "gcp_cloudsql"}, nil); got != "" {
 		t.Errorf("unsaved id changed: %q", got)
 	}
+	// Saved Cloud SQL profile, submitted route differs in any way.
+	ephemeral("gcp->direct", direct, &csql)
+	ephemeral("gcp->ssh", sshP, &csql)
+	ephemeral("gcp->ssm", ssmP, &csql)
+	changed := csql
+	changed.GCPCloudSQL = &domain.GCPCloudSQLConfig{InstanceConnectionName: cfg.InstanceConnectionName, PrivateIP: true}
+	ephemeral("gcp changed", changed, &csql)
+	ephemeral("missing saved", csql, nil)
+	ephemeral("direct->gcp", csql, &direct)
+	otherSSH := sshP
+	otherSSH.SSH = &domain.SSHConfig{Host: "other", Port: 22}
+	ephemeral("ssh changed", otherSSH, &sshP)
+	// Identical routes keep the saved ID; "" and "direct" are the same route.
 	same := csql
 	same.GCPCloudSQL = &domain.GCPCloudSQLConfig{InstanceConnectionName: cfg.InstanceConnectionName}
-	if got := connectionTestRoutingID(same, &csql); got != "x" {
-		t.Errorf("identical route must keep id: %q", got)
-	}
-	diff := csql
-	diff.GCPCloudSQL = &domain.GCPCloudSQLConfig{InstanceConnectionName: cfg.InstanceConnectionName, PrivateIP: true}
-	a, b := connectionTestRoutingID(diff, &csql), connectionTestRoutingID(diff, &csql)
-	if a == b || a == "x" {
-		t.Errorf("changed route needs unique ephemeral ids: %q %q", a, b)
-	}
-	other := domain.ConnectionProfile{ID: "x", ConnectionMode: "ssh"}
-	if got := connectionTestRoutingID(csql, &other); got == "x" {
-		t.Errorf("saved profile of another mode must not share: %q", got)
-	}
-	if got := connectionTestRoutingID(csql, nil); got == "x" {
-		t.Errorf("missing saved profile must not share: %q", got)
+	keep("gcp same", same, &csql)
+	keep("ssm same", ssmP, &ssmP)
+	keep("ssh same", sshP, &sshP)
+	explicitDirect := direct
+	explicitDirect.ConnectionMode = "direct"
+	keep("direct same", explicitDirect, &direct)
+}
+
+func TestConnectionTestOfChangedRouteNeverClosesSavedProxy(t *testing.T) {
+	for name, body := range map[string]string{
+		"direct": `{"profile":{"id":"saved","name":"cs","driver":"mysql","host":"h","port":3306,"database":"app"}}`,
+		"ssh":    `{"profile":{"id":"saved","name":"cs","driver":"mysql","connectionMode":"ssh","host":"h","port":3306,"database":"app","ssh":{"host":"b","port":22,"username":"u","identityFile":"/k"}}}`,
+		"ssm":    `{"profile":{"id":"saved","name":"cs","driver":"mysql","connectionMode":"ssm","host":"h","port":3306,"database":"app","ssm":{"region":"ap-northeast-2","instanceId":"i-0123456789abcdef0"}}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			tunnels, handler, _ := cloudSQLTestRequest(t, "my-project:asia-northeast3:db-1")
+			req := httptest.NewRequest(http.MethodPost, "/connection-test", strings.NewReader(body))
+			req.Header.Set("X-App-Engine-Token", "token")
+			handler.TestConnection().ServeHTTP(httptest.NewRecorder(), req)
+			for _, id := range append(append([]string{}, tunnels.resolved...), tunnels.closed...) {
+				if id == "saved" {
+					t.Fatalf("saved profile id used: resolved=%v closed=%v", tunnels.resolved, tunnels.closed)
+				}
+			}
+		})
 	}
 }
