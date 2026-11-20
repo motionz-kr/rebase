@@ -3,6 +3,7 @@ package mysql
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -322,6 +323,7 @@ func (c *MySQLConnector) OpenQuerySession(ctx context.Context, p domain.Connecti
 	}
 	return c.querySessions.Open(ctx, ownerID, p.Database, db, readOnly || p.ReadOnly, sqlsession.Options{
 		AutoCommit: len(autoCommit) > 0 && autoCommit[0], BeginSQL: "START TRANSACTION", Dialect: "mysql",
+		IsConnectionLost: isConnectionLost,
 		Initialize: func(ctx context.Context, conn *sql.Conn) (int64, error) {
 			if readOnly || p.ReadOnly {
 				if _, err := conn.ExecContext(ctx, "SET SESSION TRANSACTION READ ONLY"); err != nil {
@@ -333,6 +335,15 @@ func (c *MySQLConnector) OpenQuerySession(ctx context.Context, p domain.Connecti
 			return id, err
 		},
 	})
+}
+
+// isConnectionLost reports whether err means the pinned server connection is gone.
+// go-sql-driver/mysql returns ErrInvalidConn for the statement that discovers a
+// closed tunnel, proxy restart or server-side KILL (it read EOF/reset from the
+// socket) and closes the connection; later statements get driver.ErrBadConn,
+// which sqlsession already treats as lost.
+func isConnectionLost(err error) bool {
+	return errors.Is(err, mysqlDriver.ErrInvalidConn)
 }
 
 func (c *MySQLConnector) ExecuteQuerySessionStream(

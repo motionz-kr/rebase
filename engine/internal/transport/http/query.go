@@ -12,6 +12,7 @@ import (
 	"github.com/smlee/database-local-engine/engine/internal/adapters/postgres"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/sqlite"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/sqlserver"
+	"github.com/smlee/database-local-engine/engine/internal/adapters/sqlsession"
 	"github.com/smlee/database-local-engine/engine/internal/analyzer"
 	"github.com/smlee/database-local-engine/engine/internal/application"
 	"github.com/smlee/database-local-engine/engine/internal/domain"
@@ -357,7 +358,7 @@ func (h *QueryHandler) ExecuteQuery() http.Handler {
 		if executeErr != nil && !errors.Is(executeErr, errRowLimitReached) {
 			errMap := map[string]any{
 				"type":    "error",
-				"message": executeErr.Error(),
+				"message": queryErrorMessage(transactionState, executeErr),
 			}
 			if transactionState != "" {
 				errMap["transactionState"] = transactionState
@@ -422,6 +423,7 @@ func (h *QueryHandler) QuerySession() http.Handler {
 		}
 
 		var sessionID string
+		transactionState := ""
 		switch req.Action {
 		case "open":
 			executionProfile := profileForDatabase(*profile, req.Database)
@@ -430,8 +432,16 @@ func (h *QueryHandler) QuerySession() http.Handler {
 			)
 		case "commit":
 			err = sessionConnector.CommitQuerySession(r.Context(), req.ProfileID, req.SessionID)
+			if err == nil {
+				transactionState, _ = sessionConnector.QuerySessionState(req.ProfileID, req.SessionID)
+			}
 		case "rollback":
 			err = sessionConnector.RollbackQuerySession(r.Context(), req.ProfileID, req.SessionID)
+			if err == nil {
+				// A rolled-back lost transaction reports "lost" so the renderer
+				// can discard the session.
+				transactionState, _ = sessionConnector.QuerySessionState(req.ProfileID, req.SessionID)
+			}
 		case "close":
 			err = sessionConnector.CloseQuerySession(req.ProfileID, req.SessionID)
 		case "configure":
@@ -445,8 +455,30 @@ func (h *QueryHandler) QuerySession() http.Handler {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "sessionId": sessionID})
+		_ = json.NewEncoder(w).Encode(sessionControlResponse(sessionID, transactionState))
 	})
+}
+
+// queryErrorMessage shows the curated text instead of the raw driver error once
+// the session's connection is lost. The text lives in sqlsession.
+func queryErrorMessage(transactionState string, err error) string {
+	switch transactionState {
+	case sqlsession.StateLost:
+		return sqlsession.ErrConnectionLost.Error()
+	case sqlsession.StateLostTransaction:
+		return sqlsession.ErrConnectionLostInTransaction.Error()
+	}
+	return err.Error()
+}
+
+// sessionControlResponse is the body of a successful query-session action.
+// transactionState is set for commit and rollback.
+func sessionControlResponse(sessionID, transactionState string) map[string]any {
+	body := map[string]any{"success": true, "sessionId": sessionID}
+	if transactionState != "" {
+		body["transactionState"] = transactionState
+	}
+	return body
 }
 
 func (h *QueryHandler) ExecuteBatch() http.Handler {

@@ -23,6 +23,21 @@ var (
 	ErrPermissionMismatch  = errors.New("query session read/write mode changed; close and reopen the query session")
 	ErrNoActiveTransaction = errors.New("there is no active transaction to commit")
 	ErrClosed              = errors.New("query session is closed; explicitly reconnect before executing more SQL")
+
+	// ErrConnectionLost and ErrConnectionLostInTransaction carry the user-facing
+	// text for a dropped DB connection. They are the single source of that text:
+	// the transport shows them instead of the raw driver error.
+	ErrConnectionLost              = errors.New("DB 연결이 끊겼습니다. 이 문장의 결과는 확인되지 않았습니다. 다시 실행하면 새 연결로 실행합니다.")
+	ErrConnectionLostInTransaction = errors.New("트랜잭션 중 DB 연결이 끊겼습니다. 커밋되지 않은 변경은 서버에서 취소됩니다. Rollback 후 다시 실행하세요.")
+)
+
+// Session states reported by State.
+const (
+	StateIdle            = "idle"
+	StateActive          = "active"
+	StateFailed          = "failed"
+	StateLost            = "lost"
+	StateLostTransaction = "lost_transaction"
 )
 
 type Manager struct {
@@ -39,6 +54,9 @@ type Options struct {
 	BeginSQL   string
 	Dialect    string
 	Initialize func(context.Context, *sql.Conn) (int64, error)
+	// IsConnectionLost lets the adapter recognise its driver's "connection
+	// dropped" errors. sql.ErrConnDone and driver.ErrBadConn always count.
+	IsConnectionLost func(error) bool
 }
 
 type session struct {
@@ -50,10 +68,13 @@ type session struct {
 	autoCommit             bool
 	sqlAutoCommitOff       bool
 	active, failed, closed bool
-	beginSQL, dialect      string
-	serverID               int64
-	rootSavepoint          string
-	lastUsed               time.Time
+	// lost: the connection dropped; lostInTx: a transaction was open at that moment.
+	lost, lostInTx    bool
+	isConnectionLost  func(error) bool
+	beginSQL, dialect string
+	serverID          int64
+	rootSavepoint     string
+	lastUsed          time.Time
 }
 
 // Queryer is the subset shared by *sql.Conn and *sql.Tx.
@@ -157,7 +178,8 @@ func (m *Manager) Open(ctx context.Context, ownerID, database string, db *sql.DB
 	id := hex.EncodeToString(idBytes)
 	s := &session{ownerID: ownerID, database: database, db: db, conn: conn,
 		readOnly: readOnly, autoCommit: opt.AutoCommit, beginSQL: opt.BeginSQL,
-		dialect: opt.Dialect, serverID: serverID, lastUsed: time.Now()}
+		dialect: opt.Dialect, serverID: serverID, lastUsed: time.Now(),
+		isConnectionLost: opt.IsConnectionLost}
 	m.mu.Lock()
 	m.sessions[id] = s
 	m.mu.Unlock()
@@ -207,6 +229,7 @@ func (m *Manager) Acquire(ctx context.Context, ownerID, database, id string, rea
 	command := domain.ParseTransactionCommand(query)
 	if !s.autoCommit && !s.active && (command.Action == "" || command.Action == "savepoint") && !domain.IsSessionStatement(query) {
 		if _, err := s.conn.ExecContext(ctx, s.beginSQL); err != nil {
+			s.markLostIfDropped(err)
 			s.mu.Unlock()
 			return nil, err
 		}
@@ -225,16 +248,41 @@ func (m *Manager) State(ownerID, id string) (string, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.validate(ownerID, s.database, s.readOnly); err != nil {
+	if err := s.validateIdentity(ownerID, s.database, s.readOnly); err != nil {
 		return "", err
 	}
+	if s.lost {
+		if s.lostInTx {
+			return StateLostTransaction, nil
+		}
+		return StateLost, nil
+	}
+	if s.closed {
+		return "", ErrClosed
+	}
 	if s.failed {
-		return "failed", nil
+		return StateFailed, nil
 	}
 	if s.active {
-		return "active", nil
+		return StateActive, nil
 	}
-	return "idle", nil
+	return StateIdle, nil
+}
+
+// markLostIfDropped records a dropped connection. It never touches the connection.
+func (s *session) markLostIfDropped(err error) bool {
+	if err == nil || s.lost {
+		return s.lost
+	}
+	dropped := errors.Is(err, sql.ErrConnDone) || errors.Is(err, driver.ErrBadConn) ||
+		(s.isConnectionLost != nil && s.isConnectionLost(err))
+	if !dropped {
+		return false
+	}
+	s.lost = true
+	s.lostInTx = s.active
+	s.closed = true
+	return true
 }
 
 func (s *session) complete(query string, err error) {
@@ -245,9 +293,7 @@ func (s *session) complete(query string, err error) {
 		if s.active {
 			s.failed = true
 		}
-		if errors.Is(err, sql.ErrConnDone) || errors.Is(err, driver.ErrBadConn) {
-			s.closed = true
-		}
+		s.markLostIfDropped(err)
 		return
 	}
 	command := domain.ParseTransactionCommand(query)
@@ -310,6 +356,18 @@ func (m *Manager) finish(ctx context.Context, ownerID, id, statement string) err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.lost {
+		if err := s.validateIdentity(ownerID, s.database, s.readOnly); err != nil {
+			return err
+		}
+		// The server already aborted the transaction: rollback only acknowledges
+		// that, without sending SQL; commit can never succeed.
+		if statement == "ROLLBACK" {
+			s.active, s.failed, s.lostInTx, s.rootSavepoint = false, false, false, ""
+			return nil
+		}
+		return s.lostError()
+	}
 	if err := s.validate(ownerID, s.database, s.readOnly); err != nil {
 		return err
 	}
@@ -418,10 +476,27 @@ func (m *Manager) remove(id string, expected *session) {
 	m.mu.Unlock()
 }
 
+func (s *session) lostError() error {
+	if s.lostInTx {
+		return ErrConnectionLostInTransaction
+	}
+	return ErrConnectionLost
+}
+
 func (s *session) validate(ownerID, database string, readOnly bool) error {
+	if s.lost {
+		if s.ownerID != ownerID {
+			return ErrOwnerMismatch
+		}
+		return s.lostError()
+	}
 	if s.closed {
 		return ErrClosed
 	}
+	return s.validateIdentity(ownerID, database, readOnly)
+}
+
+func (s *session) validateIdentity(ownerID, database string, readOnly bool) error {
 	if s.ownerID != ownerID {
 		return ErrOwnerMismatch
 	}

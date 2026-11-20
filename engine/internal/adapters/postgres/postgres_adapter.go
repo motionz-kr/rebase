@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -374,6 +375,7 @@ func (c *PostgreSQLConnector) OpenQuerySession(ctx context.Context, p domain.Con
 	}
 	return c.querySessions.Open(ctx, ownerID, database, db, readOnly || p.ReadOnly, sqlsession.Options{
 		AutoCommit: len(autoCommit) > 0 && autoCommit[0], BeginSQL: "BEGIN", Dialect: "postgres",
+		IsConnectionLost: isConnectionLost,
 		Initialize: func(ctx context.Context, conn *sql.Conn) (int64, error) {
 			if readOnly || p.ReadOnly {
 				if _, err := conn.ExecContext(ctx, "SET default_transaction_read_only = on"); err != nil {
@@ -385,6 +387,14 @@ func (c *PostgreSQLConnector) OpenQuerySession(ctx context.Context, p domain.Con
 			return id, err
 		},
 	})
+}
+
+// isConnectionLost covers what lib/pq does not already report as driver.ErrBadConn:
+// a read-side socket error on an established connection (reset by peer) comes back
+// as a *net.OpError. Timeouts are not a lost connection.
+func isConnectionLost(err error) bool {
+	var opErr *net.OpError
+	return errors.As(err, &opErr) && !opErr.Timeout()
 }
 
 func (c *PostgreSQLConnector) ExecuteQuerySessionStream(
