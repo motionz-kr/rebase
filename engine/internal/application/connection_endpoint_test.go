@@ -74,3 +74,22 @@ func TestSSHEndpointResolution(t *testing.T) {
 		t.Fatal("SSH failure fell back to direct")
 	}
 }
+
+func TestDirectResolveClosesFormerTunnelOfSameProfile(t *testing.T) {
+	svc := NewConnectionService(ports.NewFakeProfileRepository(), ports.NewFakeSecretStore())
+	tunnel := &fakeTunnel{}
+	svc.SetTunnelManager(tunnel)
+	direct := domain.ConnectionProfile{ID: "p1", Name: "prod", Driver: "mysql", Host: "db", Port: 3306, Database: "app"}
+	ep, err := svc.ResolveEndpoint(context.Background(), direct)
+	if err != nil || ep.Host != "db" || tunnel.calls != 0 {
+		t.Fatal(ep, err, tunnel.calls)
+	}
+	if len(tunnel.closed) != 1 || tunnel.closed[0] != "p1" {
+		t.Fatalf("closed = %v", tunnel.closed)
+	}
+	// Unsaved profiles have no owner to release.
+	direct.ID = ""
+	if _, err = svc.ResolveEndpoint(context.Background(), direct); err != nil || len(tunnel.closed) != 1 {
+		t.Fatal(err, tunnel.closed)
+	}
+}

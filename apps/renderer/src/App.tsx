@@ -47,7 +47,7 @@ import type { TemplateDef } from './lib/templateTypes';
 import { loadAgentSettings } from './lib/agentSettings';
 import { createSqlQueryRequest, type SqlQueryRequest } from './lib/queryRequest';
 import { connectionsReducer, initialConnectionsState } from './state/connections';
-import { connectionRouteFromForm, type SSMConfig, type SSHConfig, type ConnectionMode } from './lib/connectionRoute';
+import { connectionRouteFromForm, type SSMConfig, type SSHConfig, type GCPCloudSQLConfig, type ConnectionMode, tlsModeForRoute } from './lib/connectionRoute';
 import { connectionDefaultsFromCandidate } from './lib/databaseDiscovery';
 import { DatabaseDiscoveryDialog } from './components/DatabaseDiscoveryDialog';
 import type { DiscoveredDatabase, McpConnectionProposal } from './global';
@@ -67,6 +67,7 @@ export interface ConnectionProfile {
   connectionMode?: ConnectionMode;
   ssh?: SSHConfig;
   ssm?: SSMConfig;
+  gcpCloudSql?: GCPCloudSQLConfig;
   readOnly?: boolean;
   safeMode?: boolean;
   tenantColumns?: string;
@@ -207,9 +208,13 @@ function App() {
   const [formConnectionMode, setFormConnectionMode] = useState<ConnectionMode>('direct');
   const [formSSH, setFormSSH] = useState<SSHConfig>({ host: '', port: 22, username: 'ec2-user', identityFile: '', knownHostsFile: '' });
   const [formSSM, setFormSSM] = useState<SSMConfig>({ profile: '', region: '', instanceId: '' });
+  const [formGCP, setFormGCP] = useState<GCPCloudSQLConfig>({ instanceConnectionName: '', authMode: 'gcloud', credentialsFile: '', privateIp: false, proxyPath: '' });
+  const formUsesGCPCloudSQL = formConnectionMode === 'gcp_cloudsql' && (formDriver === 'mysql' || formDriver === 'postgres' || formDriver === 'sqlserver');
   const formUsesDocumentDestination = formConnectionMode === 'ssm' && (formDriver === 'mysql' || formDriver === 'postgres') && formSSM.destinationMode === 'document';
+  // Host/Port are owned by the proxy/tunnel (SSM document or Cloud SQL), so they are hidden and sent blank.
+  const formUsesProxyEndpoint = formUsesDocumentDestination || formUsesGCPCloudSQL;
   const [testingConnection, setTestingConnection] = useState(false);
-  const connectionTestSettings = JSON.stringify([formDriver, formHost, formPort, formDatabase, formUsername, formPassword, formTlsMode, formConnectionMode, formSSM, formSSH]);
+  const connectionTestSettings = JSON.stringify([formDriver, formHost, formPort, formDatabase, formUsername, formPassword, formTlsMode, formConnectionMode, formSSM, formSSH, formGCP]);
   const [testedConnectionSettings, setTestedConnectionSettings] = useState<string | null>(null);
   const connectionTestSuccess = testedConnectionSettings === connectionTestSettings;
   const connectionFeedbackRef = useRef<HTMLDivElement>(null);
@@ -349,6 +354,7 @@ function App() {
     setFormName('');
     setFormConnectionMode('direct');
     setFormSSM({ profile: '', region: '', instanceId: '' });
+    setFormGCP({ instanceConnectionName: '', authMode: 'gcloud', credentialsFile: '', privateIp: false, proxyPath: '' });
     setFormSSH({ host: '', port: 22, username: 'ec2-user', identityFile: '', knownHostsFile: '' });
     setTestedConnectionSettings(null);
     handleDriverChange('mysql');
@@ -389,6 +395,7 @@ function App() {
     setFormTlsMode(proposal.tlsMode);
     setFormConnectionMode('direct');
     setFormSSM({ profile: '', region: '', instanceId: '' });
+    setFormGCP({ instanceConnectionName: '', authMode: 'gcloud', credentialsFile: '', privateIp: false, proxyPath: '' });
     setFormSSH({ host: '', port: 22, username: 'ec2-user', identityFile: '', knownHostsFile: '' });
     setTestedConnectionSettings(null);
     setFormReadOnly(current?.readOnly ?? false);
@@ -411,9 +418,10 @@ function App() {
     setFormConnectionUri(p.connectionUri ?? '');
     setFormPassword(''); // blank keeps the existing password
     setFormTlsMode(p.tlsMode);
-    setFormConnectionMode(p.connectionMode === 'ssm' || p.connectionMode === 'ssh' ? p.connectionMode : 'direct');
+    setFormConnectionMode(p.connectionMode === 'ssm' || p.connectionMode === 'ssh' || p.connectionMode === 'gcp_cloudsql' ? p.connectionMode : 'direct');
     setFormSSH(p.ssh ?? { host: '', port: 22, username: 'ec2-user', identityFile: '', knownHostsFile: '' });
     setFormSSM(p.ssm ?? { profile: '', region: '', instanceId: '' });
+    setFormGCP({ instanceConnectionName: '', authMode: 'gcloud', credentialsFile: '', privateIp: false, proxyPath: '', ...p.gcpCloudSql });
     setTestedConnectionSettings(null);
     setFormReadOnly(p.readOnly ?? false);
     setFormSafeMode(p.safeMode ?? false);
@@ -434,15 +442,15 @@ function App() {
     const profile: ConnectionProfile = {
       ...(editingId ? profiles.find((p) => p.id === editingId) : {}),
       secretRef: undefined, // The engine owns this reference; the edit form never sends it.
-      ...connectionRouteFromForm(formDriver, formConnectionMode, formSSM, formSSH),
+      ...connectionRouteFromForm(formDriver, formConnectionMode, formSSM, formSSH, formGCP),
       name: formName || 'Test Profile',
       driver: formDriver,
-      host: formDriver === 'sqlite' || formUsesDocumentDestination ? '' : formHost,
-      port: formDriver === 'sqlite' || formUsesDocumentDestination ? 0 : formPort,
+      host: formDriver === 'sqlite' || formUsesProxyEndpoint ? '' : formHost,
+      port: formDriver === 'sqlite' || formUsesProxyEndpoint ? 0 : formPort,
       database: formDatabase,
       username: formDriver === 'sqlite' ? '' : formUsername,
       connectionUri: formConnectionUri,
-      tlsMode: formTlsMode,
+      tlsMode: tlsModeForRoute(formUsesGCPCloudSQL ? 'gcp_cloudsql' : 'direct', formTlsMode),
       readOnly: formReadOnly,
       safeMode: formSafeMode,
       tenantColumns: formTenantColumns,
@@ -470,15 +478,15 @@ function App() {
     const profile: ConnectionProfile = {
       ...(editingId ? profiles.find((p) => p.id === editingId) : {}),
       secretRef: undefined, // The engine owns this reference; the edit form never sends it.
-      ...connectionRouteFromForm(formDriver, formConnectionMode, formSSM, formSSH),
+      ...connectionRouteFromForm(formDriver, formConnectionMode, formSSM, formSSH, formGCP),
       name: formName,
       driver: formDriver,
-      host: formDriver === 'sqlite' || formUsesDocumentDestination ? '' : formHost,
-      port: formDriver === 'sqlite' || formUsesDocumentDestination ? 0 : formPort,
+      host: formDriver === 'sqlite' || formUsesProxyEndpoint ? '' : formHost,
+      port: formDriver === 'sqlite' || formUsesProxyEndpoint ? 0 : formPort,
       database: formDatabase,
       username: formDriver === 'sqlite' ? '' : formUsername,
       connectionUri: formConnectionUri,
-      tlsMode: formTlsMode,
+      tlsMode: tlsModeForRoute(formUsesGCPCloudSQL ? 'gcp_cloudsql' : 'direct', formTlsMode),
       readOnly: formReadOnly,
       safeMode: formSafeMode,
       tenantColumns: formTenantColumns,
@@ -608,6 +616,12 @@ function App() {
         delete next[id];
         return next;
       });
+      // Stop the profile's proxy/tunnel; a failure must not block the UI disconnect.
+      try {
+        await window.electronAPI.disconnectProfile(id);
+      } catch (err) {
+        console.warn('disconnectProfile failed', err);
+      }
     } finally {
       disconnectingRef.current.delete(id);
     }
@@ -977,15 +991,42 @@ function App() {
                 </>
               ) : (
                 <>
-              {(formDriver === 'mysql' || formDriver === 'postgres') && (
+              {(formDriver === 'mysql' || formDriver === 'postgres' || formDriver === 'sqlserver') && (
                 <div>
                   <label htmlFor="connection-mode">접속 경로</label>
-                  <select id="connection-mode" value={formConnectionMode} onChange={(e) => { setFormConnectionMode(e.target.value as ConnectionMode); setTestedConnectionSettings(null); }}>
+                  <select id="connection-mode" value={formDriver === 'sqlserver' && formConnectionMode !== 'gcp_cloudsql' ? 'direct' : formConnectionMode} onChange={(e) => { const mode = e.target.value as ConnectionMode; setFormConnectionMode(mode); if (mode === 'gcp_cloudsql') setFormTlsMode('none'); setTestedConnectionSettings(null); }}>
                     <option value="direct">직접 연결</option>
-                    <option value="ssm">AWS SSM (EC2 경유)</option>
-                    <option value="ssh">SSH (Bastion 경유)</option>
+                    {formDriver !== 'sqlserver' && <option value="ssm">AWS SSM (EC2 경유)</option>}
+                    {formDriver !== 'sqlserver' && <option value="ssh">SSH (Bastion 경유)</option>}
+                    <option value="gcp_cloudsql">GCP Cloud SQL (cloud-sql-proxy)</option>
                   </select>
                 </div>
+              )}
+              {formUsesGCPCloudSQL && (
+                <fieldset className="ssm-settings">
+                  <legend>GCP Cloud SQL</legend>
+                  <div><label htmlFor="gcp-instance">인스턴스 연결 이름</label>
+                    <input type="text" id="gcp-instance" value={formGCP.instanceConnectionName} placeholder="project:region:instance" onChange={(e) => setFormGCP({ ...formGCP, instanceConnectionName: e.target.value })} required />
+                  </div>
+                  <div><label htmlFor="gcp-auth-mode">인증 방식</label>
+                    <select id="gcp-auth-mode" value={formGCP.authMode ?? 'gcloud'} onChange={(e) => setFormGCP({ ...formGCP, authMode: e.target.value as GCPCloudSQLConfig['authMode'] })}>
+                      <option value="gcloud">gcloud 사용자 로그인 (기본)</option>
+                      <option value="adc">Application Default Credentials</option>
+                      <option value="credentials_file">서비스 계정 키 파일</option>
+                    </select>
+                  </div>
+                  {formGCP.authMode === 'credentials_file' && (
+                    <div><label htmlFor="gcp-credentials-file">서비스 계정 키 파일 경로</label>
+                      <input type="text" id="gcp-credentials-file" value={formGCP.credentialsFile ?? ''} placeholder="/Users/me/keys/sa.json" onChange={(e) => setFormGCP({ ...formGCP, credentialsFile: e.target.value })} required />
+                    </div>
+                  )}
+                  <div><label><input type="checkbox" id="gcp-private-ip" checked={formGCP.privateIp ?? false} onChange={(e) => setFormGCP({ ...formGCP, privateIp: e.target.checked })} /> Private IP로 연결</label></div>
+                  <div><label htmlFor="gcp-proxy-path">cloud-sql-proxy 경로 (선택)</label>
+                    <input type="text" id="gcp-proxy-path" value={formGCP.proxyPath ?? ''} placeholder="자동 탐색" onChange={(e) => setFormGCP({ ...formGCP, proxyPath: e.target.value })} />
+                  </div>
+                  <p className="ssm-note">Host·Port는 입력하지 않습니다. 엔진이 cloud-sql-proxy를 띄우고 로컬 포트를 자동으로 잡습니다.</p>
+                  <p className="ssm-note">cloud-sql-proxy v2와 gcloud 로그인(또는 선택한 인증)이 필요합니다. 키 파일은 경로만 저장합니다.</p>
+                </fieldset>
               )}
               {formConnectionMode === 'ssh' && (formDriver === 'mysql' || formDriver === 'postgres') && (
                 <fieldset className="ssm-settings">
@@ -1042,7 +1083,7 @@ function App() {
                   <p className="ssm-note">AWS CLI와 Session Manager 플러그인이 필요합니다. 기존 AWS profile·SSO를 사용하며, profile을 비우면 기본 AWS 인증 설정을 사용합니다.</p>
                 </fieldset>
               )}
-              {!formUsesDocumentDestination && <div className="field-row">
+              {!formUsesProxyEndpoint && <div className="field-row">
                 <div className="field-grow">
                   <label>Host</label>
                   <input type="text" value={formHost} onChange={(e) => setFormHost(e.target.value)} required />
@@ -1080,10 +1121,10 @@ function App() {
               </div>
               <div>
                 <label>TLS mode</label>
-                <select value={formTlsMode} onChange={(e) => setFormTlsMode(e.target.value as 'none' | 'prefer' | 'require')}>
+                <select value={tlsModeForRoute(formUsesGCPCloudSQL ? 'gcp_cloudsql' : 'direct', formTlsMode)} onChange={(e) => setFormTlsMode(e.target.value as 'none' | 'prefer' | 'require')}>
                   <option value="none">None (plaintext)</option>
                   <option value="prefer">Prefer (opportunistic)</option>
-                  <option value="require">Require (encrypted)</option>
+                  <option value="require" disabled={formUsesGCPCloudSQL}>Require (encrypted)</option>
                 </select>
               </div>
               <div className="field-check">
@@ -1222,7 +1263,7 @@ function App() {
                       <div className="conn-row-text">
                         <span className="conn-row-name">{p.name}</span>
                         <span className="conn-row-host">
-                          {p.driver === 'sqlite' ? (p.database.split('/').pop() || p.database) : p.connectionMode === 'ssm' && p.ssm?.destinationMode === 'document' ? `SSM · ${p.ssm.documentName}` : `${p.connectionMode === 'ssm' ? 'SSM · ' : p.connectionMode === 'ssh' ? 'SSH · ' : ''}${p.host}:${p.port}`}
+                          {p.driver === 'sqlite' ? (p.database.split('/').pop() || p.database) : p.connectionMode === 'gcp_cloudsql' && p.gcpCloudSql ? `Cloud SQL · ${p.gcpCloudSql.instanceConnectionName}` : p.connectionMode === 'ssm' && p.ssm?.destinationMode === 'document' ? `SSM · ${p.ssm.documentName}` : `${p.connectionMode === 'ssm' ? 'SSM · ' : p.connectionMode === 'ssh' ? 'SSH · ' : ''}${p.host}:${p.port}`}
                         </span>
                       </div>
                       <span className="conn-row-actions">

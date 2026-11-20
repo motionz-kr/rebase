@@ -112,6 +112,7 @@ export interface ConnectionProfile {
   connectionMode?: import('./lib/connectionRoute').ConnectionMode;
   ssh?: import('./lib/connectionRoute').SSHConfig;
   ssm?: import('./lib/connectionRoute').SSMConfig;
+  gcpCloudSql?: import('./lib/connectionRoute').GCPCloudSQLConfig;
   readOnly?: boolean;
   safeMode?: boolean;
   tenantColumns?: string;
@@ -319,6 +320,7 @@ declare global {
       pickSSHFile: (kind: 'identity' | 'known-hosts') => Promise<string | null>;
       updateProfile: (profile: ConnectionProfile, password?: string) => Promise<ResultWrapper<ConnectionProfile>>;
       deleteProfile: (id: string) => Promise<ResultWrapper<{ success: boolean }>>;
+      disconnectProfile: (id: string) => Promise<ResultWrapper<{ success: boolean }>>;
       testConnection: (profile: ConnectionProfile, password?: string) => Promise<ResultWrapper<{ success: boolean }>>;
       listDatabases: (profileId: string) => Promise<ResultWrapper<DatabaseInfo[]>>;
       listTables: (profileId: string, database: string) => Promise<ResultWrapper<TableInfo[]>>;

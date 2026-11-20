@@ -377,6 +377,21 @@ MCP stdio engines start their own tunnels on demand and can run independently
 of Electron. They share saved routing metadata, not ports or process ownership.
 See [SSM connections](ssm-connections.md).
 
+## GCP Cloud SQL connection routing
+
+MySQL/PostgreSQL/SQL Server profiles can store `connectionMode: gcp_cloudsql` and
+non-secret `gcpCloudSql` metadata (instance connection name, auth mode, optional
+service account key file path, private IP flag, optional proxy path). Host/port
+are not used; the profile TLS mode must be none/prefer because the local hop is
+plaintext loopback. The same `ConnectionEndpointResolver` / `TunnelManager` port
+used for SSM resolves these profiles; the `adapters/cloudsql` manager owns
+cloud-sql-proxy processes (argv only, no shell), readiness via
+`--run-connection-test` (the proxy is lazy) plus a TCP check, reuse per profile,
+restart after exit and cleanup on profile change or engine shutdown. Process-group
+helpers are shared with SSM in `adapters/procgroup`. Each engine (desktop and each
+MCP stdio engine) owns its own proxy and port. Only key file paths are stored.
+See [GCP Cloud SQL connections](gcp-cloudsql-connections.md).
+
 ## Future Cloud Architecture
 
 Cloud 기능은 local engine 위에 sync adapter로 추가한다.

@@ -33,7 +33,7 @@ func NewMCPWriteHandler(token string, service *application.ConnectionService, pr
 	return &MCPWriteHandler{
 		token: token, service: service, proposals: proposals, activity: activity,
 		mysql: mysql.NewMySQLConnector(service), postgres: postgres.NewPostgreSQLConnector(service),
-		sqlite: sqlite.NewSQLiteConnector(), sqlserver: sqlserver.NewSQLServerConnector(),
+		sqlite: sqlite.NewSQLiteConnector(), sqlserver: sqlserver.NewSQLServerConnector(service),
 	}
 }
 

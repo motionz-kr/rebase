@@ -92,7 +92,7 @@ func NewAgentHandler(token string, service *application.ConnectionService) *Agen
 		mysqlConnector:     mysql.NewMySQLConnector(service),
 		postgresConnector:  postgres.NewPostgreSQLConnector(service),
 		sqliteConnector:    sqlite.NewSQLiteConnector(),
-		sqlserverConnector: sqlserver.NewSQLServerConnector(),
+		sqlserverConnector: sqlserver.NewSQLServerConnector(service),
 		redisConnector:     redis.NewRedisConnector(),
 		mongoConnector:     mongo.NewMongoConnector(),
 		pendingOAuth:       make(map[string]llm.PKCEParams),

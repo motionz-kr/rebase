@@ -30,6 +30,8 @@ func (p ConnectionProfile) ValidateConnectionRoute() error {
 		return nil
 	case "ssh":
 		return p.validateSSHRoute()
+	case "gcp_cloudsql":
+		return p.validateGCPCloudSQLRoute()
 	case "ssm":
 	default:
 		return errors.New("unsupported connection mode")

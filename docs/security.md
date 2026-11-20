@@ -75,6 +75,22 @@ network can still leave remote sessions requiring operator cleanup.
 SSM transport does not introduce IAM DB authentication or stronger DB certificate
 verification. See [SSM connections](ssm-connections.md) for supported scope.
 
+## GCP Cloud SQL credentials and process boundary
+
+Cloud SQL profile metadata contains the instance connection name, auth mode, an
+optional service account key file **path**, a private IP flag and an optional
+proxy path. Key contents, OAuth tokens and ADC files are never read or stored by
+Rebase; cloud-sql-proxy resolves credentials itself (gcloud login, ADC or the key
+file). The proxy is launched with argv, never through a shell; the key file and
+proxy paths must be absolute and cannot begin with an option prefix. Proxy
+stdout/stderr is bounded, converted to curated Korean errors and never forwarded
+to renderer/MCP stdout or activity storage, because it can contain tokens or
+local paths. Only a loopback endpoint on an engine-allocated port is exposed, and
+the TLS mode must be none/prefer since the proxy encrypts the Google-side leg.
+A proxy failure never falls back to a direct connection. The IAM role
+`roles/cloudsql.client` is required. See
+[GCP Cloud SQL connections](gcp-cloudsql-connections.md).
+
 ## SSH key references and host verification
 
 SSH profiles store only bastion host/port/user and user-selected identity/known_hosts

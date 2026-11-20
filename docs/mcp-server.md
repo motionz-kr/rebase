@@ -197,6 +197,13 @@ the user approves the request in the Rebase activity view.
   See [SSM connections](ssm-connections.md). Existing UI approval requirements
   still apply to approval-mode writes.
 
+- MySQL/PostgreSQL/SQL Server profiles using **GCP Cloud SQL (cloud-sql-proxy)**
+  work the same way: the local MCP engine starts its own cloud-sql-proxy lazily
+  on its own port from the saved instance settings, without Electron. The MCP
+  machine needs cloud-sql-proxy v2 and valid GCP credentials; proxy logs never
+  reach JSON-RPC stdout, and only a key file path is stored.
+  See [GCP Cloud SQL connections](gcp-cloudsql-connections.md).
+
 - Codex's TOML config is round-tripped on merge (data preserved; comments and
   ordering are not). Back up manually first if you keep hand-formatted comments.
 - The config embeds the **absolute** path to the bundled engine. If you move the

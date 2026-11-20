@@ -399,6 +399,18 @@ app.whenReady().then(() => {
     }
   });
 
+  ipcMain.handle('disconnect-profile', async (event, id) => {
+    try {
+      const data = await requestEngine({
+        method: 'POST',
+        path: `/profiles/disconnect?id=${encodeURIComponent(id)}`,
+      });
+      return { success: true, data };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
   ipcMain.handle('test-connection', async (event, profile, password) => {
     try {
       const data = await requestEngine({

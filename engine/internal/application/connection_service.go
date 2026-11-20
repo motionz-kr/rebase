@@ -32,6 +32,10 @@ func (s *ConnectionService) ResolveEndpoint(ctx context.Context, p domain.Connec
 		return ports.ConnectionEndpoint{}, err
 	}
 	if p.ConnectionMode == "" || p.ConnectionMode == "direct" {
+		// A profile switched to direct must not keep a proxy from its former route.
+		if s.tunnels != nil && p.ID != "" {
+			s.tunnels.CloseProfile(p.ID)
+		}
 		return ports.ConnectionEndpoint{Host: p.Host, Port: p.Port}, nil
 	}
 	if s.tunnels == nil {

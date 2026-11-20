@@ -367,6 +367,7 @@ func main() {
 		Checksum: "mcp-connection-proposals-v1",
 	})
 	migrations = append(migrations, sqlite.SSHProfileMigration)
+	migrations = append(migrations, sqlite.GCPCloudSQLProfileMigration)
 	if err := migrationRunner.Run(migrations); err != nil {
 		log.Fatalf("failed to run migrations: %v", err)
 	}
@@ -424,6 +425,7 @@ func main() {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	}))
+	mux.Handle("/profiles/disconnect", profileHandler.DisconnectProfile())
 	mux.Handle("/connection-test", profileHandler.TestConnection())
 
 	introHandler := internalHttp.NewIntrospectionHandler(*token, connectionService)
@@ -615,7 +617,7 @@ func runMCPServer(svc *application.ConnectionService, activity ports.MCPActivity
 	case "sqlite":
 		conn = sqlite.NewSQLiteConnector()
 	case "sqlserver":
-		conn = sqlserver.NewSQLServerConnector()
+		conn = sqlserver.NewSQLServerConnector(svc)
 	default:
 		log.Fatalf("mcp: unsupported driver %q (SQL drivers only)", profile.Driver)
 	}
@@ -694,7 +696,7 @@ func loadUnifiedMCPProfiles(ctx context.Context, svc *application.ConnectionServ
 		case "sqlite":
 			conn = sqlite.NewSQLiteConnector()
 		case "sqlserver":
-			conn = sqlserver.NewSQLServerConnector()
+			conn = sqlserver.NewSQLServerConnector(svc)
 		default:
 			continue
 		}

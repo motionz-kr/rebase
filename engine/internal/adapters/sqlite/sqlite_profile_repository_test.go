@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -56,7 +57,7 @@ func newProfileRepo(t *testing.T) *SQLiteProfileRepository {
 			Checksum: "profiles-v1",
 		},
 	}
-	migrations = append(migrations, SSMProfileMigration, SSHProfileMigration)
+	migrations = append(migrations, SSMProfileMigration, SSHProfileMigration, GCPCloudSQLProfileMigration)
 	if err := runner.Run(migrations); err != nil {
 		t.Fatalf("failed to run profiles migration: %v", err)
 	}
@@ -424,5 +425,83 @@ func TestSSHMigrationPreservesExistingProfiles(t *testing.T) {
 	after, err := repo.List(ctx)
 	if err != nil || !reflect.DeepEqual(before, after) {
 		t.Fatalf("existing profiles changed: %v", err)
+	}
+}
+
+func TestGCPCloudSQLProfileRoundTrip(t *testing.T) {
+	repo := newProfileRepo(t)
+	ctx := context.Background()
+	cfg := &domain.GCPCloudSQLConfig{InstanceConnectionName: "proj:asia-northeast3:db", AuthMode: "credentials_file", CredentialsFile: "/tmp/key.json", PrivateIP: true, ProxyPath: "/opt/cloud-sql-proxy"}
+	p := &domain.ConnectionProfile{ID: "gcp", Name: "cloudsql", Driver: "mysql", Host: "127.0.0.1", Port: 3306, Database: "app", ConnectionMode: "gcp_cloudsql", GCPCloudSQL: cfg, CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	if err := repo.Create(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	got, err := repo.GetByID(ctx, p.ID)
+	if err != nil || !reflect.DeepEqual(got.GCPCloudSQL, cfg) {
+		t.Fatal(got, err)
+	}
+	list, err := repo.List(ctx)
+	if err != nil || len(list) != 1 || !reflect.DeepEqual(list[0].GCPCloudSQL, cfg) {
+		t.Fatal(list, err)
+	}
+	got.GCPCloudSQL.AuthMode = "adc"
+	if err := repo.Update(ctx, got); err != nil {
+		t.Fatal(err)
+	}
+	got, err = repo.GetByID(ctx, p.ID)
+	if err != nil || got.GCPCloudSQL.AuthMode != "adc" {
+		t.Fatal(got, err)
+	}
+	if _, err := repo.db.Exec("UPDATE connection_profiles SET gcp_cloudsql_config='{broken' WHERE id='gcp'"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.GetByID(ctx, p.ID); err == nil || !strings.Contains(err.Error(), "invalid stored Cloud SQL configuration") {
+		t.Fatal("corrupt Cloud SQL settings accepted", err)
+	}
+	if _, err := repo.List(ctx); err == nil {
+		t.Fatal("corrupt Cloud SQL list accepted")
+	}
+}
+
+func TestGCPCloudSQLMigrationPreservesExistingProfiles(t *testing.T) {
+	repo := newProfileRepo(t)
+	ctx := context.Background()
+	direct := &domain.ConnectionProfile{ID: "direct", Name: "legacy", Driver: "mysql", Host: "db.internal", Port: 3306, Database: "app", SecretRef: "secret-direct", McpEnabled: true, McpWriteMode: "approval_required", ReadOnly: true, CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	ssm := *direct
+	ssm.ID = "ssm"
+	ssm.ConnectionMode = "ssm"
+	ssm.SSM = &domain.SSMConfig{Region: "ap-northeast-2", InstanceID: "i-0123456789abcdef0"}
+	ssh := *direct
+	ssh.ID = "ssh"
+	ssh.ConnectionMode = "ssh"
+	ssh.SSH = &domain.SSHConfig{Host: "jump", Port: 22, Username: "ec2-user"}
+	for _, p := range []*domain.ConnectionProfile{direct, &ssm, &ssh} {
+		if err := repo.Create(ctx, p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before, err := repo.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, query := range []string{"ALTER TABLE connection_profiles DROP COLUMN gcp_cloudsql_config", "DELETE FROM schema_migrations WHERE version=21"} {
+		if _, err := repo.db.Exec(query); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runner := NewMigrationRunner(repo.db)
+	for i := 0; i < 2; i++ {
+		if err := runner.Run([]Migration{GCPCloudSQLProfileMigration}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	after, err := repo.List(ctx)
+	if err != nil || !reflect.DeepEqual(before, after) {
+		t.Fatalf("existing profiles changed: %v", err)
+	}
+	for _, p := range after {
+		if p.GCPCloudSQL != nil {
+			t.Fatalf("profile %s gained Cloud SQL config", p.ID)
+		}
 	}
 }

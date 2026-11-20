@@ -1,6 +1,8 @@
 package http
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 
@@ -33,7 +35,7 @@ func NewProfileHandler(token string, service *application.ConnectionService) *Pr
 		postgresConnector:  postgres.NewPostgreSQLConnector(service),
 		redisConnector:     redis.NewRedisConnector(),
 		sqliteConnector:    sqlite.NewSQLiteConnector(),
-		sqlserverConnector: sqlserver.NewSQLServerConnector(),
+		sqlserverConnector: sqlserver.NewSQLServerConnector(service),
 		mongoConnector:     mongo.NewMongoConnector(),
 	}
 }
@@ -141,6 +143,78 @@ func (h *ProfileHandler) DeleteProfile() http.Handler {
 	})
 }
 
+// DisconnectProfile closes the tunnel/proxy owned by a saved profile.
+func (h *ProfileHandler) DisconnectProfile() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !h.checkToken(r) {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		id := r.URL.Query().Get("id")
+		if id == "" {
+			http.Error(w, "id parameter is required", http.StatusBadRequest)
+			return
+		}
+		h.service.CloseProfileTunnel(id)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"success":true}`))
+	})
+}
+
+func normalizedMode(m string) string {
+	if m == "direct" {
+		return ""
+	}
+	return m
+}
+
+func samePtr[T comparable](a, b *T) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+// sameRoute reports whether two profiles reach the database through the same
+// route: same mode ("" and "direct" are equal) and, for tunnel modes, the same
+// tunnel configuration (plus the destination for SSM/SSH).
+func sameRoute(a, b domain.ConnectionProfile) bool {
+	if normalizedMode(a.ConnectionMode) != normalizedMode(b.ConnectionMode) {
+		return false
+	}
+	switch normalizedMode(a.ConnectionMode) {
+	case "gcp_cloudsql":
+		return samePtr(a.GCPCloudSQL, b.GCPCloudSQL)
+	case "ssm":
+		return samePtr(a.SSM, b.SSM) && a.Host == b.Host && a.Port == b.Port
+	case "ssh":
+		return samePtr(a.SSH, b.SSH) && a.Host == b.Host && a.Port == b.Port
+	}
+	return true
+}
+
+// connectionTestRoutingID picks the tunnel owner for a connection test of a
+// saved profile. A test whose route differs from the saved one (or whose saved
+// profile is missing) gets an ephemeral owner, so it can neither reuse nor
+// close the saved connection's proxy, whatever the mode. An unchanged route
+// keeps the saved ID and shares its tunnel. Unsaved profiles keep "".
+func connectionTestRoutingID(submitted domain.ConnectionProfile, saved *domain.ConnectionProfile) string {
+	if submitted.ID == "" {
+		return ""
+	}
+	if saved != nil && sameRoute(*saved, submitted) {
+		return submitted.ID
+	}
+	var b [8]byte
+	_, _ = rand.Read(b[:])
+	return "connection-test-" + hex.EncodeToString(b[:])
+}
+
 func (h *ProfileHandler) TestConnection() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !h.checkToken(r) {
@@ -173,6 +247,12 @@ func (h *ProfileHandler) TestConnection() http.Handler {
 
 		if profile.ID == "" {
 			defer h.service.CloseProfileTunnel("")
+		} else {
+			saved, _, _ := h.service.GetProfile(r.Context(), profile.ID)
+			if routingID := connectionTestRoutingID(profile, saved); routingID != profile.ID {
+				profile.ID = routingID
+				defer h.service.CloseProfileTunnel(routingID)
+			}
 		}
 		var err error
 		switch profile.Driver {

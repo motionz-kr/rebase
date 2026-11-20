@@ -73,14 +73,15 @@ func seedDB(t *testing.T, p domain.ConnectionProfile, password string) {
 	t.Helper()
 	c := NewSQLServerConnector()
 
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
 	// 1) DROP/CREATE DATABASE must run against master, each on its own batch.
-	master, err := c.connect(p, password, "master")
+	master, err := c.connect(ctx, p, password, "master")
 	if err != nil {
 		t.Fatalf("connect master: %v", err)
 	}
 	defer master.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
 
 	if _, err := master.ExecContext(ctx, "IF DB_ID('rebase_test') IS NOT NULL BEGIN ALTER DATABASE rebase_test SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE rebase_test; END"); err != nil {
 		t.Fatalf("drop rebase_test: %v", err)
@@ -90,7 +91,7 @@ func seedDB(t *testing.T, p domain.ConnectionProfile, password string) {
 	}
 
 	// 2) Tables + data in rebase_test.
-	rdb, err := c.connect(p, password, "rebase_test")
+	rdb, err := c.connect(ctx, p, password, "rebase_test")
 	if err != nil {
 		t.Fatalf("connect rebase_test: %v", err)
 	}

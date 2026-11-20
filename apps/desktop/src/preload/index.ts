@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   pickSqliteFile: () => ipcRenderer.invoke('pick-sqlite-file'),
   updateProfile: (profile: any, password?: string) => ipcRenderer.invoke('update-profile', profile, password),
   deleteProfile: (id: string) => ipcRenderer.invoke('delete-profile', id),
+  disconnectProfile: (id: string) => ipcRenderer.invoke('disconnect-profile', id),
   testConnection: (profile: any, password?: string) => ipcRenderer.invoke('test-connection', profile, password),
   listDatabases: (profileId: string) => ipcRenderer.invoke('list-databases', profileId),
   listTables: (profileId: string, database: string) => ipcRenderer.invoke('list-tables', profileId, database),
