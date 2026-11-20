@@ -49,12 +49,21 @@ func (f finder) fixedDirs() []string {
 	return append(dirs, "/opt/homebrew/share/google-cloud-sdk/bin", "/usr/local/share/google-cloud-sdk/bin", "/opt/homebrew/Caskroom/google-cloud-sdk/latest/google-cloud-sdk/bin")
 }
 
+// gcloudDirOnPath returns the symlink-resolved directory of a gcloud found on PATH.
+func (f finder) gcloudDirOnPath() string {
+	path, err := f.lookPath("gcloud")
+	if err != nil {
+		return ""
+	}
+	if resolved, err := f.evalSymlinks(path); err == nil {
+		path = resolved
+	}
+	return filepath.Dir(path)
+}
+
 func (f finder) findGcloudDir() string {
-	if path, err := f.lookPath("gcloud"); err == nil {
-		if resolved, err := f.evalSymlinks(path); err == nil {
-			path = resolved
-		}
-		return filepath.Dir(path)
+	if dir := f.gcloudDirOnPath(); dir != "" {
+		return dir
 	}
 	for _, dir := range f.fixedDirs() {
 		if f.isExecutable(filepath.Join(dir, f.fileName("gcloud"))) {
@@ -76,7 +85,7 @@ func (f finder) findProxy(explicit string) (string, error) {
 	}
 	name := f.fileName("cloud-sql-proxy")
 	dirs := f.fixedDirs()
-	if dir := f.findGcloudDir(); dir != "" {
+	if dir := f.gcloudDirOnPath(); dir != "" {
 		dirs = append([]string{dir}, dirs...)
 	}
 	for _, dir := range dirs {

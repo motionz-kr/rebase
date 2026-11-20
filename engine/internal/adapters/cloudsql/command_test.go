@@ -69,7 +69,7 @@ func TestProxyArgsErrors(t *testing.T) {
 func TestStartupError(t *testing.T) {
 	const (
 		invalidProject = `proxy server error: failed to get instance: refresh error: failed to get instance metadata (connection name = "x:y:z"): googleapi: Error 400: Project specified in the request is invalid., errorInvalidProject`
-		badKeyFile     = "Error starting proxy: error initializing dialer: config error: open /nonexistent/key.json: no such file or directory\nThe proxy has encountered a terminal error: unable to start: error initializing dialer"
+		badKeyFile     = "Authorizing with the credentials file at \"/nonexistent/key.json\"\nError starting proxy: error initializing dialer: config error: open /nonexistent/key.json: no such file or directory\nThe proxy has encountered a terminal error: unable to start: error initializing dialer"
 		msgFlag        = "Cloud SQL: cloud-sql-proxy v2 최신 버전이 필요합니다. gcloud components update 또는 재설치 후 다시 시도하세요"
 		msgLogin       = "Cloud SQL: gcloud 로그인이 만료되었습니다. 터미널에서 gcloud auth login 을 실행하세요"
 		msgADC         = "Cloud SQL: Application Default Credentials가 없습니다. gcloud auth application-default login 을 실행하거나 인증 방식을 바꾸세요"
@@ -92,6 +92,7 @@ func TestStartupError(t *testing.T) {
 		{"gcloud auth login", "please run gcloud auth login", msgLogin},
 		{"adc", "credentials: could not find default credentials. See https://cloud.google.com/docs/authentication", msgADC},
 		{"real bad key file", badKeyFile, msgKey},
+		{"gcloud dialer failure is not a key file error", "Authorizing with gcloud user credentials\nError starting proxy: error initializing dialer: config error: fork/exec gcloud: no such file or directory", msgDefault},
 		{"credentials file config error", "credentials file: config error: bad json", msgKey},
 		{"credentials-file no such file", "--credentials-file /x.json: no such file or directory", msgKey},
 		{"iam 403", "googleapis: Error 403: boom", msgIAM},

@@ -80,6 +80,11 @@ func TestFindProxy(t *testing.T) {
 			files: map[string]fs.FileMode{"/sdk/google-cloud-sdk/bin/cloud-sql-proxy": exe},
 			want:  "/sdk/google-cloud-sdk/bin/cloud-sql-proxy",
 		},
+		{
+			name: "off-PATH sdk does not override fixed dir order", goos: "darwin",
+			files: map[string]fs.FileMode{"/opt/homebrew/bin/cloud-sql-proxy": exe, "/home/u/google-cloud-sdk/bin/cloud-sql-proxy": exe, "/home/u/google-cloud-sdk/bin/gcloud": exe},
+			want:  "/opt/homebrew/bin/cloud-sql-proxy",
+		},
 		{name: "fixed dir homebrew", goos: "darwin", files: map[string]fs.FileMode{"/opt/homebrew/bin/cloud-sql-proxy": exe}, want: "/opt/homebrew/bin/cloud-sql-proxy"},
 		{name: "fixed dir home local", goos: "linux", files: map[string]fs.FileMode{"/home/u/.local/bin/cloud-sql-proxy": exe}, want: "/home/u/.local/bin/cloud-sql-proxy"},
 		{name: "fixed dir home sdk", goos: "linux", files: map[string]fs.FileMode{"/home/u/google-cloud-sdk/bin/cloud-sql-proxy": exe}, want: "/home/u/google-cloud-sdk/bin/cloud-sql-proxy"},

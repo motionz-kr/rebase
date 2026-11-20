@@ -53,9 +53,7 @@ func startupError(output string) error {
 		return errors.New("Cloud SQL: gcloud 로그인이 만료되었습니다. 터미널에서 gcloud auth login 을 실행하세요")
 	case strings.Contains(value, "could not find default credentials"):
 		return errors.New("Cloud SQL: Application Default Credentials가 없습니다. gcloud auth application-default login 을 실행하거나 인증 방식을 바꾸세요")
-	// The real proxy line is "error initializing dialer: config error: open <file>: no such file",
-	// which never says "credentials file", so the dialer init error counts as a key-file hint too.
-	case containsAny(value, "credentials file", "credentials-file", "error initializing dialer") && containsAny(value, "no such file", "config error"):
+	case containsAny(value, "credentials file", "credentials-file") && containsAny(value, "no such file", "config error"):
 		return errors.New("Cloud SQL: 서비스 계정 키 파일을 읽지 못했습니다. 경로와 권한을 확인하세요")
 	case containsAny(value, "error 403", "notauthorized", "not authorized", "permission", "cloudsql.instances.get"):
 		return errors.New("Cloud SQL: IAM 권한이 부족합니다. 대상 프로젝트에 roles/cloudsql.client 권한이 필요합니다")
