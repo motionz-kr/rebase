@@ -20,7 +20,7 @@ export function isPortOpen(host: string, port: number, timeoutMs = 1500): Promis
 export const MYSQL = {
   host: '127.0.0.1',
   port: Number(process.env.E2E_MYSQL_PORT ?? 3306),
-  database: 'devdb',
+  database: process.env.E2E_MYSQL_DATABASE ?? 'devdb',
   username: 'root',
   password: process.env.E2E_MYSQL_PASSWORD ?? 'password1!',
 };
