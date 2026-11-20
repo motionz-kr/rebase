@@ -1,6 +1,9 @@
 package domain
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
 
 func validCloudSQL() ConnectionProfile {
 	return ConnectionProfile{
@@ -34,8 +37,9 @@ func TestGCPCloudSQLValidation(t *testing.T) {
 	}
 	p := validCloudSQL()
 	p.GCPCloudSQL.AuthMode = "credentials_file"
-	p.GCPCloudSQL.CredentialsFile = "/etc/key.json"
-	p.GCPCloudSQL.ProxyPath = "/usr/local/bin/cloud-sql-proxy"
+	root := t.TempDir() // absolute on every host OS
+	p.GCPCloudSQL.CredentialsFile = filepath.Join(root, "key.json")
+	p.GCPCloudSQL.ProxyPath = filepath.Join(root, "bin", "cloud-sql-proxy")
 	p.TLSMode = "prefer"
 	if err := p.Validate(); err != nil {
 		t.Fatal(err)
@@ -69,13 +73,13 @@ func TestGCPCloudSQLValidation(t *testing.T) {
 			p.GCPCloudSQL.AuthMode, p.GCPCloudSQL.CredentialsFile = "credentials_file", "key.json"
 		}, msgKey},
 		{"key newline", func(p *ConnectionProfile) {
-			p.GCPCloudSQL.AuthMode, p.GCPCloudSQL.CredentialsFile = "credentials_file", "/a\nb.json"
+			p.GCPCloudSQL.AuthMode, p.GCPCloudSQL.CredentialsFile = "credentials_file", filepath.Join(root, "a\nb.json")
 		}, msgKey},
 		{"key nul", func(p *ConnectionProfile) {
-			p.GCPCloudSQL.AuthMode, p.GCPCloudSQL.CredentialsFile = "credentials_file", "/a\x00b"
+			p.GCPCloudSQL.AuthMode, p.GCPCloudSQL.CredentialsFile = "credentials_file", filepath.Join(root, "a\x00b")
 		}, msgKey},
 		{"proxy relative", func(p *ConnectionProfile) { p.GCPCloudSQL.ProxyPath = "cloud-sql-proxy" }, msgProxy},
-		{"proxy newline", func(p *ConnectionProfile) { p.GCPCloudSQL.ProxyPath = "/a\r/b" }, msgProxy},
+		{"proxy newline", func(p *ConnectionProfile) { p.GCPCloudSQL.ProxyPath = filepath.Join(root, "a\r", "b") }, msgProxy},
 		{"tls require", func(p *ConnectionProfile) { p.TLSMode = "require" }, msgTLS},
 		{"no database", func(p *ConnectionProfile) { p.Database = "" }, "database name is required for relational databases"},
 	}

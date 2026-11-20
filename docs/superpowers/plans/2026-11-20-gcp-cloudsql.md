@@ -265,7 +265,8 @@ Executed with Go 1.25.7 from `/tmp/gotc` (no system Go). Facts from the per-task
 - `go test -race ./engine/internal/adapters/cloudsql/... ./engine/internal/adapters/ssm/... ./engine/internal/adapters/procgroup/...`:
   cloudsql ok, ssm ok (Task 4). Windows lifecycle tests were not run (no Windows host).
 - `pnpm --filter renderer test`: 62 files / 467 tests passed (Task 6); renderer build and tsc clean.
-- Build: `pnpm build:engine`, `pnpm --filter renderer build`, `pnpm --filter desktop build` all OK.
+- Build: `pnpm build:engine`, `pnpm --filter renderer build`, `pnpm --filter desktop build` all OK (renderer build passed with the
+  pre-existing Vite chunk-size warning).
 - E2E: `E2E_MYSQL_DATABASE=mysql E2E_POSTGRES_PORT=55432 pnpm --filter desktop exec playwright test e2e/gcp-cloudsql.spec.ts e2e/ssh.spec.ts`
   -> 6 passed, 1 skipped (ssh postgres); `gcp-cloudsql.spec.ts` 4/4 passed. Local MySQL had no `devdb`, so MySQL flows
   used `mysql`; PostgreSQL 15 ran in a disposable container on port 55432.

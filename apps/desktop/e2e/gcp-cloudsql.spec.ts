@@ -289,16 +289,37 @@ for (const db of [
         expect(await isPortOpen('127.0.0.1', mcpLaunch.port)).toBe(true);
         expect(await isPortOpen('127.0.0.1', desktopLaunch.port)).toBe(true);
         expect(mcpLines.length).toBeGreaterThan(0);
+        await stopMCP(child);
+        // Validate the complete capture, including output written during shutdown.
+        if (!child.stdout.closed) await new Promise((resolve) => child!.stdout.once('close', resolve));
+        await new Promise((resolve) => setImmediate(resolve));
+        expect(mcpLines.length).toBeGreaterThan(0);
         for (const line of mcpLines) expect(JSON.parse(line).jsonrpc).toBe('2.0');
         expect(mcpLines.join('\n') + stderr.join('')).not.toContain('Connection test passed');
-        await stopMCP(child);
         await expect.poll(async () => isPortOpen('127.0.0.1', mcpLaunch.port)).toBe(false);
         await expect.poll(() => alive(mcpLaunch.pid)).toBe(false);
         // Desktop proxy is unaffected by the MCP engine exit.
         expect(alive(desktopLaunch.pid)).toBe(true);
         expect(await isPortOpen('127.0.0.1', desktopLaunch.port)).toBe(true);
 
+        // Disconnect stops this profile's proxy; reconnecting starts a fresh one.
+        const beforeDisconnect = fakeProxy.records().length;
+        await row.getByRole('button', { name: 'Disconnect' }).click();
+        await expect.poll(() => alive(desktopLaunch.pid)).toBe(false);
+        await expect.poll(async () => isPortOpen('127.0.0.1', desktopLaunch.port)).toBe(false);
+        expect(fakeProxy.records()).toHaveLength(beforeDisconnect);
+        await row.click();
+        await expect(win.locator('.conn-panel .editor-toolbar')).toBeVisible({ timeout: 20000 });
+        await typeQuery(win, 'SELECT 1 AS gcp_after_disconnect');
+        await win.locator('.conn-panel .editor-toolbar button', { hasText: 'Run' }).first().click();
+        await expect(win.locator('.conn-panel .grid-body .grid-cell').first()).toHaveText('1');
+        expect(fakeProxy.records()).toHaveLength(beforeDisconnect + 1);
+        const reconnectLaunch = fakeProxy.records()[beforeDisconnect];
+        expect(reconnectLaunch.pid).not.toBe(desktopLaunch.pid);
+        expect(alive(reconnectLaunch.pid)).toBe(true);
+
         await app.close(); appClosed = true;
+        await expect.poll(() => alive(reconnectLaunch.pid)).toBe(false);
         await expect.poll(() => alive(desktopLaunch.pid)).toBe(false);
         await expect.poll(async () => isPortOpen('127.0.0.1', desktopLaunch.port)).toBe(false);
       } finally {

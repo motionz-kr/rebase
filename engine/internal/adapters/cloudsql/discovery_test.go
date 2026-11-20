@@ -22,8 +22,27 @@ func (f fakeInfo) ModTime() time.Time { return time.Time{} }
 func (f fakeInfo) IsDir() bool        { return f.mode.IsDir() }
 func (f fakeInfo) Sys() any           { return nil }
 
+// Fixtures are written with slashes and converted to the host separator, the
+// same form filepath.Join produces in production, so keys match on every OS.
+func nativeMap[V any](in map[string]V) map[string]V {
+	out := make(map[string]V, len(in))
+	for k, v := range in {
+		out[filepath.FromSlash(k)] = v
+	}
+	return out
+}
+
+func nativeValues(in map[string]string) map[string]string {
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[filepath.FromSlash(k)] = filepath.FromSlash(v)
+	}
+	return out
+}
+
 // fakeFinder builds a finder over a virtual file system: path -> mode.
 func fakeFinder(goos string, pathBinaries map[string]string, files map[string]fs.FileMode, links map[string]string) finder {
+	pathBinaries, files, links = nativeValuesKeepKeys(pathBinaries), nativeMap(files), nativeValues(links)
 	return finder{
 		goos: goos,
 		lookPath: func(name string) (string, error) {
@@ -32,7 +51,7 @@ func fakeFinder(goos string, pathBinaries map[string]string, files map[string]fs
 			}
 			return "", errors.New("not found")
 		},
-		homeDir: func() (string, error) { return "/home/u", nil },
+		homeDir: func() (string, error) { return filepath.FromSlash("/home/u"), nil },
 		stat: func(p string) (os.FileInfo, error) {
 			if m, ok := files[p]; ok {
 				return fakeInfo{mode: m}, nil
@@ -46,6 +65,14 @@ func fakeFinder(goos string, pathBinaries map[string]string, files map[string]fs
 			return p, nil
 		},
 	}
+}
+
+func nativeValuesKeepKeys(in map[string]string) map[string]string {
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[k] = filepath.FromSlash(v)
+	}
+	return out
 }
 
 const (
@@ -102,14 +129,14 @@ func TestFindProxy(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f := fakeFinder(tt.goos, tt.path, tt.files, tt.links)
-			got, err := f.findProxy(tt.explicit)
+			got, err := f.findProxy(filepath.FromSlash(tt.explicit))
 			if tt.wantErr != "" {
 				if err == nil || err.Error() != tt.wantErr || got != "" {
 					t.Fatalf("got %q, %v", got, err)
 				}
 				return
 			}
-			if err != nil || got != tt.want {
+			if err != nil || got != filepath.FromSlash(tt.want) {
 				t.Fatalf("got %q, %v want %q", got, err, tt.want)
 			}
 		})
@@ -134,7 +161,7 @@ func TestFindGcloudDir(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f := fakeFinder(tt.goos, tt.path, tt.files, tt.links)
-			if got := f.findGcloudDir(); got != tt.want {
+			if got := f.findGcloudDir(); got != filepath.FromSlash(tt.want) {
 				t.Fatalf("got %q want %q", got, tt.want)
 			}
 		})
