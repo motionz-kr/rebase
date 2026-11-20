@@ -127,3 +127,9 @@ disposable container on 55432 (`E2E_POSTGRES_PORT`, `E2E_SSM_POSTGRES_PORT`, `E2
   socket-write errors, control-failure state header, paused-script continuation cleared). Final verdict: ready.
 - Deferred: conservative `SET` matching also flags string literals containing `autocommit`; stored procedures/dynamic SQL
   boundaries remain the documented limitation.
+- E2E Keychain hygiene (`apps/desktop/e2e/fixtures.ts`): every E2E app teardown now deletes exactly the `secret_ref`
+  accounts listed in that test's temp `metadata.db` (root cause of the first attempt: `sqlite3 -readonly` cannot open
+  a WAL DB after a clean engine exit). sqlite3 runs with `-init /dev/null`; subprocesses have hard SIGKILL timeouts; if
+  engine exit cannot be confirmed the temp dir is kept. Verified: Keychain `AntigravityDBDesktop` count unchanged
+  across `connection-session-lifecycle` + `query-mysql-transactions` (9 passed). Leftovers from earlier runs today were
+  removed by exact account after checking none is referenced by the real metadata DB.
