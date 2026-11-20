@@ -76,7 +76,7 @@ test.describe('query tab transactions', () => {
     await win.screenshot({ path: path.join(screenshotDir, 'query-transaction-active.png') });
 
     await win.getByTestId('tx-commit').click();
-    await expect(win.locator('.transaction-notice')).toHaveText('Committed');
+    await expect(win.locator('.transaction-notice')).toHaveText('커밋 완료 · 이 트랜잭션에서 1행 반영');
     expect(countRows()).toBe(1);
 
     await typeQuery(win, "INSERT INTO transaction_e2e (id, value) VALUES (2, 'rolled back');");
@@ -89,7 +89,7 @@ test.describe('query tab transactions', () => {
     await expect(win.getByTestId('transaction-status')).toHaveText('미커밋 트랜잭션', { timeout: 20_000 });
     expect(countRows()).toBe(1);
     await win.getByTestId('tx-rollback').click();
-    await expect(win.locator('.transaction-notice')).toHaveText('Rolled back');
+    await expect(win.locator('.transaction-notice')).toHaveText('롤백 완료 · 1행 변경 취소');
     expect(countRows()).toBe(1);
   });
 
@@ -134,7 +134,8 @@ test.describe('query tab transactions', () => {
     await expect(win.getByTestId('transaction-status')).toHaveText('미커밋 트랜잭션');
     expect(countRows()).toBe(before);
     await win.getByTestId('tx-rollback').click();
-    await expect(win.locator('.transaction-notice')).toHaveText('Rolled back');
+    // SAVEPOINT/RELEASE are not DML: only the two INSERTs are tallied.
+    await expect(win.locator('.transaction-notice')).toHaveText('롤백 완료 · 2행 변경 취소');
     expect(countRows()).toBe(before);
 
     await win.getByTestId('tx-mode-auto').click();

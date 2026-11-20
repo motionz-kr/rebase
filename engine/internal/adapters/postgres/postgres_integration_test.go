@@ -162,3 +162,40 @@ func TestPostgreSQLConnector_Views(t *testing.T) {
 		t.Errorf("unexpected view DDL: %q", ddl)
 	}
 }
+
+// Stateless DML without RETURNING must report RowsAffected(), not a streamed row
+// count of 0 (the "Rows affected: 0" bug). Uses a throwaway table.
+func TestPostgreSQLConnector_ExecuteQueryStream_WriteReportsRowsAffected(t *testing.T) {
+	connector := NewPostgreSQLConnector()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	p := domain.ConnectionProfile{
+		ID: "pg-affected-1", Name: "PG Local", Driver: "postgres",
+		Host: "127.0.0.1", Port: 5432, Database: "postgres", Username: "postgres", TLSMode: "none",
+	}
+	pw := "postgres"
+	run := func(q string) (int64, int, error) {
+		rows := 0
+		n, err := connector.ExecuteQueryStream(ctx, p, pw, q, false,
+			func(int64) {}, func([]string) error { return nil }, func([]any) error { rows++; return nil })
+		return n, rows, err
+	}
+	_, _, _ = run("DROP TABLE IF EXISTS e2e_affected_rows")
+	if _, _, err := run("CREATE TABLE e2e_affected_rows (id INT PRIMARY KEY, v INT)"); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	defer run("DROP TABLE IF EXISTS e2e_affected_rows")
+
+	if n, rows, err := run("INSERT INTO e2e_affected_rows VALUES (1, 1), (2, 1), (3, 1)"); err != nil || n != 3 || rows != 0 {
+		t.Fatalf("INSERT: n=%d rows=%d err=%v, want n=3 rows=0", n, rows, err)
+	}
+	if n, rows, err := run("UPDATE e2e_affected_rows SET v = 2 WHERE id <= 2"); err != nil || n != 2 || rows != 0 {
+		t.Fatalf("UPDATE: n=%d rows=%d err=%v, want n=2 rows=0", n, rows, err)
+	}
+	if n, rows, err := run("DELETE FROM e2e_affected_rows WHERE id = 3 RETURNING id"); err != nil || n != 1 || rows != 1 {
+		t.Fatalf("DELETE RETURNING: n=%d rows=%d err=%v, want n=1 rows=1", n, rows, err)
+	}
+	if n, rows, err := run("SELECT id FROM e2e_affected_rows"); err != nil || n != 2 || rows != 2 {
+		t.Fatalf("SELECT: n=%d rows=%d err=%v, want 2/2", n, rows, err)
+	}
+}

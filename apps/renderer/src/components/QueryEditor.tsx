@@ -41,6 +41,8 @@ import { withExplicitRiskApproval } from '../lib/queryApproval';
 import { getDisconnectTransactionTabs } from '../lib/connectionLifecycle';
 import { canEnableTabWrite, resolveQueryAllowWrite, resolveTabWriteMode } from '../lib/queryTabPolicy';
 import { readQueryTabs, writeQueryTabs, type PersistedQueryTab } from '../lib/queryTabPersistence';
+import { chipLabel, formatRunSummary, isRowChanging, pickDefaultResultIndex, summarizeResults, zeroAffectedHint } from '../lib/resultSummary';
+import { applyStatementToPending, outcomeNotice, pendingLabel, type SavepointMark, type TransactionOutcome } from '../lib/pendingAffected';
 import { createMultiStatementResumePlan } from '../lib/multiStatementResume';
 import { canCloseQueryTabs, getQueryTabCloseIds, getRemainingActiveTabId, type QueryTabCloseScope } from '../lib/queryTabClose';
 
@@ -63,6 +65,8 @@ interface ResultSet {
   error: string | null;
   truncated: boolean;
   rowLimit: number;
+  // Set when this statement was COMMIT/ROLLBACK: the rows the transaction had changed.
+  txOutcome?: TransactionOutcome;
 }
 
 type StatementExecutionState = 'pending' | 'running' | 'success' | 'error' | 'skipped';
@@ -101,6 +105,12 @@ interface QueryTab {
   transactionState: QueryTransactionState;
   transactionSessionId: string | null;
   transactionNotice: string | null;
+  // Rows changed by write statements inside the still-open transaction (display only).
+  pendingAffected: number;
+  // Tally snapshots per SAVEPOINT so ROLLBACK TO can restore the count.
+  pendingSavepoints: SavepointMark[];
+  // The tally includes a truncated RETURNING count (show "N행 이상").
+  pendingLowerBound: boolean;
   // Each query tab is a client with its own read/write choice.
   writeMode: boolean;
 }
@@ -199,6 +209,9 @@ const newTab = (id: string, name: string, database: string, query: string): Quer
   transactionState: 'idle',
   transactionSessionId: null,
   transactionNotice: null,
+  pendingAffected: 0,
+  pendingSavepoints: [],
+  pendingLowerBound: false,
   writeMode: false,
 });
 
@@ -330,7 +343,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     persistTabs(profileId, tabsRef.current, activeTabIdRef.current);
   }, [profileId]);
 
-  const updateTabTransaction = (tabId: string, patch: Partial<Pick<QueryTab, 'transactionMode' | 'transactionState' | 'transactionSessionId'>>) => {
+  const updateTabTransaction = (tabId: string, patch: Partial<Pick<QueryTab, 'transactionMode' | 'transactionState' | 'transactionSessionId' | 'pendingAffected' | 'pendingSavepoints' | 'pendingLowerBound'>>) => {
     tabsRef.current = tabsRef.current.map((tab) => tab.id === tabId ? { ...tab, ...patch } : tab);
     setTabs((prev) => prev.map((tab) => tab.id === tabId ? { ...tab, ...patch } : tab));
   };
@@ -369,7 +382,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     if (!result.success) throw new Error(result.error || '트랜잭션 세션을 닫지 못했습니다.');
     delete transactionSessionsRef.current[tabId];
     delete sessionPermissionsRef.current[tabId];
-    updateTabTransaction(tabId, { transactionSessionId: null, transactionState: 'idle' });
+    updateTabTransaction(tabId, { transactionSessionId: null, transactionState: 'idle', pendingAffected: 0, pendingSavepoints: [], pendingLowerBound: false });
   };
 
   // The engine reported the session's connection lost. Drop every cached handle
@@ -381,7 +394,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     delete sessionPermissionsRef.current[tabId];
     const pending = pendingMultiRunsRef.current[tabId];
     if (pending) pending.sessionId = undefined;
-    updateTabTransaction(tabId, { transactionSessionId: null, transactionState: 'idle' });
+    updateTabTransaction(tabId, { transactionSessionId: null, transactionState: 'idle', pendingAffected: 0, pendingSavepoints: [], pendingLowerBound: false });
     if (sessionId) {
       void Promise.resolve(window.electronAPI.querySession('close', profileId, '', sessionId)).catch(() => {});
     }
@@ -444,7 +457,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
       }
       clearPendingMultiRun(tabId);
       setTabs((prev) => prev.map((tab) => tab.id === tabId
-        ? { ...tab, transactionMode: mode, transactionState: 'idle', transactionNotice: rollbackNotice, ...(rollbackNotice ? { policyPrompt: null } : {}) }
+        ? { ...tab, transactionMode: mode, transactionState: 'idle', pendingAffected: 0, pendingSavepoints: [], pendingLowerBound: false, transactionNotice: rollbackNotice, ...(rollbackNotice ? { policyPrompt: null } : {}) }
         : tab));
     } catch (error) {
       alert(error instanceof Error ? error.message : '트랜잭션 세션을 닫지 못했습니다.');
@@ -457,7 +470,11 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     const sessionId = transactionSessionsRef.current[tabId] ?? target.transactionSessionId;
     if (!sessionId) return;
     const result = await window.electronAPI.querySession(action, profileId, '', sessionId);
-    const outcome = resolveTransactionControlOutcome(action, result);
+    // The engine reports 'failed' after any statement error, but only PostgreSQL
+    // aborts the transaction then (its COMMIT really rolls back); SQLite and MySQL
+    // commit the earlier successful changes.
+    const abortedCommit = action === 'commit' && target.transactionState === 'failed' && driver === 'postgres';
+    const outcome = resolveTransactionControlOutcome(action, result, target.pendingAffected, { lowerBound: target.pendingLowerBound, aborted: abortedCommit });
     if (outcome.discard) discardLostSession(tabId);
     // A discarded session (even through a failed Commit) ends the paused script and
     // its policy prompt: "Run anyway" must never resume on a new connection.
@@ -466,6 +483,10 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
       ? {
         ...tab,
         transactionState: outcome.transactionState,
+        // A finished (or discarded) transaction has nothing left pending; a failed Commit keeps its tally.
+        pendingAffected: outcome.clearContinuation ? 0 : tab.pendingAffected,
+        pendingSavepoints: outcome.clearContinuation ? [] : tab.pendingSavepoints,
+        pendingLowerBound: outcome.clearContinuation ? false : tab.pendingLowerBound,
         transactionNotice: outcome.notice,
         error: outcome.error,
         ...(outcome.clearContinuation ? { policyPrompt: null } : {}),
@@ -769,6 +790,20 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
             }
           } else if (chunk.type === 'done') {
             updated.transactionState = resolveRunTransactionState(chunk.transactionState, 'idle');
+            const applied = applyStatementToPending({ pending: tab.pendingAffected, savepoints: tab.pendingSavepoints, lowerBound: tab.pendingLowerBound }, {
+              sql: tab.lastExecutedSql ?? tab.query,
+              hasColumns: updated.columns.length > 0,
+              rowsAffected: chunk.rowsAffected ?? null,
+              error: null,
+              truncated: chunk.truncated === true,
+              transactionStateAfter: updated.transactionState,
+            }, { driver, transactionStateBefore: tab.transactionState });
+            updated.pendingAffected = applied.tally.pending;
+            updated.pendingSavepoints = applied.tally.savepoints;
+            updated.pendingLowerBound = applied.tally.lowerBound === true;
+            if (applied.outcome) {
+              updated.transactionNotice = outcomeNotice(applied.outcome);
+            }
             updated.loading = false;
             updated.rowsAffected = chunk.rowsAffected ?? null;
             updated.truncated = chunk.truncated === true;
@@ -804,6 +839,13 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
             updated.elapsedTimeMs = tab.startTime ? Date.now() - tab.startTime : 0;
             updated.queryId = null;
             updated.transactionState = resolveRunTransactionState(chunk.transactionState, 'failed');
+            // MySQL may already have committed (failed DDL) or rolled back (deadlock).
+            const errTally = applyStatementToPending({ pending: tab.pendingAffected, savepoints: tab.pendingSavepoints, lowerBound: tab.pendingLowerBound }, {
+              sql: tab.lastExecutedSql ?? tab.query, hasColumns: false, rowsAffected: null, error: chunk.message ?? 'error', transactionStateAfter: updated.transactionState,
+            }, { driver }).tally;
+            updated.pendingAffected = errTally.pending;
+            updated.pendingSavepoints = errTally.savepoints;
+            updated.pendingLowerBound = errTally.lowerBound === true;
             updated.lastExec = { sql: tab.lastExecutedSql ?? tab.query, durationMs: updated.elapsedTimeMs, error: chunk.message };
             const runningIndex = updated.statementExecutions.findIndex((execution) => execution.state === 'running');
             if (runningIndex >= 0) {
@@ -829,7 +871,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     });
 
     return cleanup;
-  }, [logQueryHistory, onQueryExecuted]);
+  }, [logQueryHistory, onQueryExecuted, driver]);
 
   const handleQueryChange = (value: string | undefined) => {
     if (value === undefined) return;
@@ -873,8 +915,17 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
           }
           finish({ policy: { code: chunk.code ?? '', message: chunk.message ?? '', verb: chunk.verb ?? '' } });
         } else if (chunk.type === 'done') {
+          const currentTab = tabsRef.current.find((tab) => tab.id === opts.tabId);
+          const applied = applyStatementToPending({ pending: currentTab?.pendingAffected ?? 0, savepoints: currentTab?.pendingSavepoints ?? [], lowerBound: currentTab?.pendingLowerBound }, {
+            sql: stmt,
+            hasColumns: columns.length > 0,
+            rowsAffected: chunk.rowsAffected ?? null,
+            error: null,
+            truncated: chunk.truncated === true,
+            transactionStateAfter: chunk.transactionState ?? 'idle',
+          }, { driver, transactionStateBefore: currentTab?.transactionState });
           if (shouldDiscardSession(chunk.transactionState)) discardLostSession(opts.tabId);
-          else updateTabTransaction(opts.tabId, { transactionState: chunk.transactionState ?? 'idle' });
+          else updateTabTransaction(opts.tabId, { transactionState: chunk.transactionState ?? 'idle', pendingAffected: applied.tally.pending, pendingSavepoints: applied.tally.savepoints, pendingLowerBound: applied.tally.lowerBound === true });
           finish({
             result: {
               statement: stmt,
@@ -884,12 +935,19 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
               error: null,
               truncated: chunk.truncated === true,
               rowLimit: chunk.rowLimit ?? 0,
+              ...(applied.outcome ? { txOutcome: applied.outcome } : {}),
             },
             sessionLost: shouldDiscardSession(chunk.transactionState),
           });
         } else if (chunk.type === 'error') {
           if (shouldDiscardSession(chunk.transactionState)) discardLostSession(opts.tabId);
-          else updateTabTransaction(opts.tabId, { transactionState: chunk.transactionState ?? 'failed' });
+          else {
+            const errTab = tabsRef.current.find((tab) => tab.id === opts.tabId);
+            const errTally = applyStatementToPending({ pending: errTab?.pendingAffected ?? 0, savepoints: errTab?.pendingSavepoints ?? [], lowerBound: errTab?.pendingLowerBound }, {
+              sql: stmt, hasColumns: false, rowsAffected: null, error: chunk.message ?? 'error', transactionStateAfter: chunk.transactionState ?? 'failed',
+            }, { driver }).tally;
+            updateTabTransaction(opts.tabId, { transactionState: chunk.transactionState ?? 'failed', pendingAffected: errTally.pending, pendingSavepoints: errTally.savepoints, pendingLowerBound: errTally.lowerBound === true });
+          }
           finish({
             result: { statement: stmt, columns, rows, rowsAffected: null, error: chunk.message ?? null, truncated: false, rowLimit: 0 },
             sessionLost: shouldDiscardSession(chunk.transactionState),
@@ -1082,12 +1140,13 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     if (!policy) clearPendingMultiRun(runTabId);
     const elapsed = Date.now() - startTime;
     const lastErr = collected.find((rs) => rs.error)?.error ?? null;
-    const totalRows = collected.reduce((n, rs) => n + (rs.columns.length > 0 ? rs.rows.length : 0), 0);
+    const runSummary = summarizeResults(collected);
+    const lastOutcome = [...collected].reverse().find((rs) => rs.txOutcome)?.txOutcome;
     const lastExec: ExecInfo = {
       sql: statements.join(';\n'),
       durationMs: elapsed,
-      rowCount: lastErr ? null : totalRows,
-      rowsAffected: null,
+      rowCount: lastErr || !runSummary.hasQuery ? null : runSummary.selectedRows,
+      rowsAffected: lastErr || !runSummary.hasWrite ? null : runSummary.changedRows,
       error: lastErr,
     };
     setTabs((prev) =>
@@ -1097,7 +1156,12 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
               ...t,
               loading: false,
               elapsedTimeMs: elapsed,
-              activeResultIndex: 0,
+              // Land on the result that carries the answer (first failure, else the
+              // last non-transaction-control statement), not on statement 1.
+              activeResultIndex: pickDefaultResultIndex(collected),
+              ...(lastOutcome
+                ? { transactionNotice: outcomeNotice(lastOutcome) }
+                : {}),
               policyPrompt: policy,
               lastExec,
               statementExecutions: t.statementExecutions.map((execution) =>
@@ -1760,6 +1824,11 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
             >
               <Database size={12} /> {getTransactionStatusLabel(activeTab.transactionMode, activeTab.transactionState)}
             </span>
+            {activeTab.pendingAffected > 0 && hasPendingTransaction(activeTab.transactionState) && (
+              <span className="transaction-pending" data-testid="tx-pending-affected" role="status" title="이 트랜잭션에서 아직 커밋되지 않은 변경 행 수">
+                {pendingLabel(activeTab.pendingAffected, activeTab.pendingLowerBound)}
+              </span>
+            )}
             <button
               className="btn btn-secondary btn-sm transaction-action"
               data-testid="tx-commit"
@@ -1774,7 +1843,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
               disabled={!getTransactionControls(activeTab.transactionMode, activeTab.transactionState, activeTab.loading).rollback}
               title="현재 탭의 변경 사항을 되돌립니다"
             ><RotateCcw size={13} /> Rollback</button>
-            {activeTab.transactionNotice && <span className="transaction-notice" role="status">{activeTab.transactionNotice}</span>}
+            {activeTab.transactionNotice && <span className="transaction-notice" role="status" title={activeTab.transactionNotice}>{activeTab.transactionNotice}</span>}
           </div>}
         </div>
       </div>
@@ -1844,6 +1913,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
             const rs = sets[idx];
             return (
               <>
+                <div className="result-summary" data-testid="run-summary">{formatRunSummary(summarizeResults(sets))}</div>
                 <div className="result-strip">
                   {sets.map((s, i) => (
                     <button
@@ -1852,12 +1922,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
                       onClick={() => setTabs((prev) => prev.map((t) => (t.id === activeTabId ? { ...t, activeResultIndex: i } : t)))}
                       title={s.statement}
                     >
-                      Result {i + 1}
-                      {s.error
-                        ? ' · failed'
-                        : s.columns.length > 0
-                        ? ` · ${s.rows.length.toLocaleString()} rows`
-                        : ` · ${s.rowsAffected ?? 0} affected`}
+                      {chipLabel(i, s)}
                     </button>
                   ))}
                   {activeTab.loading && <span className="spinner" style={{ marginLeft: 8 }} />}
@@ -1871,7 +1936,15 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
                   </div>
                 ) : rs.columns.length === 0 ? (
                   <div className="alert" style={{ background: 'var(--green-soft)', color: 'var(--green)' }}>
-                    Statement executed. Rows affected: {rs.rowsAffected ?? 0}
+                    {rs.txOutcome
+                      ? outcomeNotice(rs.txOutcome)
+                      : isRowChanging(rs.statement)
+                      ? `Statement executed. Rows affected: ${rs.rowsAffected ?? 0}`
+                      : 'Statement executed.'}
+                    {(() => {
+                      const hint = zeroAffectedHint(driver, rs.statement, rs.rowsAffected);
+                      return hint ? <div className="affected-hint">{hint}</div> : null;
+                    })()}
                   </div>
                 ) : (
                   <>
@@ -1905,6 +1978,10 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
               activeTab.columns.length === 0 && (
                 <div className="alert" style={{ background: 'var(--green-soft)', color: 'var(--green)' }}>
                   Statement executed. Rows affected: {activeTab.rowsAffected}
+                  {(() => {
+                    const hint = zeroAffectedHint(driver, activeTab.lastExecutedSql ?? activeTab.query, activeTab.rowsAffected);
+                    return hint ? <div className="affected-hint">{hint}</div> : null;
+                  })()}
                 </div>
               )}
 

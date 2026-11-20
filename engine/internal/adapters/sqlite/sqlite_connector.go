@@ -358,49 +358,11 @@ func (c *SQLiteConnector) ExecuteQueryStream(
 	}
 
 	// `query` is the SQL the operator authored in their own database client;
-	// executing it verbatim is the entire purpose of the query runner. There is
-	// no external/untrusted input to parameterize away, and the application's
-	// policy gate enforces read-only/destructive confirmation. This mirrors the
-	// existing mysql/postgres connectors.
-	rows, err := db.QueryContext(qctx, query) // codeql[go/sql-injection]
-	if err != nil {
-		return 0, c.normalizeError(err)
-	}
-	defer rows.Close()
-
-	cols, err := rows.Columns()
-	if err != nil {
-		return 0, c.normalizeError(err)
-	}
-	if err := onHeader(cols); err != nil {
-		return 0, err
-	}
-
-	values := make([]any, len(cols))
-	valuePtrs := make([]any, len(cols))
-	for i := range values {
-		valuePtrs[i] = &values[i]
-	}
-
-	var rowsAffected int64
-	for rows.Next() {
-		if err := rows.Scan(valuePtrs...); err != nil {
-			return rowsAffected, c.normalizeError(err)
-		}
-		row := make([]any, len(values))
-		for i, val := range values {
-			if b, ok := val.([]byte); ok {
-				row[i] = string(b)
-			} else {
-				row[i] = val
-			}
-		}
-		if err := onRow(row); err != nil {
-			return rowsAffected, err
-		}
-		rowsAffected++
-	}
-	return rowsAffected, c.normalizeError(rows.Err())
+	// executing it verbatim is the entire purpose of the query runner. The
+	// application's policy gate enforces read-only/destructive confirmation.
+	// Plain DML without RETURNING goes through ExecContext so RowsAffected() is reported.
+	rowsAffected, err := adapters.ExecuteStatelessQuery(qctx, db, query, onHeader, onRow)
+	return rowsAffected, c.normalizeError(err)
 }
 
 func (c *SQLiteConnector) OpenQuerySession(ctx context.Context, p domain.ConnectionProfile, _ string, ownerID, database string, readOnly bool, autoCommit ...bool) (string, error) {

@@ -20,7 +20,7 @@ test.describe('query result grid drag selection and copy', () => {
   test('copies rectangular cells, rows, columns, and the full result after dragging', async ({ firstWindow: win }) => {
     await win.setViewportSize({ width: 1600, height: 900 });
     await win.context().grantPermissions(['clipboard-read', 'clipboard-write']);
-    await win.locator('.sidebar-head button').click();
+    await win.locator('.sidebar-head button').filter({ hasText: '새 연결' }).click();
     const form = win.locator('.conn-form');
     await form.locator('select').first().selectOption('sqlite');
     await form.locator('label:text-is("Profile name") + input').fill('E2E result grid drag copy');

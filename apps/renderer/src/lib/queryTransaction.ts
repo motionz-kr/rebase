@@ -1,3 +1,5 @@
+import { abortedCommitNotice, commitNotice, rollbackNotice } from './pendingAffected';
+
 export type QueryTransactionMode = 'auto' | 'manual';
 export type QueryTransactionState = 'idle' | 'active' | 'failed' | 'opening' | 'lost' | 'lost_transaction';
 
@@ -65,9 +67,20 @@ export interface TransactionControlOutcome {
   clearContinuation: boolean;
 }
 
+function successNotice(action: 'commit' | 'rollback', pendingAffected: number, lowerBound: boolean, aborted: boolean): string {
+  // A COMMIT of an aborted PostgreSQL transaction is really a rollback.
+  if (aborted) return abortedCommitNotice(pendingAffected, lowerBound);
+  if (pendingAffected > 0) return action === 'commit' ? commitNotice(pendingAffected, lowerBound) : rollbackNotice(pendingAffected, lowerBound);
+  return action === 'commit' ? 'Committed' : 'Rolled back';
+}
+
 export function resolveTransactionControlOutcome(
   action: 'commit' | 'rollback',
   result: TransactionControlResult,
+  // Rows changed inside the transaction being closed (display only). When > 0 the
+  // success notice says how many rows were made permanent / cancelled.
+  pendingAffected = 0,
+  extra: { lowerBound?: boolean; aborted?: boolean } = {},
 ): TransactionControlOutcome {
   if (result.success && result.data?.success !== false) {
     if (shouldDiscardSession(result.data?.transactionState)) {
@@ -79,7 +92,7 @@ export function resolveTransactionControlOutcome(
         clearContinuation: true,
       };
     }
-    return { discard: false, transactionState: 'idle', notice: action === 'commit' ? 'Committed' : 'Rolled back', error: null, clearContinuation: true };
+    return { discard: false, transactionState: 'idle', notice: successNotice(action, pendingAffected, extra.lowerBound === true, extra.aborted === true), error: null, clearContinuation: true };
   }
   const message = result.error || '트랜잭션 작업에 실패했습니다.';
   if (shouldDiscardSession(result.transactionState)) {

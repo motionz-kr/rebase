@@ -44,6 +44,7 @@ export const ResultGrid: React.FC<Props> = ({ columns, rows, rowHeight = 32 }) =
   const selectionDragRef = useRef<SelectionDrag | null>(null);
   const suppressHeaderClickRef = useRef(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const exportRef = useRef<HTMLDivElement>(null);
   const [pinned, setPinned] = useState<Set<number>>(new Set());
   const [headerMenu, setHeaderMenu] = useState<{ x: number; y: number; col: number } | null>(null);
   const [colWidths, setColWidths] = useState<Record<string, number>>(loadColWidths);
@@ -210,10 +211,16 @@ export const ResultGrid: React.FC<Props> = ({ columns, rows, rowHeight = 32 }) =
     };
   }, [headerMenu]);
 
-  // Close the export menu on any outside click or Escape.
+  // Close the export menu on an outside click or Escape. Clicks inside the export
+  // wrapper are ignored: React 19 flushes this effect synchronously during the
+  // opening click, so the listener would otherwise see that same click reach
+  // `window` and close the menu in the very event that opened it.
   useEffect(() => {
     if (!menuOpen) return;
-    const close = () => setMenuOpen(false);
+    const close = (e: MouseEvent) => {
+      if (e.target instanceof Node && exportRef.current?.contains(e.target)) return;
+      setMenuOpen(false);
+    };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setMenuOpen(false);
     };
@@ -421,7 +428,7 @@ export const ResultGrid: React.FC<Props> = ({ columns, rows, rowHeight = 32 }) =
           <Search size={13} />
           <input className="input" placeholder="필터… (로드된 행)" value={filter} onChange={(e) => setFilter(e.target.value)} />
         </div>
-        <div className="grid-export">
+        <div className="grid-export" ref={exportRef}>
           <button className="btn btn-secondary btn-xs" disabled={display.length === 0} onClick={() => setMenuOpen((o) => !o)}>
             <Download size={12} /> 내보내기 ▾
           </button>

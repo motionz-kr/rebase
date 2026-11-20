@@ -1277,8 +1277,14 @@
   white-space: nowrap;
 }
 .transaction-action { height: 26px; padding: 0 8px; }
+.transaction-pending {
+  color: var(--amber);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
 .transaction-notice {
-  max-width: 130px;
+  max-width: 260px;
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--green);
@@ -1663,6 +1669,16 @@
 }
 
 /* Multi-statement result-set strip */
+.result-summary {
+  padding: 4px 12px 0;
+  font-size: 11px;
+  color: var(--text-3);
+}
+.affected-hint {
+  margin-top: 4px;
+  font-size: 11px;
+  opacity: 0.85;
+}
 .result-strip {
   display: flex;
   align-items: center;

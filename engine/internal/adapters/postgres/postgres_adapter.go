@@ -317,51 +317,11 @@ func (c *PostgreSQLConnector) ExecuteQueryStream(
 		}
 	}
 
-	// 2. Execute query
-	rows, err := conn.QueryContext(ctx, query)
-	if err != nil {
-		return 0, c.normalizeError(err)
-	}
-	defer rows.Close()
-
-	// 3. Process Header
-	cols, err := rows.Columns()
-	if err != nil {
-		return 0, c.normalizeError(err)
-	}
-	if err := onHeader(cols); err != nil {
-		return 0, err
-	}
-
-	// 4. Process Rows
-	values := make([]any, len(cols))
-	valuePtrs := make([]any, len(cols))
-	for i := range values {
-		valuePtrs[i] = &values[i]
-	}
-
-	var rowsAffected int64
-	for rows.Next() {
-		if err := rows.Scan(valuePtrs...); err != nil {
-			return rowsAffected, c.normalizeError(err)
-		}
-
-		row := make([]any, len(values))
-		for i, val := range values {
-			if b, ok := val.([]byte); ok {
-				row[i] = string(b)
-			} else {
-				row[i] = val
-			}
-		}
-
-		if err := onRow(row); err != nil {
-			return rowsAffected, err
-		}
-		rowsAffected++
-	}
-
-	return rowsAffected, c.normalizeError(rows.Err())
+	// 2. Execute query. Plain DML without RETURNING goes through ExecContext so
+	// RowsAffected() is reported instead of a row count of 0; everything else
+	// (PREPARE/EXECUTE, DO, ...) keeps streaming rows.
+	rowsAffected, err := adapters.ExecuteStatelessQuery(ctx, conn, query, onHeader, onRow)
+	return rowsAffected, c.normalizeError(err)
 }
 
 func (c *PostgreSQLConnector) OpenQuerySession(ctx context.Context, p domain.ConnectionProfile, password, ownerID, database string, readOnly bool, autoCommit ...bool) (string, error) {

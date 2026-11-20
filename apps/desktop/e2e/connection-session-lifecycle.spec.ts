@@ -60,7 +60,7 @@ test.describe('connection session lifecycle', () => {
     await win.locator('.risk-dialog').getByRole('button', { name: '실행' }).click();
     await expect(win.getByTestId('transaction-status')).toHaveText('미커밋 트랜잭션', { timeout: 20_000 });
     await win.getByTestId('tx-commit').click();
-    await expect(win.locator('.transaction-notice')).toHaveText('Committed');
+    await expect(win.locator('.transaction-notice')).toHaveText('커밋 완료 · 이 트랜잭션에서 1행 반영');
     expect(execFileSync('sqlite3', [databaseFile, 'SELECT COUNT(*) FROM lifecycle_e2e;'], { encoding: 'utf8' }).trim()).toBe('1');
 
     await connection.locator('button[title="Disconnect"]').click();

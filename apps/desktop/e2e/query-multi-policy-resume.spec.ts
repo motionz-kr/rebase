@@ -57,7 +57,7 @@ test.describe('multi-statement policy resume', () => {
     await expect(win.locator('.result-chip')).toHaveCount(3, { timeout: 20_000 });
     await expect(win.getByTestId('transaction-status')).toHaveText('미커밋 트랜잭션');
     await win.getByTestId('tx-commit').click();
-    await expect(win.locator('.transaction-notice')).toHaveText('Committed');
+    await expect(win.locator('.transaction-notice')).toHaveText('커밋 완료 · 이 트랜잭션에서 3행 반영');
 
     const rows = execFileSync('sqlite3', [databaseFile, 'SELECT COUNT(*) FROM policy_resume_e2e;'], { encoding: 'utf8' }).trim();
     const values = execFileSync('sqlite3', [databaseFile, 'SELECT id || \'=\' || value FROM policy_resume_e2e ORDER BY id;'], { encoding: 'utf8' }).trim();

@@ -210,6 +210,45 @@ func TestSQLite_ExecuteQueryStream_Select(t *testing.T) {
 	}
 }
 
+// A stateless DML without RETURNING must report the driver's RowsAffected(), not a
+// streamed row count of 0 (the "Rows affected: 0" bug), and emit an empty header.
+func TestSQLite_ExecuteQueryStream_WriteReportsRowsAffected(t *testing.T) {
+	c := NewSQLiteConnector()
+	p := sqliteProfile(seedDB(t), false)
+	ctx := context.Background()
+	var cols []string
+	headerCalls := 0
+	n, err := c.ExecuteQueryStream(ctx, p, "",
+		"UPDATE authors SET name = name || '!'", false,
+		nil,
+		func(h []string) error { headerCalls++; cols = h; return nil },
+		func([]any) error { t.Fatal("DML without RETURNING must not stream rows"); return nil },
+	)
+	if err != nil {
+		t.Fatalf("ExecuteQueryStream: %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("rowsAffected = %d, want 2 (seed has 2 authors)", n)
+	}
+	if headerCalls != 1 || len(cols) != 0 {
+		t.Fatalf("header calls=%d cols=%+v, want one empty header", headerCalls, cols)
+	}
+
+	rows := 0
+	n, err = c.ExecuteQueryStream(ctx, p, "",
+		"UPDATE authors SET name = 'Z' WHERE id = 1 RETURNING id", false,
+		nil,
+		func(h []string) error { cols = h; return nil },
+		func([]any) error { rows++; return nil },
+	)
+	if err != nil {
+		t.Fatalf("ExecuteQueryStream RETURNING: %v", err)
+	}
+	if rows != 1 || n != 1 || len(cols) != 1 {
+		t.Fatalf("RETURNING: rows=%d n=%d cols=%+v, want 1 streamed row", rows, n, cols)
+	}
+}
+
 func TestSQLite_ReadOnlyRejectsWrite(t *testing.T) {
 	c := NewSQLiteConnector()
 	p := sqliteProfile(seedDB(t), true) // ReadOnly profile

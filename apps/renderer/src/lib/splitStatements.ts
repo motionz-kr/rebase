@@ -6,6 +6,30 @@ export interface SqlStatementRange {
   end: number;
 }
 
+// True when `sql` holds only whitespace and comments. MySQL executable comments
+// (`/*! ... */`) and optimizer hints (`/*+ ... */`) are real statements and count
+// as content. Running a comment-only fragment is pointless (the server answers
+// with an empty "Rows affected: 0"), so the splitter drops them.
+export function isCommentOnly(sql: string): boolean {
+  let i = 0;
+  const n = sql.length;
+  while (i < n) {
+    const ch = sql[i];
+    if (/\s/.test(ch)) {
+      i++;
+    } else if ((ch === '-' && sql[i + 1] === '-') || ch === '#') {
+      while (i < n && sql[i] !== '\n') i++;
+    } else if (ch === '/' && sql[i + 1] === '*') {
+      if (sql[i + 2] === '!' || sql[i + 2] === '+') return false;
+      const end = sql.indexOf('*/', i + 2);
+      i = end === -1 ? n : end + 2;
+    } else {
+      return false;
+    }
+  }
+  return true;
+}
+
 // Split SQL into individual statements on top-level ';'. Quote/comment/dollar-quote
 // aware so semicolons inside literals, identifiers, comments, and PG dollar bodies
 // do not split. Returns trimmed, non-empty statements with source offsets.
@@ -18,7 +42,7 @@ export function splitStatementRanges(sql: string): SqlStatementRange[] {
 
   const push = (statementEnd: number) => {
     const t = buf.trim();
-    if (t) {
+    if (t && !isCommentOnly(t)) {
       const leading = buf.length - buf.trimStart().length;
       const trailing = buf.length - buf.trimEnd().length;
       out.push({
