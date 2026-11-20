@@ -11,29 +11,46 @@ import { execFileSync } from 'child_process';
 const KEYCHAIN_SERVICE = 'AntigravityDBDesktop';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const CMD_TIMEOUT_MS = 5_000;
+const TOTAL_CLEANUP_MS = 20_000;
 
-// The engine child can outlive Electron for a moment (SIGKILL on exit); don't read
-// the DB while it may still be writing. Capped at 5s.
-async function waitForEngineExit(userDataDir: string) {
-  for (let i = 0; i < 50; i++) {
-    try { execFileSync('pgrep', ['-f', userDataDir], { stdio: 'ignore' }); } catch { return; } // pgrep exits 1 when nothing matches
-    await sleep(100);
-  }
+// Every cleanup subprocess is bounded by its own timeout and by the shared deadline.
+function run(deadline: number, cmd: string, args: string[]): string {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) throw new Error(`cleanup time budget (${TOTAL_CLEANUP_MS}ms) exhausted before ${cmd}`);
+  return execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: Math.min(CMD_TIMEOUT_MS, remaining) });
 }
 
-function readSecretRefs(metadataDb: string): string[] {
+// The engine child can outlive Electron for a moment (SIGKILL on exit). Returns true
+// only when pgrep positively reports no process still referencing the temp dir
+// (exit status 1); any other outcome (still running, pgrep error/timeout) is "unknown".
+async function engineHasExited(userDataDir: string, deadline: number): Promise<boolean> {
+  for (let i = 0; i < 50 && Date.now() < deadline; i++) {
+    try {
+      run(deadline, 'pgrep', ['-f', userDataDir]); // status 0: something still matches
+    } catch (e) {
+      if ((e as { status?: number }).status === 1) return true;
+      return false; // pgrep itself failed or timed out: cannot confirm
+    }
+    await sleep(100);
+  }
+  return false;
+}
+
+function readSecretRefs(deadline: number, metadataDb: string): string[] {
   const sql = 'SELECT secret_ref FROM connection_profiles;';
+  // -init /dev/null: never load the user's ~/.sqliterc (it could change output or .open another DB).
+  const base = ['-init', '/dev/null', '-batch', '-noheader', '-list'];
   // The engine runs metadata.db in WAL mode. After a clean engine shutdown the
   // -wal/-shm files are gone, and a pure `-readonly` connection then fails with
   // "unable to open database file" (it cannot recreate them). Fall back to a normal
   // open, which is safe here: the engine is dead and the DB is this test's own temp copy.
-  for (const args of [['-readonly', metadataDb, sql], [metadataDb, sql]]) {
+  for (const args of [[...base, '-readonly', metadataDb, sql], [...base, metadataDb, sql]]) {
     try {
-      return execFileSync('sqlite3', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
-        .split('\n').map((r) => r.trim()).filter(Boolean);
+      return run(deadline, 'sqlite3', args).split('\n').map((r) => r.trim()).filter(Boolean);
     } catch (e) {
       if (/no such table/i.test(String((e as { stderr?: unknown }).stderr))) return []; // nothing was created
-      if (args.length === 2) console.warn(`E2E Keychain cleanup could not read ${metadataDb}: ${(e as Error).message}`);
+      if (args.length === base.length + 2) console.warn(`E2E Keychain cleanup could not read ${metadataDb}: ${(e as Error).message}`);
     }
   }
   return [];
@@ -42,10 +59,15 @@ function readSecretRefs(metadataDb: string): string[] {
 async function removeKeychainSecrets(userDataDir: string) {
   const metadataDb = path.join(userDataDir, 'metadata.db');
   if (process.platform !== 'darwin' || !fs.existsSync(metadataDb)) return;
-  await waitForEngineExit(userDataDir);
-  for (const ref of new Set(readSecretRefs(metadataDb))) {
+  const deadline = Date.now() + TOTAL_CLEANUP_MS;
+  if (!(await engineHasExited(userDataDir, deadline))) {
+    // Never read or delete while an engine might still be writing this DB.
+    console.warn(`E2E Keychain cleanup skipped: could not confirm the engine for ${userDataDir} has exited`);
+    return;
+  }
+  for (const ref of new Set(readSecretRefs(deadline, metadataDb))) {
     try {
-      execFileSync('security', ['delete-generic-password', '-s', KEYCHAIN_SERVICE, '-a', ref], { stdio: 'ignore' });
+      run(deadline, 'security', ['delete-generic-password', '-s', KEYCHAIN_SERVICE, '-a', ref]);
     } catch (e) {
       if ((e as { status?: number }).status !== 44) console.warn(`E2E Keychain cleanup failed for ${ref}: ${(e as Error).message}`); // 44 = item not found
     }
