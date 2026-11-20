@@ -24,7 +24,18 @@ import { generateQueryTitle } from '../lib/queryTitle';
 import type { SqlQueryRequest } from '../lib/queryRequest';
 import { formatQueryTabLabel } from '../lib/queryTabLabel';
 import { buildExplainSql } from '../lib/explainPlan';
-import { getTransactionControls, getTransactionStatusLabel, type QueryTransactionMode, type QueryTransactionState } from '../lib/queryTransaction';
+import {
+  LOST_TRANSACTION_ROLLED_BACK_NOTICE,
+  getTransactionControls,
+  getTransactionStatusLabel,
+  hasPendingTransaction,
+  resolveRunTransactionState,
+  resolveTransactionControlOutcome,
+  shouldContinueMultiRun,
+  shouldDiscardSession,
+  type QueryTransactionMode,
+  type QueryTransactionState,
+} from '../lib/queryTransaction';
 import { getSqlDiagnostics, type SqlDiagnostic } from '../lib/sqlDiagnostics';
 import { withExplicitRiskApproval } from '../lib/queryApproval';
 import { getDisconnectTransactionTabs } from '../lib/connectionLifecycle';
@@ -290,6 +301,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
   const transactionSessionsRef = useRef<Record<string, string>>({});
   const sessionPermissionsRef = useRef<Record<string, boolean>>({});
   const pendingMultiRunsRef = useRef<Record<string, PendingMultiStatementRun | undefined>>({});
+  const discardLostSessionRef = useRef<(tabId: string) => void>(() => {});
   const clearPendingMultiRun = (tabId: string) => {
     delete pendingMultiRunsRef.current[tabId];
   };
@@ -330,7 +342,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     if (existing) {
       if (sessionPermissionsRef.current[tabId] === allowWrite) return existing;
       const state = tabsRef.current.find((tab) => tab.id === tabId)?.transactionState;
-      if (state && ['opening', 'active', 'failed'].includes(state)) {
+      if (state && hasPendingTransaction(state)) {
         throw new Error('현재 트랜잭션을 Commit 또는 Rollback한 뒤 Read-only/Write 모드를 변경해주세요.');
       }
       await closeTransactionSession(tabId);
@@ -360,6 +372,24 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     updateTabTransaction(tabId, { transactionSessionId: null, transactionState: 'idle' });
   };
 
+  // The engine reported the session's connection lost. Drop every cached handle
+  // so the next user run goes through ensureTransactionSession and opens a new
+  // session; the engine-side close is best-effort. Never replays the statement.
+  const discardLostSession = (tabId: string) => {
+    const sessionId = transactionSessionsRef.current[tabId] ?? tabsRef.current.find((tab) => tab.id === tabId)?.transactionSessionId;
+    delete transactionSessionsRef.current[tabId];
+    delete sessionPermissionsRef.current[tabId];
+    const pending = pendingMultiRunsRef.current[tabId];
+    if (pending) pending.sessionId = undefined;
+    updateTabTransaction(tabId, { transactionSessionId: null, transactionState: 'idle' });
+    if (sessionId) {
+      void Promise.resolve(window.electronAPI.querySession('close', profileId, '', sessionId)).catch(() => {});
+    }
+  };
+
+  // The chunk subscription outlives renders, so it reaches the latest closure through a ref.
+  discardLostSessionRef.current = discardLostSession;
+
   const changeWriteMode = async (tabId: string, nextWriteMode: boolean): Promise<boolean> => {
     const target = tabsRef.current.find((tab) => tab.id === tabId);
     if (!target) return false;
@@ -369,7 +399,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
       alert('이 연결은 Read-only로 설정되어 Write 모드를 사용할 수 없습니다.');
       return false;
     }
-    const hasUncommittedTransaction = ['opening', 'active', 'failed'].includes(target.transactionState);
+    const hasUncommittedTransaction = hasPendingTransaction(target.transactionState);
     if (hasUncommittedTransaction) {
       alert('현재 트랜잭션을 먼저 Commit 또는 Rollback 해주세요.');
       return false;
@@ -394,20 +424,27 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
   const setTransactionMode = async (tabId: string, mode: QueryTransactionMode) => {
     const target = tabsRef.current.find((tab) => tab.id === tabId);
     if (!target || target.transactionMode === mode) return;
-    if (['opening', 'active', 'failed'].includes(target.transactionState)) {
+    let rollbackNotice: string | null = null;
+    if (hasPendingTransaction(target.transactionState)) {
       const confirmed = window.confirm('트랜잭션 모드를 전환하면 미커밋 변경 사항을 Rollback 합니다. 계속할까요?');
       if (!confirmed) return;
       const result = await window.electronAPI.querySession('rollback', profileId, '', target.transactionSessionId ?? '');
       if (!result.success) { alert(result.error || 'Rollback에 실패했습니다.'); return; }
+      // A lost connection has no session left to configure; drop it and the next run reconnects.
+      if (shouldDiscardSession(result.data?.transactionState)) {
+        discardLostSession(tabId);
+        rollbackNotice = LOST_TRANSACTION_ROLLED_BACK_NOTICE;
+      }
     }
     try {
-      if (target.transactionSessionId) {
-        const result = await window.electronAPI.querySession('configure', profileId, '', target.transactionSessionId, true, mode === 'auto');
+      const liveSessionId = tabsRef.current.find((tab) => tab.id === tabId)?.transactionSessionId;
+      if (liveSessionId) {
+        const result = await window.electronAPI.querySession('configure', profileId, '', liveSessionId, true, mode === 'auto');
         if (!result.success) throw new Error(result.error || '세션 모드를 변경하지 못했습니다.');
       }
       clearPendingMultiRun(tabId);
       setTabs((prev) => prev.map((tab) => tab.id === tabId
-        ? { ...tab, transactionMode: mode, transactionState: 'idle', transactionNotice: null }
+        ? { ...tab, transactionMode: mode, transactionState: 'idle', transactionNotice: rollbackNotice, ...(rollbackNotice ? { policyPrompt: null } : {}) }
         : tab));
     } catch (error) {
       alert(error instanceof Error ? error.message : '트랜잭션 세션을 닫지 못했습니다.');
@@ -420,23 +457,26 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     const sessionId = transactionSessionsRef.current[tabId] ?? target.transactionSessionId;
     if (!sessionId) return;
     const result = await window.electronAPI.querySession(action, profileId, '', sessionId);
-    if (!result.success || result.data?.success === false) {
-      const message = result.error || '트랜잭션 작업에 실패했습니다.';
-      setTabs((prev) => prev.map((tab) => tab.id === tabId
-        ? { ...tab, transactionState: 'failed', transactionNotice: message, error: message }
-        : tab));
-      return;
-    }
-    clearPendingMultiRun(tabId);
+    const outcome = resolveTransactionControlOutcome(action, result);
+    if (outcome.discard) discardLostSession(tabId);
+    // A discarded session (even through a failed Commit) ends the paused script and
+    // its policy prompt: "Run anyway" must never resume on a new connection.
+    if (outcome.clearContinuation) clearPendingMultiRun(tabId);
     setTabs((prev) => prev.map((tab) => tab.id === tabId
-      ? { ...tab, transactionState: 'idle', transactionNotice: action === 'commit' ? 'Committed' : 'Rolled back', error: null, policyPrompt: null }
+      ? {
+        ...tab,
+        transactionState: outcome.transactionState,
+        transactionNotice: outcome.notice,
+        error: outcome.error,
+        ...(outcome.clearContinuation ? { policyPrompt: null } : {}),
+      }
       : tab));
   };
 
   const closeManagedSession = async (tabId: string) => {
     const target = tabsRef.current.find((tab) => tab.id === tabId);
     if (!target?.transactionSessionId) return;
-    if (['opening', 'active', 'failed'].includes(target.transactionState)) {
+    if (hasPendingTransaction(target.transactionState)) {
       const confirmed = window.confirm('세션을 종료하면 미커밋 변경 사항이 Rollback 됩니다. 계속할까요?');
       if (!confirmed) return;
     }
@@ -702,6 +742,9 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     const cleanup = window.electronAPI.onQueryStreamChunk((queryId, chunk) => {
       const targetTab = tabsRef.current.find((t) => t.queryId === queryId);
       if (!targetTab) return;
+      if ((chunk.type === 'done' || chunk.type === 'error') && shouldDiscardSession(chunk.transactionState)) {
+        discardLostSessionRef.current(targetTab.id);
+      }
 
       setTabs((prevTabs) =>
         prevTabs.map((tab) => {
@@ -725,7 +768,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
               );
             }
           } else if (chunk.type === 'done') {
-            updated.transactionState = chunk.transactionState ?? 'idle';
+            updated.transactionState = resolveRunTransactionState(chunk.transactionState, 'idle');
             updated.loading = false;
             updated.rowsAffected = chunk.rowsAffected ?? null;
             updated.truncated = chunk.truncated === true;
@@ -760,7 +803,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
             updated.error = chunk.message ?? null;
             updated.elapsedTimeMs = tab.startTime ? Date.now() - tab.startTime : 0;
             updated.queryId = null;
-            updated.transactionState = chunk.transactionState ?? 'failed';
+            updated.transactionState = resolveRunTransactionState(chunk.transactionState, 'failed');
             updated.lastExec = { sql: tab.lastExecutedSql ?? tab.query, durationMs: updated.elapsedTimeMs, error: chunk.message };
             const runningIndex = updated.statementExecutions.findIndex((execution) => execution.state === 'running');
             if (runningIndex >= 0) {
@@ -805,14 +848,14 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
   const runSingleStatementCollected = (
     stmt: string,
     opts: MultiStatementRunOptions & { sessionId?: string; tabId: string }
-  ): Promise<{ result?: ResultSet; policy?: PolicyPrompt }> =>
+  ): Promise<{ result?: ResultSet; policy?: PolicyPrompt; sessionLost?: boolean }> =>
     new Promise((resolve) => {
       const queryId = `query-${crypto.randomUUID()}`;
       multiCancelRef.current = queryId;
       let columns: string[] = [];
       const rows: unknown[][] = [];
       let settled = false;
-      const finish = (payload: { result?: ResultSet; policy?: PolicyPrompt }) => {
+      const finish = (payload: { result?: ResultSet; policy?: PolicyPrompt; sessionLost?: boolean }) => {
         if (settled) return;
         settled = true;
         cleanup();
@@ -830,7 +873,8 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
           }
           finish({ policy: { code: chunk.code ?? '', message: chunk.message ?? '', verb: chunk.verb ?? '' } });
         } else if (chunk.type === 'done') {
-          updateTabTransaction(opts.tabId, { transactionState: chunk.transactionState ?? 'idle' });
+          if (shouldDiscardSession(chunk.transactionState)) discardLostSession(opts.tabId);
+          else updateTabTransaction(opts.tabId, { transactionState: chunk.transactionState ?? 'idle' });
           finish({
             result: {
               statement: stmt,
@@ -841,11 +885,14 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
               truncated: chunk.truncated === true,
               rowLimit: chunk.rowLimit ?? 0,
             },
+            sessionLost: shouldDiscardSession(chunk.transactionState),
           });
         } else if (chunk.type === 'error') {
-          updateTabTransaction(opts.tabId, { transactionState: chunk.transactionState ?? 'failed' });
+          if (shouldDiscardSession(chunk.transactionState)) discardLostSession(opts.tabId);
+          else updateTabTransaction(opts.tabId, { transactionState: chunk.transactionState ?? 'failed' });
           finish({
             result: { statement: stmt, columns, rows, rowsAffected: null, error: chunk.message ?? null, truncated: false, rowLimit: 0 },
+            sessionLost: shouldDiscardSession(chunk.transactionState),
           });
         }
       });
@@ -1005,9 +1052,11 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
               : t
           )
         );
-        if (r.result.error) {
+        if (!shouldContinueMultiRun({ error: r.result.error, sessionLost: r.sessionLost })) {
+          // Stop on the first failure or when the session was lost; the rest are
+          // marked skipped below and never sent to a new connection.
           clearPendingMultiRun(runTabId);
-          break; // stop the script on the first failure
+          break;
         }
       } else {
         setTabs((prev) =>
@@ -1330,6 +1379,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
         const sessionId = transactionSessionsRef.current[tab.id] ?? tab.transactionSessionId;
         if (!sessionId) continue;
         const result = await window.electronAPI.querySession(choice, profileId, '', sessionId);
+        if (resolveTransactionControlOutcome(choice, result).discard) discardLostSession(tab.id);
         if (!result.success || result.data?.success === false) {
           alert(result.error || `트랜잭션 ${choice === 'commit' ? 'Commit' : 'Rollback'}에 실패했습니다.`);
           return false;
@@ -1376,7 +1426,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ profileId, driver, dat
     setClosingTabs(true);
     try {
       const targets = tabsRef.current.filter((tab) => closeIds.includes(tab.id));
-      if (targets.some((tab) => ['opening', 'active', 'failed'].includes(tab.transactionState))) {
+      if (targets.some((tab) => hasPendingTransaction(tab.transactionState))) {
         if (!window.confirm(`${targets.length}개 탭을 닫으면 미커밋 변경 사항이 Rollback 됩니다. 계속할까요?`)) return;
       }
       for (const tabId of closeIds) {

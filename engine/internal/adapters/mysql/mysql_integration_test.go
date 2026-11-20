@@ -4,6 +4,7 @@ package mysql
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -274,5 +275,103 @@ func TestMySQLConnector_Views(t *testing.T) {
 	if err != nil { t.Fatalf("GetViewDDL: %v", err) }
 	if !strings.Contains(ddl, "v_test") || !strings.Contains(strings.ToUpper(ddl), "SELECT") {
 		t.Errorf("unexpected view DDL: %q", ddl)
+	}
+}
+
+// A server-side KILL CONNECTION must leave the query session in a recoverable
+// "lost" state instead of failing every later run with the raw driver error.
+func TestMySQLConnector_QuerySessionKilledByServerIsLost(t *testing.T) {
+	connector := NewMySQLConnector()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	p := domain.ConnectionProfile{
+		ID: "mysql-lost-1", Name: "MySQL Local", Driver: "mysql",
+		Host: "127.0.0.1", Port: 3306, Database: "information_schema",
+		Username: "root", TLSMode: "none",
+	}
+	const password = "password1!"
+
+	id, err := connector.OpenQuerySession(ctx, p, password, "owner", "information_schema", false, true)
+	if err != nil {
+		t.Skipf("local MySQL unavailable: %v", err)
+	}
+	defer connector.CloseQuerySession("owner", id)
+
+	var connectionID int64
+	if _, err := connector.ExecuteQuerySessionStream(ctx, p, password, "owner", "information_schema", id,
+		"SELECT CONNECTION_ID()", false, func(sid int64) { connectionID = sid },
+		func([]string) error { return nil }, func([]any) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+
+	killer, err := connector.connect(ctx, p, password, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer killer.Close()
+	if _, err := killer.ExecContext(ctx, "KILL CONNECTION "+strconv.FormatInt(connectionID, 10)); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond)
+
+	run := func() error {
+		_, err := connector.ExecuteQuerySessionStream(ctx, p, password, "owner", "information_schema", id,
+			"SELECT 75", false, nil, func([]string) error { return nil }, func([]any) error { return nil })
+		return err
+	}
+	first := run()
+	if first == nil {
+		t.Fatal("run on a killed connection must fail")
+	}
+	t.Logf("driver error on the first run after KILL CONNECTION: %T %v", first, first)
+	if state, err := connector.QuerySessionState("owner", id); err != nil || state != "lost" {
+		t.Fatalf("state = %q, %v; want lost", state, err)
+	}
+}
+
+// KILL CONNECTION while a statement is running must also leave the session lost
+// (the driver reports "invalid connection" here too).
+func TestMySQLConnector_QuerySessionKilledMidStatementIsLost(t *testing.T) {
+	connector := NewMySQLConnector()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	p := domain.ConnectionProfile{
+		ID: "mysql-lost-2", Name: "MySQL Local", Driver: "mysql",
+		Host: "127.0.0.1", Port: 3306, Database: "information_schema",
+		Username: "root", TLSMode: "none",
+	}
+	const password = "password1!"
+
+	id, err := connector.OpenQuerySession(ctx, p, password, "owner", "information_schema", false, true)
+	if err != nil {
+		t.Skipf("local MySQL unavailable: %v", err)
+	}
+	defer connector.CloseQuerySession("owner", id)
+
+	started := make(chan int64, 1)
+	result := make(chan error, 1)
+	go func() {
+		_, err := connector.ExecuteQuerySessionStream(ctx, p, password, "owner", "information_schema", id,
+			"SELECT SLEEP(10)", false, func(sid int64) { started <- sid },
+			func([]string) error { return nil }, func([]any) error { return nil })
+		result <- err
+	}()
+	connectionID := <-started
+	time.Sleep(300 * time.Millisecond)
+	killer, err := connector.connect(ctx, p, password, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer killer.Close()
+	if _, err := killer.ExecContext(ctx, "KILL CONNECTION "+strconv.FormatInt(connectionID, 10)); err != nil {
+		t.Fatal(err)
+	}
+	runErr := <-result
+	if runErr == nil {
+		t.Fatal("SLEEP must be interrupted by KILL CONNECTION")
+	}
+	t.Logf("driver error for a statement interrupted by KILL CONNECTION: %T %v", runErr, runErr)
+	if state, err := connector.QuerySessionState("owner", id); err != nil || state != "lost" {
+		t.Fatalf("state = %q, %v; want lost (error was %v)", state, err, runErr)
 	}
 }

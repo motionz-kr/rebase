@@ -16,6 +16,8 @@ const POSTGRES = {
   password: process.env.E2E_POSTGRES_PASSWORD ?? 'e2epass',
 };
 
+const IDLE_LOSS_MESSAGE = 'DB 연결이 끊겼습니다. 이 문장의 결과는 확인되지 않았습니다. 다시 실행하면 새 연결로 실행합니다.';
+
 type ProxyRecord = { pid: number; args: string[]; port: number; address: string; instance: string };
 type FakeProxy = { dir: string; log: string; env: Record<string, string>; records(): ProxyRecord[] };
 
@@ -271,13 +273,20 @@ for (const db of [
         await win.locator('.conn-form button[type="submit"]').click();
         await expect(win.locator('.conn-form')).toHaveCount(0);
         await expect.poll(async () => isPortOpen('127.0.0.1', launch.port)).toBe(false);
-        // The edit released the old proxy; reconnect so the tab does not reuse a session bound to it.
-        await row.getByRole('button', { name: 'Disconnect' }).click();
-        await row.click();
+        // The edit released the old proxy while the tab kept its query session. The first run reports the
+        // lost connection and starts no proxy (never replayed, never reconnected inside the run); running it
+        // again is a new user action that opens a new session on a new proxy.
         await expect(win.locator('.conn-panel .editor-toolbar')).toBeVisible({ timeout: 20000 });
+        const beforeLoss = fakeProxy.records().length;
+        const runButton = win.locator('.conn-panel .editor-toolbar button', { hasText: 'Run' }).first();
         await typeQuery(win, 'SELECT 77 AS gcp_after_save');
-        await win.locator('.conn-panel .editor-toolbar button', { hasText: 'Run' }).first().click();
+        await runButton.click();
+        await expect(win.locator('.conn-panel .alert.error')).toContainText(IDLE_LOSS_MESSAGE);
+        await expect(win.locator('.conn-panel .grid-body .grid-cell')).toHaveCount(0);
+        expect(fakeProxy.records()).toHaveLength(beforeLoss);
+        await runButton.click();
         await expect(win.locator('.conn-panel .grid-body .grid-cell').first()).toHaveText('77');
+        expect(fakeProxy.records()).toHaveLength(beforeLoss + 1);
         const desktopLaunch = fakeProxy.records().slice(-1)[0];
         const baseCount = fakeProxy.records().length;
         expect(desktopLaunch.pid).not.toBe(launch.pid);

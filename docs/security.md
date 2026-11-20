@@ -63,7 +63,13 @@ document must provide a port forwarding session and honor the allocated port.
 The adapter exposes only loopback endpoints after readiness, bounds its output
 buffer, converts CLI output to curated errors and never forwards CLI logs to
 renderer/MCP stdout or activity storage. An SSM error never falls back to a
-direct DB connection or replays SQL. Existing MCP/query policies still apply.
+direct DB connection or replays SQL. A tunnel that dies under an open query
+session is reported as a lost connection with a curated message (no driver or CLI
+output); the dead session is never reused or reconnected inside a run and no
+statement is replayed on a new connection. Only the user's next explicit run opens
+a new session on a new tunnel. A transaction lost this way is aborted by the server
+and requires Rollback; a COMMIT that loses its connection has an unknown outcome
+that the user must verify on a new connection. Existing MCP/query policies still apply.
 The adapter retains the first complete SessionId from the plugin's startup
 output in memory and explicitly terminates only that owned session, using the
 original AWS profile and region. It never enumerates or bulk-terminates sessions.
@@ -154,7 +160,7 @@ Query 실행은 policy layer를 통과해야 한다.
 - 연결 프로필의 read-only는 해당 연결의 모든 쿼리탭(client), 배치 실행, 테이블 편집 및 DDL 경로에 적용되는 hard guard다.
 - 쿼리탭의 Read-only/Write 선택은 탭별 상태이며, 같은 연결의 다른 쿼리탭이나 다른 연결 프로필의 상태를 공유하지 않는다.
 - DB 세션은 Auto/Manual 모두 쿼리탭별 전용 연결로 유지한다. Auto에서 SQL로 시작한 명시적 트랜잭션도 같은 연결의 COMMIT/ROLLBACK까지 유지하고, 세션을 닫을 때 미커밋 변경은 rollback한다.
-- 연결 유실·만료 시 같은 탭의 후속 SQL을 새 연결에서 자동 실행하거나 재시도하지 않는다. 사용자가 세션을 종료하고 명시적으로 다시 실행해야 한다.
+- 연결이 끊기면(터널·프록시 종료, 서버 KILL 등) 엔진이 세션을 `lost`/`lost_transaction`으로 보고하고, 실패한 문장은 재실행하거나 새 연결로 자동 재시도하지 않는다. 끊긴 세션은 앱이 스스로 폐기하며(사용자가 세션을 직접 종료할 필요 없음), 새 연결은 사용자의 다음 명시적 실행에서만 열린다. 트랜잭션 중 끊기면 서버가 미커밋 변경을 취소하므로 Rollback(SQL 없음)으로 확인한다. COMMIT·END·COMMIT AND CHAIN·툴바 Commit이 실행되는 동안 끊기거나 취소되면, 그리고 MySQL의 암묵 커밋(DDL, `SET autocommit=1` 등)이 끝나기 전에 끊기면 커밋 여부를 알 수 없으므로 사용자가 새 연결에서 데이터를 확인해야 한다. 만료·알 수 없는 세션 ID는 계속 명시적으로 실패한다.
 - Manual의 트랜잭션 시작과 SQL/툴바의 트랜잭션 제어는 같은 연결에서 처리한다. DB의 암묵 커밋 규칙(예: MySQL DDL)은 그대로 적용된다. DB 세션을 유지할 수 없는 일회성 실행에서는 트랜잭션 제어 SQL을 거부한다.
 - 읽기 전용 강제 설정은 세션을 열 때 DB에 적용하며, 세션의 owner/database/읽기·쓰기 권한 검증은 각 요청에서 유지한다. UI 모드를 바꾸어도 활성 트랜잭션을 임의로 커밋하지 않는다.
 - destructive query는 confirmation 없이 실행하지 않는다.

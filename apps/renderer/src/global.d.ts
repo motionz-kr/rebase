@@ -12,7 +12,7 @@ export interface QueryStreamChunk {
   data?: unknown[];
   message?: string;
   rowsAffected?: number;
-  transactionState?: 'idle' | 'active' | 'failed';
+  transactionState?: 'idle' | 'active' | 'failed' | 'lost' | 'lost_transaction';
   truncated?: boolean;
   rowLimit?: number;
   code?: string;
@@ -191,6 +191,13 @@ export interface MongoFieldInfo {
   presence: number;
 }
 
+// Result of a query-session control call. On a failed Commit/Rollback the
+// engine's X-Transaction-State header arrives as `transactionState`; on success
+// it is in `data.transactionState`.
+export interface QuerySessionResult extends ResultWrapper<{ success: boolean; sessionId?: string; transactionState?: 'idle' | 'active' | 'failed' | 'lost' | 'lost_transaction' }> {
+  transactionState?: string;
+}
+
 export interface ResultWrapper<T> {
   success: boolean;
   data?: T;
@@ -333,7 +340,7 @@ declare global {
       getSchemaCompletion: (profileId: string, database: string) => Promise<ResultWrapper<{ tables: { name: string; columns: { name: string; type: string }[] }[] }>>;
       getSchemaGraph: (profileId: string, database: string) => Promise<ResultWrapper<SchemaGraph>>;
       executeQueryStream: (queryId: string, profileId: string, query: string, options?: { database?: string; sessionId?: string; allowWrite?: boolean; confirmDestructive?: boolean; maxRows?: number; fetchAll?: boolean; acknowledged?: boolean }) => Promise<ResultWrapper<{ success: boolean }>>;
-      querySession: (action: 'open' | 'commit' | 'rollback' | 'close' | 'configure', profileId: string, database?: string, sessionId?: string, readOnly?: boolean, autoCommit?: boolean) => Promise<ResultWrapper<{ success: boolean; sessionId?: string }>>;
+      querySession: (action: 'open' | 'commit' | 'rollback' | 'close' | 'configure', profileId: string, database?: string, sessionId?: string, readOnly?: boolean, autoCommit?: boolean) => Promise<QuerySessionResult>;
       cancelQuery: (queryId: string) => Promise<ResultWrapper<{ success: boolean }>>;
       analyzeQuery: (profileId: string, query: string, database: string) => Promise<ResultWrapper<AnalyzeResult>>;
       executeBatch: (

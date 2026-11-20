@@ -299,7 +299,13 @@ app.whenReady().then(() => {
           });
           res.on('end', () => {
             if (res.statusCode && res.statusCode >= 400) {
-              reject(new Error(body || `Request failed with status ${res.statusCode}`));
+              // Failed Commit/Rollback controls keep a plain-text body and carry the
+              // session state in a header so the renderer can discard lost sessions.
+              const transactionState = res.headers['x-transaction-state'];
+              reject(Object.assign(
+                new Error(body || `Request failed with status ${res.statusCode}`),
+                typeof transactionState === 'string' ? { transactionState } : {},
+              ));
               return;
             }
             try {
@@ -667,7 +673,7 @@ app.whenReady().then(() => {
       });
       return { success: true, data };
     } catch (err: any) {
-      return { success: false, error: err.message };
+      return { success: false, error: err.message, transactionState: err.transactionState };
     }
   });
 

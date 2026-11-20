@@ -319,8 +319,49 @@ rollback before releasing the dedicated connection.
 
 Server cancellation IDs and read-only connection settings are initialized once
 at session creation. No diagnostic query is inserted between user statements,
-preserving ROW_COUNT and similar session-scoped results. A lost/expired session
-fails explicitly and is never silently reopened or replayed. Stateless query
+preserving ROW_COUNT and similar session-scoped results.
+
+A lost connection (a dropped SSM/SSH/Cloud SQL tunnel, a server-side kill or
+restart) is reported explicitly and never hidden by a reconnect inside a run.
+Adapters pass a driver-specific classifier to the driver-neutral `sqlsession`
+manager (`sql.ErrConnDone` and `driver.ErrBadConn` always count); the session
+then reports state `lost` or `lost_transaction`, and every later run on it
+fails at once with the same message without touching the dead connection.
+
+- Idle loss (`lost`): the statement that discovered the loss returns a curated
+  failure whose result is unknown. The renderer discards the session, so the
+  next user-initiated run opens a new session (a new tunnel if needed). A
+  multi-statement script stops at the failure and skips the remaining
+  statements.
+- Loss inside a transaction (`lost_transaction`): the server aborts the
+  uncommitted work when the connection closes. Run and Commit keep failing and
+  only Rollback is offered; it sends no SQL, discards the session and the
+  renderer shows that the transaction was cancelled. The next run opens a new
+  session.
+- Loss while a commit boundary executes inside an open transaction: the outcome
+  is unknown, since the server may have committed before the connection
+  dropped. Boundaries are SQL `COMMIT`/`END`/`COMMIT AND CHAIN`, the toolbar
+  Commit and, for MySQL, the implicit commits the session already tracks (DDL,
+  `LOCK TABLES`, `START TRANSACTION` and any `SET` that mentions `autocommit`
+  in any form, e.g. lists, `@@session.autocommit`, any value). The state is `lost`
+  (not `lost_transaction`), the message says to verify the data on a new
+  connection, and nothing is retried. Any error that ends a boundary statement
+  counts, including a user cancellation (the driver closes the socket on
+  cancel): the outcome stays uncertain, so when the closed connection is found
+  later (next statement or Rollback) it is reported as this commit-unknown loss
+  and never as a cancelled transaction. A later successful statement ends the
+  uncertainty. Cancelling an ordinary statement is not a loss; if its closed
+  connection is found later the transaction really was aborted
+  (`lost_transaction`).
+- Terminal socket errors (reset, broken pipe, EOF, a closed socket; never
+  timeouts or cancellation) count as loss in the MySQL and PostgreSQL
+  classifiers, so a tunnel dropping while a large statement is being sent is
+  found by that statement.
+- A failed statement is never replayed, and a run never reconnects: only a new
+  user action opens a new session. Closing a lost session issues no SQL.
+
+An expired session (idle timeout) or an unknown session id still fails
+explicitly and is never silently reopened. Stateless query
 execution rejects transaction-control SQL because it cannot maintain a
 transaction across requests. Atomic table-edit batches retain their own
 separate transaction lifecycle.

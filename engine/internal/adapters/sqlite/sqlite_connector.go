@@ -438,7 +438,7 @@ func (c *SQLiteConnector) ExecuteQuerySessionStream(
 	}
 
 	rowsAffected, err := adapters.ExecuteSessionQuery(qctx, lease.Queryer, query, onHeader, onRow)
-	lease.Complete(query, err)
+	err = lease.Complete(query, err)
 	return rowsAffected, c.normalizeError(err)
 }
 

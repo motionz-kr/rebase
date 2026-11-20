@@ -35,3 +35,38 @@ func TestMySQLSessionBoundaries(t *testing.T) {
 		}
 	}
 }
+
+func TestMySQLMayChangeAutoCommit(t *testing.T) {
+	for _, tc := range []struct {
+		sql  string
+		want bool
+	}{
+		{"SET autocommit=1", true},
+		{"SET autocommit=0", true},
+		{"SET autocommit=1, @probe=1", true},
+		{"SET @probe=1, autocommit=1", true},
+		{"SET @@autocommit=1", true},
+		{"SET @@session.autocommit=1;", true},
+		{"SET LOCAL autocommit = TRUE", true},
+		{"set session AUTOCOMMIT = on, sql_mode=''", true},
+		{"SET /* c */ autocommit := 1", true},
+		{"-- c\nSET autocommit=1", true},
+		{"SET @probe=1, time_zone='+09:00'", false},
+		{"SET NAMES utf8mb4", false},
+		{"/* lead */ SET autocommit=1", true},
+		{"# lead\n-- more\n  /* x */ SET autocommit=1", true},
+		{"SET @probe='--', autocommit=1", true},
+		{`SET @p="#", autocommit=1`, true},
+		{"SET @p='/*', autocommit=1", true},
+		{"SET @p='*/ --', @@session.autocommit=1", true},
+		{"SET autocommit_like=1", true}, // substring match: deliberately cautious
+		{"/* SET autocommit=1", false},  // unterminated comment swallows everything
+		{"UPDATE t SET autocommit = 1", false},
+		{"SELECT @@autocommit", false},
+		{"/* SET autocommit=1 */ SELECT 1", false},
+	} {
+		if got := mysqlMayChangeAutoCommit(tc.sql); got != tc.want {
+			t.Errorf("%q: %v, want %v", tc.sql, got, tc.want)
+		}
+	}
+}
