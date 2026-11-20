@@ -147,21 +147,36 @@ func (m *Manager) ResolveEndpoint(ctx context.Context, p domain.ConnectionProfil
 		default:
 		}
 	}
+	created := false
 	if e == nil {
+		created = true
 		// The start must outlive this request: other callers may share it.
 		startCtx, cancel := context.WithTimeout(context.Background(), m.startTimeout)
 		e = &entry{profileID: p.ID, ready: make(chan struct{}), cancel: cancel}
 		m.entries[key] = e
 		go func() { defer cancel(); e.session, e.err = m.start(startCtx, p); close(e.ready) }()
 	}
+	var superseded []*entry
+	if created && p.ID != "" {
+		// A saved profile whose route changed must not keep its previous proxy.
+		for k, old := range m.entries {
+			if k != key && old.profileID == p.ID {
+				old.cancel()
+				superseded = append(superseded, old)
+				delete(m.entries, k)
+			}
+		}
+	}
 	if stale != nil {
 		m.drain.Add(1)
 	}
+	m.drain.Add(len(superseded))
 	m.mu.Unlock()
 	if stale != nil {
 		stale.stop()
 		m.drain.Done()
 	}
+	m.stopEntries(superseded)
 	select {
 	case <-ctx.Done():
 		return ports.ConnectionEndpoint{}, ctx.Err()
@@ -252,6 +267,25 @@ func (m *Manager) start(ctx context.Context, p domain.ConnectionProfile) (*sessi
 	}
 }
 
+// stopEntries waits outside the map lock and stops separate process trees
+// concurrently so shutdown has a fixed grace period independent of profile
+// count. The caller must already have done m.drain.Add(len(entries)).
+func (m *Manager) stopEntries(entries []*entry) {
+	var wg sync.WaitGroup
+	for _, e := range entries {
+		wg.Add(1)
+		go func() {
+			defer m.drain.Done()
+			defer wg.Done()
+			<-e.ready
+			if e.session != nil {
+				e.session.stop()
+			}
+		}()
+	}
+	wg.Wait()
+}
+
 func (m *Manager) closeEntries(profileID string, all bool) {
 	m.mu.Lock()
 	var entries []*entry
@@ -267,21 +301,7 @@ func (m *Manager) closeEntries(profileID string, all bool) {
 	}
 	m.drain.Add(len(entries))
 	m.mu.Unlock()
-	// Wait outside the map lock and stop separate process trees concurrently so
-	// shutdown has a fixed grace period independent of profile count.
-	var wg sync.WaitGroup
-	for _, e := range entries {
-		wg.Add(1)
-		go func() {
-			defer m.drain.Done()
-			defer wg.Done()
-			<-e.ready
-			if e.session != nil {
-				e.session.stop()
-			}
-		}()
-	}
-	wg.Wait()
+	m.stopEntries(entries)
 	if all {
 		// Also wait for drains owned by concurrent CloseProfile/Close calls.
 		m.drain.Wait()

@@ -425,6 +425,7 @@ func main() {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	}))
+	mux.Handle("/profiles/disconnect", profileHandler.DisconnectProfile())
 	mux.Handle("/connection-test", profileHandler.TestConnection())
 
 	introHandler := internalHttp.NewIntrospectionHandler(*token, connectionService)

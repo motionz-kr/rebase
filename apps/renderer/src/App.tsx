@@ -616,6 +616,12 @@ function App() {
         delete next[id];
         return next;
       });
+      // Stop the profile's proxy/tunnel; a failure must not block the UI disconnect.
+      try {
+        await window.electronAPI.disconnectProfile(id);
+      } catch (err) {
+        console.warn('disconnectProfile failed', err);
+      }
     } finally {
       disconnectingRef.current.delete(id);
     }

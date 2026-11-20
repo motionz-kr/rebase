@@ -1,6 +1,8 @@
 package http
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 
@@ -141,6 +143,41 @@ func (h *ProfileHandler) DeleteProfile() http.Handler {
 	})
 }
 
+// DisconnectProfile closes the tunnel/proxy owned by a saved profile.
+func (h *ProfileHandler) DisconnectProfile() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !h.checkToken(r) {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		id := r.URL.Query().Get("id")
+		if id == "" {
+			http.Error(w, "id parameter is required", http.StatusBadRequest)
+			return
+		}
+		h.service.CloseProfileTunnel(id)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"success":true}`))
+	})
+}
+
+// connectionTestRoutingID gives Cloud SQL tests of saved profiles their own
+// ephemeral tunnel ownership, so testing edits neither reuses nor terminates
+// the proxy of the active saved connection. Other modes keep the profile ID.
+func connectionTestRoutingID(p domain.ConnectionProfile) string {
+	if p.ConnectionMode != "gcp_cloudsql" || p.ID == "" {
+		return p.ID
+	}
+	var b [8]byte
+	_, _ = rand.Read(b[:])
+	return "connection-test-" + hex.EncodeToString(b[:])
+}
+
 func (h *ProfileHandler) TestConnection() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !h.checkToken(r) {
@@ -173,6 +210,9 @@ func (h *ProfileHandler) TestConnection() http.Handler {
 
 		if profile.ID == "" {
 			defer h.service.CloseProfileTunnel("")
+		} else if routingID := connectionTestRoutingID(profile); routingID != profile.ID {
+			profile.ID = routingID
+			defer h.service.CloseProfileTunnel(routingID)
 		}
 		var err error
 		switch profile.Driver {

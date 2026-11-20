@@ -413,18 +413,46 @@ func TestCloseStopsAllAndRejectsNewCalls(t *testing.T) {
 	}
 }
 
-func TestSettingsChangeStartsNewProcess(t *testing.T) {
+func TestSettingsChangeReplacesProcessAndLeavesOtherProfileAlone(t *testing.T) {
 	h := newHarness(t, "ok")
 	a, err := h.m.ResolveEndpoint(ctx5(t), defaultProfile())
 	if err != nil {
 		t.Fatal(err)
 	}
+	other, err := h.m.ResolveEndpoint(ctx5(t), profile("other", domain.GCPCloudSQLConfig{InstanceConnectionName: instance}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := h.waitPids(t, 2)
 	b, err := h.m.ResolveEndpoint(ctx5(t), profile("cvi", domain.GCPCloudSQLConfig{InstanceConnectionName: instance, AuthMode: "adc"}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a.Port == b.Port || len(h.pids()) != 2 {
-		t.Fatalf("settings change must start a new proxy: %+v %+v pids=%d", a, b, len(h.pids()))
+	if a.Port == b.Port {
+		t.Fatalf("settings change must start a new proxy: %+v %+v", a, b)
+	}
+	all := h.waitPids(t, 3)
+	var gone, alive []int
+	for _, pid := range all {
+		if syscall.Kill(pid, 0) == nil {
+			alive = append(alive, pid)
+		} else {
+			gone = append(gone, pid)
+		}
+	}
+	if len(gone) != 1 || len(alive) != 2 {
+		t.Fatalf("want old proxy gone and two alive; gone=%v alive=%v before=%v", gone, alive, before)
+	}
+	assertPortClosed(t, a.Port)
+	if conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", other.Port), time.Second); err != nil {
+		t.Fatalf("other profile's proxy must stay up: %v", err)
+	} else {
+		_ = conn.Close()
+	}
+	if conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", b.Port), time.Second); err != nil {
+		t.Fatalf("replacement proxy must be ready: %v", err)
+	} else {
+		_ = conn.Close()
 	}
 }
 
