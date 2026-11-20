@@ -137,3 +137,41 @@ func TestSessionQueryReturnsRows(t *testing.T) {
 		})
 	}
 }
+
+func TestIsPlainDMLWrite(t *testing.T) {
+	cases := map[string]bool{
+		"INSERT INTO t VALUES (1)":                                     true,
+		"  update t set a = 1 where id = 2;":                           true,
+		"-- note\nDELETE FROM t WHERE id = 1":                          true,
+		"/* c */ UPDATE t SET a = 1":                                   true,
+		"REPLACE INTO t VALUES (1)":                                    true,
+		"MERGE INTO t USING s ON t.id = s.id WHEN MATCHED THEN DELETE": true,
+		"WITH x AS (SELECT 1) UPDATE t SET a = 1":                      true,
+		"WITH x AS (SELECT 1) /* n */ DELETE FROM t":                   true,
+		"UPDATE t SET a = 1 RETURNING id":                              false,
+		"INSERT INTO t VALUES (1) RETURNING *":                         false,
+		"DELETE FROM t OUTPUT deleted.id":                              false,
+		"WITH x AS (SELECT 1) SELECT * FROM x":                         false,
+		"SELECT 1":                                                     false,
+		"EXEC sp_help 't'":                                             false,
+		"EXECUTE sp_spaceused":                                         false,
+		"DECLARE @n int = 1 SELECT @n":                                 false,
+		"PREPARE p AS UPDATE t SET a = 1":                              false,
+		"EXECUTE p":                                                    false,
+		"EXPLAIN ANALYZE UPDATE t SET a = 1":                           false,
+		"UPDATE t SET a = 1; SELECT 2":                                 false,
+		"CREATE TABLE t (a int)":                                       false,
+		"":                                                             false,
+		"; UPDATE t SET v=1 RETURNING id":                              false,
+		";; INSERT INTO t VALUES (1)":                                  true,
+		"UPDATE t SET v = '\\' RETURNING id":                           false,
+		"UPDATE t SET v = 'unterminated":                               false,
+		"/*! UPDATE t SET v=1 */":                                      false,
+		"-- only a comment":                                            false,
+	}
+	for query, want := range cases {
+		if got := IsPlainDMLWrite(query); got != want {
+			t.Errorf("IsPlainDMLWrite(%q) = %v, want %v", query, got, want)
+		}
+	}
+}
