@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { formatExecCount } from '../lib/resultSummary';
 import { CheckCircle2, AlertTriangle, ChevronDown, ChevronRight, Clock } from 'lucide-react';
 
 export interface ExecInfo {
@@ -18,14 +19,7 @@ export const ExecStatusBar: React.FC<{ info: ExecInfo | null }> = ({ info }) => 
 
   const oneLine = info.sql.replace(/\s+/g, ' ').trim();
   const ok = !info.error;
-  const count =
-    info.error != null
-      ? '실패'
-      : info.rowCount != null
-      ? `${info.rowCount.toLocaleString()} rows`
-      : info.rowsAffected != null
-      ? `${info.rowsAffected.toLocaleString()}개 적용`
-      : '완료';
+  const count = formatExecCount(info);
 
   return (
     <div className={`exec-status ${ok ? 'ok' : 'err'} ${open ? 'open' : ''}`}>

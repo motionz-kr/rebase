@@ -50,10 +50,19 @@ async function observe(win: Page) {
   });
 }
 
-async function run(win: Page, statements: string[], allowError = false) {
+// A single DML statement opens the analysis/risk confirmation dialog before it runs
+// (multi-statement scripts do not). `confirmRisk` answers it like the user would.
+async function run(win: Page, statements: string[], allowError = false, confirmRisk = false) {
   await win.evaluate(() => { (window as Window & { txChunks?: QueryStreamChunk[] }).txChunks = []; });
   await typeQuery(win, statements.join(';\n') + ';');
   await win.locator('.editor-toolbar .btn-primary').click();
+  if (confirmRisk) {
+    const riskDialog = win.locator('.risk-dialog');
+    await expect(riskDialog).toBeVisible({ timeout: 15_000 });
+    const ack = riskDialog.locator('.risk-ack input');
+    if (await ack.count()) await ack.check();
+    await riskDialog.getByRole('button', { name: '실행' }).click();
+  }
   await expect.poll(() => win.evaluate(({ allowError, expected }) => (window as Window & { txChunks?: QueryStreamChunk[] }).txChunks!
     .filter(c => ['done', 'error', 'policy'].includes(c.type))
     .some((c, _i, all) => (allowError && (c.type === 'error' || c.type === 'policy')) || all.length === expected),
@@ -130,7 +139,7 @@ test.describe('MySQL query-console transaction sessions', () => {
     await run(win, ['START TRANSACTION', ...dml]);
     expect(await snapshot()).toEqual(initial);
     await win.getByTestId('tx-commit').click();
-    await expect(win.locator('.transaction-notice')).toHaveText('Committed');
+    await expect(win.locator('.transaction-notice')).toHaveText('커밋 완료 · 이 트랜잭션에서 2행 반영');
     expect(await snapshot()).toEqual(changed);
     await run(win, [`UPDATE ${policy} SET enabled=1 WHERE accountId=261`, 'SELECT ROW_COUNT()']);
     expect(await snapshot()).toEqual({ ...changed, enabled: 1 });
@@ -157,12 +166,87 @@ test.describe('MySQL query-console transaction sessions', () => {
     await run(win, [dml[0], 'SELECT ROW_COUNT()']);
     expect(await snapshot()).toEqual(initial);
     await win.getByTestId('tx-rollback').click();
-    await expect(win.locator('.transaction-notice')).toHaveText('Rolled back');
+    await expect(win.locator('.transaction-notice')).toHaveText('롤백 완료 · 1행 변경 취소');
     await win.getByTestId('tx-mode-auto').click();
     await expect(win.getByTestId('tx-mode-auto')).toHaveAttribute('aria-pressed', 'true');
     expect(rows(await run(win, ['SELECT CONNECTION_ID(), @@session.time_zone']))).toEqual([[cid, '+09:00']]);
     await run(win, ['START TRANSACTION', ...dml, 'COMMIT']);
     expect(await snapshot()).toEqual(changed);
+  });
+
+  test('Manual shows how many rows are pending and reports them on COMMIT and ROLLBACK', async ({ firstWindow: win }) => {
+    await connectMySql(win, 'E2E MySQL pending affected');
+    await win.getByTestId('query-mode-write').click();
+    await win.getByTestId('tx-mode-manual').click();
+    await observe(win);
+    const pending = win.getByTestId('tx-pending-affected');
+    await expect(pending).toHaveCount(0);
+    await run(win, [dml[0]], false, true);
+    await expect(pending).toHaveText('커밋 대기 변경 1행');
+    // A script keeps adding to the same tally; SELECTs do not count.
+    await run(win, [dml[1], dml[2]]);
+    await expect(pending).toHaveText('커밋 대기 변경 2행');
+    expect(await snapshot()).toEqual(initial);
+    // COMMIT typed as a statement reports what it made permanent and clears the tally.
+    await run(win, ['COMMIT']);
+    await expect(win.locator('.transaction-notice')).toHaveText('커밋 완료 · 이 트랜잭션에서 2행 반영');
+    await expect(pending).toHaveCount(0);
+    expect(await snapshot()).toEqual(changed);
+    // ROLLBACK through the toolbar button says how many rows it cancelled.
+    await run(win, [`UPDATE ${policy} SET enabled=1 WHERE accountId=261`], false, true);
+    await expect(pending).toHaveText('커밋 대기 변경 1행');
+    await win.getByTestId('tx-rollback').click();
+    await expect(win.locator('.transaction-notice')).toHaveText('롤백 완료 · 1행 변경 취소');
+    await expect(pending).toHaveCount(0);
+    expect(await snapshot()).toEqual(changed);
+  });
+
+  test('a multi-statement run lands on the answer and a zero UPDATE explains itself', async ({ firstWindow: win }) => {
+    await connectMySql(win, 'E2E MySQL multi summary');
+    await win.getByTestId('query-mode-write').click();
+    await win.getByTestId('tx-mode-manual').click();
+    // The 2026-11-20 case: START TRANSACTION, UPDATE, SELECT ROW_COUNT(), then comment-only text.
+    await typeQuery(win, [
+      '-- note: run then commit by hand',
+      'START TRANSACTION;',
+      `UPDATE ${policy} SET enabled=0 WHERE accountId=261;`,
+      'SELECT ROW_COUNT() AS changed_rows;',
+      '-- changed_rows must be 1',
+      '-- COMMIT;',
+      '-- ROLLBACK;',
+    ].join('\n'));
+    await win.locator('.editor-toolbar .btn-primary').click();
+    const riskDialog = win.locator('.risk-dialog');
+    if (await riskDialog.waitFor({ state: 'visible', timeout: 5_000 }).then(() => true).catch(() => false)) {
+      const ack = riskDialog.locator('.risk-ack input');
+      if (await ack.count()) await ack.check();
+      await riskDialog.getByRole('button', { name: '실행' }).click();
+    }
+    // The trailing comment-only text is not sent as a statement: exactly three results.
+    await expect(win.locator('.result-chip')).toHaveCount(3, { timeout: 20_000 });
+    await expect(win.getByTestId('run-summary')).toHaveText('3개 문장 · 변경 1행 · 조회 1행');
+    await expect(win.locator('.result-chip').nth(0)).toHaveText('1 START TRANSACTION');
+    await expect(win.locator('.result-chip').nth(1)).toHaveText('2 UPDATE · 1행 변경');
+    // Lands on the SELECT ROW_COUNT() result, not on START TRANSACTION.
+    await expect(win.locator('.result-chip').nth(2)).toHaveClass(/active/);
+    await expect(win.locator('.results .grid-body .grid-row').first()).toContainText('1');
+    await expect(win.locator('.exec-meta')).toContainText('1 rows · 변경 1행');
+    await expect(win.getByTestId('tx-pending-affected')).toHaveText('커밋 대기 변경 1행');
+    await win.getByTestId('tx-rollback').click();
+    await expect(win.locator('.transaction-notice')).toHaveText('롤백 완료 · 1행 변경 취소');
+    expect(await snapshot()).toEqual(initial);
+
+    // Same value again: MySQL counts only rows whose value changed, so 0 is explained.
+    await typeQuery(win, `UPDATE ${policy} SET enabled=1 WHERE accountId=261;`);
+    await win.locator('.editor-toolbar .btn-primary').click();
+    if (await riskDialog.waitFor({ state: 'visible', timeout: 5_000 }).then(() => true).catch(() => false)) {
+      const ack = riskDialog.locator('.risk-ack input');
+      if (await ack.count()) await ack.check();
+      await riskDialog.getByRole('button', { name: '실행' }).click();
+    }
+    await expect(win.locator('.alert')).toContainText('Rows affected: 0');
+    await expect(win.locator('.affected-hint')).toContainText('값이 실제로 바뀐 행만 셉니다');
+    await win.getByTestId('tx-rollback').click();
   });
 
   test('Auto keeps a transaction after an error and rolls it back when its tab closes', async ({ firstWindow: win }) => {

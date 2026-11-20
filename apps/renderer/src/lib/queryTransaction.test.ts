@@ -152,3 +152,22 @@ describe('multi-statement runs and lost sessions', () => {
     expect(runScript([{ error: 'lost', sessionLost: true }, {}])).toEqual([0]);
   });
 });
+
+describe('transaction control notices with a pending tally', () => {
+  it('keeps the plain notices when nothing was changed', () => {
+    expect(resolveTransactionControlOutcome('commit', { success: true, data: { success: true } }).notice).toBe('Committed');
+    expect(resolveTransactionControlOutcome('rollback', { success: true, data: { success: true } }, 0).notice).toBe('Rolled back');
+  });
+  it('reports how many rows were committed or cancelled', () => {
+    expect(resolveTransactionControlOutcome('commit', { success: true, data: { success: true } }, 116).notice).toBe('커밋 완료 · 이 트랜잭션에서 116행 반영');
+    expect(resolveTransactionControlOutcome('rollback', { success: true, data: { success: true } }, 116).notice).toBe('롤백 완료 · 116행 변경 취소');
+  });
+  it('words a commit of an aborted transaction as a rollback and spells out lower bounds', () => {
+    const ok = { success: true, data: { success: true } };
+    expect(resolveTransactionControlOutcome('commit', ok, 2, { aborted: true }).notice).toBe('트랜잭션 오류 상태라 롤백됨 · 2행 변경 취소');
+    expect(resolveTransactionControlOutcome('commit', ok, 1000, { lowerBound: true }).notice).toBe('커밋 완료 · 이 트랜잭션에서 1,000행 이상 반영');
+  });
+  it('does not claim success for a failed commit', () => {
+    expect(resolveTransactionControlOutcome('commit', { success: false, error: 'x', transactionState: 'failed' }, 5).notice).toBe('x');
+  });
+});
