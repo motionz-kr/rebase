@@ -1,7 +1,7 @@
 import { test as base, expect } from './fixtures';
 import { isPortOpen, MYSQL } from './dbProbe';
 import { typeQuery } from './helpers';
-import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
+import { spawn, execFileSync, type ChildProcessWithoutNullStreams } from 'child_process';
 import { createInterface } from 'readline';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -81,6 +81,15 @@ process.on('SIGTERM', () => { for (const s of sockets) s.destroy(); server.close
   },
   launchEnv: async ({ fakeProxy }, use) => { await use(fakeProxy.env); },
 });
+
+// Engine stores each profile password in the real login Keychain (independent of the temp metadata DB).
+function deleteKeychainSecret(account: string) {
+  try { execFileSync('security', ['delete-generic-password', '-s', 'AntigravityDBDesktop', '-a', account], { stdio: 'pipe' }); }
+  catch (error) {
+    const text = String((error as { stderr?: Buffer }).stderr ?? error);
+    if (!/could not be found/i.test(text)) throw error;
+  }
+}
 
 function alive(pid: number) { try { process.kill(pid, 0); return true; } catch { return false; } }
 
@@ -171,14 +180,16 @@ for (const db of [
     test('UI queries, proxy reuse, legacy profiles, shutdown cleanup and independent MCP engine', async ({ app, firstWindow: win, fakeProxy }) => {
       test.setTimeout(120000);
       let id = ''; let child: ChildProcessWithoutNullStreams | undefined; let appClosed = false;
+      const secretAccounts = new Set<string>();
+      const track = (profile?: { id?: string; secretRef?: string }) => { if (profile?.id) secretAccounts.add(profile.secretRef || `secret-${profile.id}`); };
       const mcpLines: string[] = [];
       try {
         // Pre-existing SSM and SSH profiles in the same isolated metadata DB.
         const ssm = await win.evaluate(() => window.electronAPI.createProfile({ name: 'Legacy SSM', driver: 'mysql', host: 'db.e2e.invalid', port: 3306, database: 'x', username: 'u', tlsMode: 'none', connectionMode: 'ssm', ssm: { profile: 'e2e', region: 'ap-northeast-2', instanceId: 'i-0123456789abcdef0' } } as any, 'pw'));
-        expect(ssm.success).toBe(true);
+        track(ssm.data); expect(ssm.success).toBe(true);
         fs.writeFileSync(path.join(fakeProxy.dir, 'id_e2e'), 'not-a-real-key\n', { mode: 0o600 });
         const ssh = await win.evaluate((identityFile) => window.electronAPI.createProfile({ name: 'Legacy SSH', driver: 'mysql', host: 'db.e2e.invalid', port: 3306, database: 'x', username: 'u', tlsMode: 'none', connectionMode: 'ssh', ssh: { host: 'bastion.e2e.invalid', port: 22, username: 'e2e', identityFile } } as any, 'pw'), path.join(fakeProxy.dir, 'id_e2e'));
-        expect(ssh.success).toBe(true);
+        track(ssh.data); expect(ssh.success).toBe(true);
         await win.reload();
         await win.waitForLoadState('domcontentloaded');
         await expect(win.locator('.conn-row').filter({ hasText: 'Legacy SSM' })).toContainText('SSM · db.e2e.invalid');
@@ -198,7 +209,7 @@ for (const db of [
         const row = win.locator('.conn-row').filter({ hasText: 'GCP E2E' });
         await expect(row).toContainText(`Cloud SQL · ${INSTANCE}`);
         const saved = await win.evaluate(() => window.electronAPI.listProfiles());
-        const profile = saved.data!.find((p) => p.name === 'GCP E2E')!; id = profile.id!;
+        const profile = saved.data!.find((p) => p.name === 'GCP E2E')!; id = profile.id!; track(profile);
         expect(profile.connectionMode).toBe('gcp_cloudsql');
         expect(profile.gcpCloudSql).toMatchObject({ instanceConnectionName: INSTANCE });
         expect(profile.tlsMode).toBe('none');
@@ -292,7 +303,13 @@ for (const db of [
         await expect.poll(async () => isPortOpen('127.0.0.1', desktopLaunch.port)).toBe(false);
       } finally {
         if (child) await stopMCP(child).catch(() => undefined);
-        if (id && !appClosed) await win.evaluate((profileId) => window.electronAPI.deleteProfile(profileId), id);
+        if (!appClosed) {
+          // Best effort via the app while it is open (also catches profiles created before an id was tracked).
+          const list = await win.evaluate(() => window.electronAPI.listProfiles()).catch(() => undefined);
+          for (const p of list?.data ?? []) { track(p); await win.evaluate((profileId) => window.electronAPI.deleteProfile(profileId), p.id!).catch(() => undefined); }
+        }
+        // Remove exactly the Keychain entries this test created, also after app shutdown.
+        if (process.platform === 'darwin') for (const account of secretAccounts) deleteKeychainSecret(account);
       }
     });
   });
