@@ -543,6 +543,11 @@ func TestEveryAutocommitSETFormIsAPossibleCommitBoundary(t *testing.T) {
 		"SET autocommit=0",
 		"SET autocommit = @flag",
 		"SET\tautocommit\n=\n1",
+		"SET @probe='--', autocommit=1",
+		`SET @p="#", autocommit=1`,
+		"SET @p='/*', autocommit=1",
+		"/* lead */ SET autocommit=1",
+		"# lead\nSET autocommit=1",
 	} {
 		for _, how := range []string{"dropped", "cancelled"} {
 			t.Run(statement+"/"+how, func(t *testing.T) {

@@ -53,7 +53,14 @@ func TestMySQLMayChangeAutoCommit(t *testing.T) {
 		{"-- c\nSET autocommit=1", true},
 		{"SET @probe=1, time_zone='+09:00'", false},
 		{"SET NAMES utf8mb4", false},
-		{"SET autocommit_like=1", false},
+		{"/* lead */ SET autocommit=1", true},
+		{"# lead\n-- more\n  /* x */ SET autocommit=1", true},
+		{"SET @probe='--', autocommit=1", true},
+		{`SET @p="#", autocommit=1`, true},
+		{"SET @p='/*', autocommit=1", true},
+		{"SET @p='*/ --', @@session.autocommit=1", true},
+		{"SET autocommit_like=1", true}, // substring match: deliberately cautious
+		{"/* SET autocommit=1", false},  // unterminated comment swallows everything
 		{"UPDATE t SET autocommit = 1", false},
 		{"SELECT @@autocommit", false},
 		{"/* SET autocommit=1 */ SELECT 1", false},

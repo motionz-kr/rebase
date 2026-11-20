@@ -3,22 +3,49 @@ package sqlsession
 import (
 	"regexp"
 	"strings"
+	"unicode"
 
 	"github.com/smlee/database-local-engine/engine/internal/domain"
 )
 
 var autoCommitSetting = regexp.MustCompile(`(?i)^SET\s+(?:(?:SESSION|LOCAL)\s+|@@(?:SESSION\.|LOCAL\.)?)?AUTOCOMMIT\s*(?::=|=)\s*(0|1|ON|OFF)\s*;?$`)
 
-// mentionsAutoCommit matches any SET statement naming autocommit, whatever its
-// spelling (lists, @@autocommit, SESSION/LOCAL, any value or expression).
-var mentionsAutoCommit = regexp.MustCompile(`(?is)^SET\b.*\bAUTOCOMMIT\b`)
+var setKeyword = regexp.MustCompile(`(?i)^SET\b`)
+
+// stripLeadingComments removes only leading whitespace and comments (`--`, `#`,
+// `/* */`). It never looks inside quotes, so a comment marker in a string later
+// in the statement cannot hide anything from the check below.
+func stripLeadingComments(query string) string {
+	for {
+		query = strings.TrimLeftFunc(query, unicode.IsSpace)
+		switch {
+		case strings.HasPrefix(query, "--"), strings.HasPrefix(query, "#"):
+			end := strings.IndexByte(query, '\n')
+			if end < 0 {
+				return ""
+			}
+			query = query[end+1:]
+		case strings.HasPrefix(query, "/*"):
+			end := strings.Index(query[2:], "*/")
+			if end < 0 {
+				return ""
+			}
+			query = query[end+4:]
+		default:
+			return query
+		}
+	}
+}
 
 // mysqlMayChangeAutoCommit is deliberately broader than mysqlAutoCommit, which
 // tracks session state only for the simple single-assignment form. Turning
-// autocommit on commits pending work, so for loss classification any SET that
-// mentions it counts as a possible commit boundary.
+// autocommit on commits pending work, so for loss classification a statement that
+// starts with SET and mentions autocommit anywhere (lists, @@autocommit,
+// SESSION/LOCAL, any value, even inside quotes) counts as a possible commit
+// boundary. Over-matching only makes the reported outcome more cautious.
 func mysqlMayChangeAutoCommit(query string) bool {
-	return mentionsAutoCommit.MatchString(domain.StatementText(query))
+	text := stripLeadingComments(query)
+	return setKeyword.MatchString(text) && strings.Contains(strings.ToLower(text), "autocommit")
 }
 
 func mysqlAutoCommit(query string) (bool, bool) {

@@ -338,29 +338,40 @@ func bigQuery() string { return "SELECT '" + strings.Repeat("x", bigStatement) +
 // connection but, for a partially written packet, returns the raw socket error
 // instead of ErrInvalidConn.
 func TestRealDriverSocketErrorDuringRequestTransmissionIsLost(t *testing.T) {
-	server := newFakeMySQLServer(t)
-	server.resetMidRequest = true
-	db, err := sql.Open("mysql", "root@tcp(127.0.0.1:"+strconv.Itoa(server.port())+")/app?timeout=2s")
-	if err != nil {
-		t.Fatal(err)
+	// Depending on timing the driver reports the cut-off as the raw socket error
+	// (partial write) or, when nothing was written yet, as driver.ErrBadConn, which
+	// sqlsession handles itself. Retry until the raw path was exercised.
+	sawRaw := false
+	for attempt := 0; attempt < 10 && !sawRaw; attempt++ {
+		server := newFakeMySQLServer(t)
+		server.resetMidRequest = true
+		db, err := sql.Open("mysql", "root@tcp(127.0.0.1:"+strconv.Itoa(server.port())+")/app?timeout=2s")
+		if err != nil {
+			t.Fatal(err)
+		}
+		db.SetMaxOpenConns(1)
+		conn, err := db.Conn(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, first := conn.ExecContext(context.Background(), bigQuery())
+		_ = conn.Close()
+		_ = db.Close()
+		if first == nil {
+			t.Fatal("a statement cut off mid-transmission must fail")
+		}
+		t.Logf("attempt %d, driver error during transmission: %T %v", attempt, first, first)
+		switch {
+		case errors.Is(first, driver.ErrBadConn), errors.Is(first, mysqlDriver.ErrInvalidConn):
+			continue // classified elsewhere (sqlsession / ErrInvalidConn)
+		case !isConnectionLost(first):
+			t.Fatalf("%T %v is not classified as a lost connection", first, first)
+		default:
+			sawRaw = true
+		}
 	}
-	defer db.Close()
-	db.SetMaxOpenConns(1)
-	conn, err := db.Conn(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer conn.Close()
-	_, first := conn.ExecContext(context.Background(), bigQuery())
-	if first == nil {
-		t.Fatal("a statement cut off mid-transmission must fail")
-	}
-	t.Logf("driver error during transmission: %T %v", first, first)
-	if errors.Is(first, mysqlDriver.ErrInvalidConn) {
-		t.Skip("driver reported ErrInvalidConn; the raw-socket-error path was not exercised on this platform")
-	}
-	if !isConnectionLost(first) {
-		t.Fatalf("%T %v is not classified as a lost connection", first, first)
+	if !sawRaw {
+		t.Skip("driver never reported the raw socket error on this machine")
 	}
 }
 
