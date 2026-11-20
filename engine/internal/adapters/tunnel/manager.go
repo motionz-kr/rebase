@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/smlee/database-local-engine/engine/internal/adapters/cloudsql"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/ssh"
 	"github.com/smlee/database-local-engine/engine/internal/adapters/ssm"
 	"github.com/smlee/database-local-engine/engine/internal/domain"
@@ -12,20 +13,29 @@ import (
 )
 
 type Manager struct {
-	ssm *ssm.Manager
-	ssh *ssh.Manager
+	ssm      *ssm.Manager
+	ssh      *ssh.Manager
+	cloudsql *cloudsql.Manager
 }
 
-func NewManager() *Manager { return &Manager{ssm: ssm.NewManager(), ssh: ssh.NewManager()} }
+func NewManager() *Manager {
+	return &Manager{ssm: ssm.NewManager(), ssh: ssh.NewManager(), cloudsql: cloudsql.NewManager()}
+}
 func (m *Manager) ResolveEndpoint(ctx context.Context, p domain.ConnectionProfile) (ports.ConnectionEndpoint, error) {
 	switch p.ConnectionMode {
 	case "ssm":
 		return m.ssm.ResolveEndpoint(ctx, p)
 	case "ssh":
 		return m.ssh.ResolveEndpoint(ctx, p)
+	case "gcp_cloudsql":
+		return m.cloudsql.ResolveEndpoint(ctx, p)
 	default:
 		return ports.ConnectionEndpoint{}, errors.New("unsupported tunnel route")
 	}
 }
-func (m *Manager) CloseProfile(id string) { m.ssm.CloseProfile(id); m.ssh.CloseProfile(id) }
-func (m *Manager) Close()                 { m.ssm.Close(); m.ssh.Close() }
+func (m *Manager) CloseProfile(id string) {
+	m.ssm.CloseProfile(id)
+	m.ssh.CloseProfile(id)
+	m.cloudsql.CloseProfile(id)
+}
+func (m *Manager) Close() { m.ssm.Close(); m.ssh.Close(); m.cloudsql.Close() }
