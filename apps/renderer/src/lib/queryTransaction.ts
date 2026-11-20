@@ -85,3 +85,10 @@ export function resolveTransactionControlOutcome(
   }
   return { discard: false, transactionState: 'failed', notice: message, error: message };
 }
+
+// A multi-statement script stops at the first error and when its session was
+// discarded as lost; later statements are never sent, and never to a new
+// connection (only a new user action opens one).
+export function shouldContinueMultiRun(outcome: { error?: string | null; sessionLost?: boolean }): boolean {
+  return !outcome.error && !outcome.sessionLost;
+}

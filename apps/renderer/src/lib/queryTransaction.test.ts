@@ -6,6 +6,7 @@ import {
   hasPendingTransaction,
   resolveRunTransactionState,
   resolveTransactionControlOutcome,
+  shouldContinueMultiRun,
   shouldDiscardSession,
 } from './queryTransaction';
 
@@ -113,5 +114,31 @@ describe('transaction control outcome', () => {
     expect(resolveTransactionControlOutcome('commit', { success: false, error: message, transactionState: 'lost_transaction' })).toEqual({
       discard: false, transactionState: 'lost_transaction', notice: message, error: message,
     });
+  });
+});
+
+describe('multi-statement runs and lost sessions', () => {
+  // Mirrors the loop in QueryEditor.runMultiStatements: a statement is submitted
+  // only while the previous outcome allows continuing.
+  const runScript = (outcomes: Array<{ error?: string | null; sessionLost?: boolean }>) => {
+    const submitted: number[] = [];
+    for (let index = 0; index < outcomes.length; index += 1) {
+      submitted.push(index);
+      if (!shouldContinueMultiRun(outcomes[index])) break;
+    }
+    return submitted;
+  };
+
+  it('submits every statement when nothing goes wrong', () => {
+    expect(runScript([{}, {}, {}])).toEqual([0, 1, 2]);
+  });
+
+  it('submits no statement after a done that reports the session lost', () => {
+    expect(runScript([{}, { sessionLost: true }, {}, {}])).toEqual([0, 1]);
+  });
+
+  it('submits no statement after an error, including a lost-session error', () => {
+    expect(runScript([{}, { error: 'boom' }, {}])).toEqual([0, 1]);
+    expect(runScript([{ error: 'lost', sessionLost: true }, {}])).toEqual([0]);
   });
 });
