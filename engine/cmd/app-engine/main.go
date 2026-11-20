@@ -367,6 +367,7 @@ func main() {
 		Checksum: "mcp-connection-proposals-v1",
 	})
 	migrations = append(migrations, sqlite.SSHProfileMigration)
+	migrations = append(migrations, sqlite.GCPCloudSQLProfileMigration)
 	if err := migrationRunner.Run(migrations); err != nil {
 		log.Fatalf("failed to run migrations: %v", err)
 	}
