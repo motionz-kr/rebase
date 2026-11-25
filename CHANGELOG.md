@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.40.3](https://github.com/motionz-kr/rebase/compare/v0.40.2...v0.40.3) (2026-11-25)
+
+
+### Bug Fixes
+
+* **mcp:** preserve MySQL SSM host blocks across tool calls ([0c15792](https://github.com/motionz-kr/rebase/commit/0c15792e98263b9d7c8468ac1a83b85c6642bf06)), closes [#238](https://github.com/motionz-kr/rebase/issues/238)
+
 ## [0.40.2](https://github.com/motionz-kr/rebase/compare/v0.40.1...v0.40.2) (2026-11-25)
 
 
