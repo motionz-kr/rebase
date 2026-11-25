@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.40.2](https://github.com/motionz-kr/rebase/compare/v0.40.1...v0.40.2) (2026-11-25)
+
+
+### Bug Fixes
+
+* **engine:** prevent SSM tunnel retries from aggravating MySQL host blocks ([98e1909](https://github.com/motionz-kr/rebase/commit/98e19098047d984c052fc69a51751d4db11b1a5b))
+* **engine:** prevent SSM tunnel retries from aggravating MySQL host blocks ([7a0c80e](https://github.com/motionz-kr/rebase/commit/7a0c80e4d5c3f1dd8c116e55f446530133961002))
+
 ## [0.40.1](https://github.com/motionz-kr/rebase/compare/v0.40.0...v0.40.1) (2026-11-20)
 
 
