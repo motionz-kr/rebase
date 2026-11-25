@@ -196,6 +196,44 @@ test('MySQL 1129 displays recovery guidance and prevents another SSM connection'
   expect(fakeSSM.activeSessions()).toEqual([]);
 });
 
+test('unified MCP preserves the MySQL 1129 block across tool calls', async ({ app, firstWindow: win, fakeSSM }) => {
+  const form = await fillSSM(win, 'blocked');
+  await form.locator('label:text-is("Username") + input').fill('e2e');
+  await form.locator('button[type="submit"]').click();
+  const row = win.locator('.conn-row').filter({ hasText: 'SSM E2E' });
+  await expect(row).toBeVisible();
+  const { data: profiles } = await win.evaluate(() => window.electronAPI.listProfiles());
+  const connectionId = profiles!.find((profile) => profile.name === 'SSM E2E')!.id!;
+  await row.locator('button[title="Edit profile"]').click();
+  await win.getByRole('button', { name: 'MCP', exact: true }).click();
+  await win.locator('.mcp-toggle input').check();
+  await expect.poll(async () => (await win.evaluate(() => window.electronAPI.listProfiles())).data!
+    .find((profile) => profile.id === connectionId)?.mcpEnabled).toBe(true);
+
+  const engine = await win.evaluate(() => window.electronAPI.mcpEnginePath());
+  const userDir = await app.evaluate(({ app }) => app.getPath('userData'));
+  const child = spawn(engine, ['-db', path.join(userDir, 'metadata.db'), '-mcp', 'all'], {
+    env: { ...process.env, ...fakeSSM.env }, stdio: 'pipe',
+  });
+  child.stderr.on('data', () => undefined);
+  try {
+    const rpc = rpcClient(child);
+    const init = await rpc(1, 'initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'ssm-e2e', version: '1' } });
+    expect(init.error).toBeUndefined();
+    const call = { name: 'run_select', arguments: { connectionId, sql: 'SELECT 1' } };
+    for (const requestId of [2, 3]) {
+      const response = await rpc(requestId, 'tools/call', call);
+      expect(response.result.isError).toBe(true);
+      expect(response.result.content[0].text).toContain('관리자에게 host_cache 초기화를 요청');
+    }
+    expect(fakeSSM.records()).toHaveLength(1);
+    expect(fs.readFileSync(fakeSSM.log + '.connections', 'utf8').trim().split('\n')).toHaveLength(1);
+  } finally {
+    await stopMCP(child);
+  }
+  expect(fakeSSM.activeSessions()).toEqual([]);
+});
+
 for (const db of [
   { driver: 'mysql', ...MYSQL },
   { driver: 'postgres', host: '127.0.0.1', port: Number(process.env.E2E_SSM_POSTGRES_PORT ?? 5432), database: 'postgres', username: 'postgres', password: process.env.E2E_SSM_POSTGRES_PASSWORD ?? 'postgres' },

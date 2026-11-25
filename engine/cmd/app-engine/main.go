@@ -636,16 +636,18 @@ func runMCPServer(svc *application.ConnectionService, activity ports.MCPActivity
 }
 
 func buildUnifiedMCPRegistry(svc *application.ConnectionService, proposals ports.MCPWriteProposalRepository, discovery ports.DatabaseDiscovery, connectionProposals ports.MCPConnectionProposalUseCase) (*agent.Registry, func(context.Context) []string) {
+	// Keep MySQL host-block state across calls that reload the profile registry.
+	mysqlConnector := mysql.NewMySQLConnector(svc)
 	fullAccessProfile := domain.ConnectionProfile{ID: "tool-schema-full-access", Driver: "mysql", McpWriteMode: domain.MCPWriteModeFullAccess}
 	approvalProfile := domain.ConnectionProfile{ID: "tool-schema-approval", Driver: "mysql", McpWriteMode: domain.MCPWriteModeApproval}
-	fullAccessRegistry := agent.NewSQLRegistryWithMCPWrites(mysql.NewMySQLConnector(svc), fullAccessProfile, "", "", agent.MCPWriteConfig{Mode: domain.MCPWriteModeFullAccess})
-	approvalRegistry := agent.NewSQLRegistryWithMCPWrites(mysql.NewMySQLConnector(svc), approvalProfile, "", "", agent.MCPWriteConfig{Mode: domain.MCPWriteModeApproval, WorkspaceID: "default", ProfileID: approvalProfile.ID, Proposals: proposals})
+	fullAccessRegistry := agent.NewSQLRegistryWithMCPWrites(mysqlConnector, fullAccessProfile, "", "", agent.MCPWriteConfig{Mode: domain.MCPWriteModeFullAccess})
+	approvalRegistry := agent.NewSQLRegistryWithMCPWrites(mysqlConnector, approvalProfile, "", "", agent.MCPWriteConfig{Mode: domain.MCPWriteModeApproval, WorkspaceID: "default", ProfileID: approvalProfile.ID, Proposals: proposals})
 	seedTargets := []agent.MCPConnectionTarget{
 		{ID: fullAccessProfile.ID, Name: "tool-schema-full-access", Driver: fullAccessProfile.Driver, Registry: fullAccessRegistry},
 		{ID: approvalProfile.ID, Name: "tool-schema-approval", Driver: approvalProfile.Driver, Registry: approvalRegistry},
 	}
 	resolveTargets := func(ctx context.Context) ([]agent.MCPConnectionTarget, error) {
-		targets, _, err := loadUnifiedMCPProfiles(ctx, svc, proposals)
+		targets, _, err := loadUnifiedMCPProfiles(ctx, svc, proposals, mysqlConnector)
 		return targets, err
 	}
 	listProfiles := func(ctx context.Context) ([]domain.ConnectionProfile, error) {
@@ -653,7 +655,7 @@ func buildUnifiedMCPRegistry(svc *application.ConnectionService, proposals ports
 	}
 	registry := agent.NewMultiProfileRegistryWithManagement(seedTargets, resolveTargets, discovery, connectionProposals, listProfiles)
 	secretProvider := func(ctx context.Context) []string {
-		_, secrets, err := loadUnifiedMCPProfiles(ctx, svc, proposals)
+		_, secrets, err := loadUnifiedMCPProfiles(ctx, svc, proposals, mysqlConnector)
 		if err != nil {
 			log.Printf("mcp: unable to refresh credential redaction values")
 			return nil
@@ -663,7 +665,7 @@ func buildUnifiedMCPRegistry(svc *application.ConnectionService, proposals ports
 	return registry, secretProvider
 }
 
-func loadUnifiedMCPProfiles(ctx context.Context, svc *application.ConnectionService, proposals ports.MCPWriteProposalRepository) ([]agent.MCPConnectionTarget, []string, error) {
+func loadUnifiedMCPProfiles(ctx context.Context, svc *application.ConnectionService, proposals ports.MCPWriteProposalRepository, mysqlConnector *mysql.MySQLConnector) ([]agent.MCPConnectionTarget, []string, error) {
 	profiles, err := svc.ListProfiles(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -690,7 +692,7 @@ func loadUnifiedMCPProfiles(ctx context.Context, svc *application.ConnectionServ
 		var conn ports.SQLConnector
 		switch profile.Driver {
 		case "mysql":
-			conn = mysql.NewMySQLConnector(svc)
+			conn = mysqlConnector
 		case "postgres":
 			conn = postgres.NewPostgreSQLConnector(svc)
 		case "sqlite":
