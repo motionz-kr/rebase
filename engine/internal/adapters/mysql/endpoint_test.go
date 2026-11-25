@@ -14,7 +14,9 @@ func (failingEndpointResolver) ResolveEndpoint(context.Context, domain.Connectio
 	return ports.ConnectionEndpoint{}, errors.New("SSO expired")
 }
 func TestSSMNeverFallsBackToDirect(t *testing.T) {
-	p := domain.ConnectionProfile{Driver: "mysql", Host: "db.internal", Port: 3306, ConnectionMode: "ssm"}
+	p := domain.ConnectionProfile{Driver: "mysql", Host: "db.internal", Port: 3306, ConnectionMode: "ssm", SSM: &domain.SSMConfig{
+		Region: "ap-northeast-2", InstanceID: "i-0123456789abcdef0",
+	}}
 	c := NewMySQLConnector(failingEndpointResolver{})
 	if err := c.TestConnection(context.Background(), p, ""); err == nil || err.Error() != "SSO expired" {
 		t.Fatal(err)

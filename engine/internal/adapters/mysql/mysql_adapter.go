@@ -19,6 +19,7 @@ import (
 type MySQLConnector struct {
 	querySessions *sqlsession.Manager
 	endpoints     ports.ConnectionEndpointResolver
+	ssmHostBlocks ssmHostBlocks
 }
 
 func NewMySQLConnector(resolvers ...ports.ConnectionEndpointResolver) *MySQLConnector {
@@ -43,6 +44,16 @@ func (c *MySQLConnector) connect(ctx context.Context, p domain.ConnectionProfile
 }
 
 func (c *MySQLConnector) connectWithTimeout(ctx context.Context, p domain.ConnectionProfile, password, database string, ioTimeout time.Duration) (*sql.DB, error) {
+	var route ssmDBRoute
+	if p.ConnectionMode == "ssm" {
+		if err := p.ValidateConnectionRoute(); err != nil {
+			return nil, err
+		}
+		route = mysqlSSMRoute(p)
+		if c.ssmHostBlocks.blocked(route) {
+			return nil, errSSMHostBlocked
+		}
+	}
 	if c.endpoints != nil {
 		endpoint, err := c.endpoints.ResolveEndpoint(ctx, p)
 		if err != nil {
@@ -80,6 +91,14 @@ func (c *MySQLConnector) connectWithTimeout(ctx context.Context, p domain.Connec
 	// allowPublicKeyRetrieval flag is needed — and that flag is not a recognized
 	// DSN param in this version, so appending it would be sent to the server as
 	// an unknown system variable and rejected (Error 1193) after auth.
+	if p.ConnectionMode == "ssm" {
+		cfg.DialFunc = (adapters.SSMDialer{}).DialContext
+		connector, err := mysqlDriver.NewConnector(cfg)
+		if err != nil {
+			return nil, c.normalizeError(err)
+		}
+		return sql.OpenDB(ssmMySQLConnector{Connector: connector, blocks: &c.ssmHostBlocks, route: route}), nil
+	}
 	db, err := sql.Open("mysql", cfg.FormatDSN())
 	if err != nil {
 		return nil, c.normalizeError(err)

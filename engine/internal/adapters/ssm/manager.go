@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -104,14 +103,19 @@ func (o *sessionOutput) sessionID() string {
 type Manager struct {
 	mu               sync.Mutex
 	entries          map[string]*entry
+	starts           map[string]*startHistory
 	closed           bool
+	now              func() time.Time
 	lookPath         func(string) (string, error)
 	command          func(string, ...string) *exec.Cmd
 	terminateCommand func(context.Context, string, ...string) *exec.Cmd
 }
 
 func NewManager() *Manager {
-	return &Manager{entries: make(map[string]*entry), lookPath: findExecutable, command: exec.Command, terminateCommand: exec.CommandContext}
+	return &Manager{
+		entries: make(map[string]*entry), starts: make(map[string]*startHistory), now: time.Now,
+		lookPath: findExecutable, command: exec.Command, terminateCommand: exec.CommandContext,
+	}
 }
 
 // findExecutable also handles desktop launch environments with a minimal PATH.
@@ -131,7 +135,19 @@ func findExecutable(name string) (string, error) {
 	return "", exec.ErrNotFound
 }
 func tunnelKey(p domain.ConnectionProfile) string {
-	return fmt.Sprintf("%q/%q/%d/%q/%q/%q/%q/%q", p.ID, p.Host, p.Port, p.SSM.Profile, p.SSM.Region, p.SSM.InstanceID, p.SSM.DocumentName, p.SSM.DestinationMode)
+	return fmt.Sprintf("%q/%s", p.ID, startRoute(p))
+}
+
+func startRoute(p domain.ConnectionProfile) string {
+	config := *p.SSM
+	if config.DocumentName == "" {
+		config.DocumentName = defaultDocumentName
+	}
+	if p.SSMUsesDocumentDestination() {
+		p.Host, p.Port = "", 0
+	}
+	return fmt.Sprintf("%q/%d/%q/%q/%q/%q/%t", strings.ToLower(p.Host), p.Port, config.Profile,
+		config.Region, config.InstanceID, config.DocumentName, p.SSMUsesDocumentDestination())
 }
 
 func (m *Manager) ResolveEndpoint(ctx context.Context, p domain.ConnectionProfile) (ports.ConnectionEndpoint, error) {
@@ -164,10 +180,24 @@ func (m *Manager) ResolveEndpoint(ctx context.Context, p domain.ConnectionProfil
 		}
 	}
 	if e == nil {
+		history, err := m.allowStart(startRoute(p))
+		if err != nil {
+			m.mu.Unlock()
+			return ports.ConnectionEndpoint{}, err
+		}
 		startCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		e = &entry{profileID: p.ID, ready: make(chan struct{}), cancel: cancel}
 		m.entries[key] = e
-		go func() { defer cancel(); e.session, e.err = m.start(startCtx, p); close(e.ready) }()
+		go func() {
+			defer cancel()
+			e.session, e.err = m.start(startCtx, p)
+			m.mu.Lock()
+			if m.entries[key] == e {
+				history.recordResult(m.now(), e.err)
+			}
+			close(e.ready)
+			m.mu.Unlock()
+		}()
 	}
 	m.mu.Unlock()
 	if stale != nil {
@@ -240,30 +270,16 @@ func (m *Manager) start(ctx context.Context, p domain.ConnectionProfile) (*sessi
 		return nil, startupError(output.diagnostic())
 	case <-output.ready:
 	}
-	// A plugin may print readiness just before Listen starts accepting connections.
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		dialer := net.Dialer{Timeout: 200 * time.Millisecond}
-		conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(s.endpoint.Host, strconv.Itoa(port)))
-		if err == nil {
-			conn.Close()
-			if ctx.Err() != nil {
-				s.stop()
-				return nil, ctx.Err()
-			}
-			return s, nil
-		}
-		select {
-		case <-ctx.Done():
-			s.stop()
-			return nil, errors.New("AWS SSM: 로컬 터널 포트를 열지 못했습니다")
-		case <-s.done:
-			s.stop()
-			return nil, startupError(output.diagnostic())
-		case <-ticker.C:
-		}
+	if err := ctx.Err(); err != nil {
+		s.stop()
+		return nil, err
 	}
+	if !s.alive() {
+		s.stop()
+		return nil, startupError(output.diagnostic())
+	}
+	// A TCP probe would open an upstream DB connection and abandon its handshake.
+	return s, nil
 }
 func (m *Manager) closeEntries(profileID string, all bool) {
 	m.mu.Lock()

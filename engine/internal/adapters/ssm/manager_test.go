@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -46,12 +47,6 @@ func TestSSMProcessHelper(t *testing.T) {
 			port, _ = strconv.Atoi(args[i+1])
 		}
 	}
-	if os.Getenv("REBASE_SSM_HELPER_NO_LISTENER") == "1" {
-		fmt.Println("Waiting for connections...")
-		for {
-			time.Sleep(time.Second)
-		}
-	}
 	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 	if err != nil {
 		os.Exit(1)
@@ -64,7 +59,116 @@ func TestSSMProcessHelper(t *testing.T) {
 		if e != nil {
 			os.Exit(0)
 		}
+		if logPath := os.Getenv("REBASE_SSM_HELPER_CONNECTIONS"); logPath != "" {
+			var b [1]byte
+			_, err := c.Read(b[:])
+			label := "client\n"
+			if err != nil {
+				label = "probe\n"
+			}
+			log, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+			if err != nil {
+				os.Exit(1)
+			}
+			_, _ = log.WriteString(label)
+			_ = log.Close()
+		}
 		c.Close()
+	}
+}
+
+func TestManagerReadinessDoesNotConnectToTunnel(t *testing.T) {
+	m := helperManager(t)
+	logPath := filepath.Join(t.TempDir(), "connections")
+	factory := m.command
+	m.command = func(name string, args ...string) *exec.Cmd {
+		cmd := factory(name, args...)
+		cmd.Env = append(cmd.Env, "REBASE_SSM_HELPER_CONNECTIONS="+logPath)
+		return cmd
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	ep, err := m.ResolveEndpoint(ctx, ssmProfile())
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", net.JoinHostPort(ep.Host, strconv.Itoa(ep.Port)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(time.Second))
+	if _, err := conn.Write([]byte{1}); err != nil {
+		t.Fatal(err)
+	}
+	// The helper closes the socket only after it logs the accepted connection.
+	if _, err := conn.Read(make([]byte, 1)); !errors.Is(err, io.EOF) {
+		t.Fatalf("waiting for helper: %v", err)
+	}
+	got, err := os.ReadFile(logPath)
+	if err != nil || string(got) != "client\n" {
+		t.Fatalf("forwarded connections = %q, err = %v, want only the client", got, err)
+	}
+}
+
+func TestManagerBacksOffFailedStartAfterTemporaryProfileCleanup(t *testing.T) {
+	m := helperManager(t)
+	now := time.Now()
+	m.now = func() time.Time { return now }
+	factory := m.command
+	starts := 0
+	m.command = func(name string, args ...string) *exec.Cmd {
+		starts++
+		cmd := factory(name, args...)
+		cmd.Env = append(cmd.Env, "REBASE_SSM_HELPER_FAIL=1")
+		return cmd
+	}
+	p := ssmProfile()
+	p.ID = "first-test"
+	if _, err := m.ResolveEndpoint(context.Background(), p); err == nil {
+		t.Fatal("expected startup failure")
+	}
+	m.CloseProfile(p.ID)
+	p.ID = "second-test"
+	if _, err := m.ResolveEndpoint(context.Background(), p); err == nil || !strings.Contains(err.Error(), "IAM") {
+		t.Fatalf("expected original sanitized failure during backoff, got %v", err)
+	}
+	if starts != 1 {
+		t.Fatalf("started %d processes during backoff, want 1", starts)
+	}
+	now = now.Add(2 * time.Second)
+	_, _ = m.ResolveEndpoint(context.Background(), p)
+	if starts != 2 {
+		t.Fatalf("first backoff did not expire: got %d starts", starts)
+	}
+	now = now.Add(3 * time.Second)
+	if _, err := m.ResolveEndpoint(context.Background(), p); err == nil || !strings.Contains(err.Error(), "1초 후") {
+		t.Fatalf("second failure should back off for 4 seconds: %v", err)
+	}
+	if starts != 2 {
+		t.Fatalf("started %d processes during second backoff, want 2", starts)
+	}
+}
+
+func TestManagerCapsStartsAcrossTemporaryProfiles(t *testing.T) {
+	m := helperManager(t)
+	now := time.Now()
+	m.now = func() time.Time { return now }
+	p := ssmProfile()
+	for i := 0; i < 5; i++ {
+		p.ID = fmt.Sprint(i)
+		if _, err := m.ResolveEndpoint(context.Background(), p); err != nil {
+			t.Fatal(err)
+		}
+		m.CloseProfile(p.ID)
+	}
+	p.ID = "sixth"
+	if _, err := m.ResolveEndpoint(context.Background(), p); err == nil {
+		t.Fatal("sixth start on the same route within a minute should be limited")
+	}
+	now = now.Add(time.Minute)
+	if _, err := m.ResolveEndpoint(context.Background(), p); err != nil {
+		t.Fatalf("start window did not reset: %v", err)
 	}
 }
 func helperManager(t *testing.T) *Manager {
@@ -174,26 +278,22 @@ func TestManagerStartupFailureIsSanitized(t *testing.T) {
 	}
 }
 
-func TestStartupRequiresReadinessAndOpenPort(t *testing.T) {
-	for _, mode := range []string{"REBASE_SSM_HELPER_NO_LISTENER", "REBASE_SSM_HELPER_NO_READY"} {
-		t.Run(mode, func(t *testing.T) {
-			m := helperManager(t)
-			factory := m.command
-			var cmd *exec.Cmd
-			m.command = func(name string, args ...string) *exec.Cmd {
-				cmd = factory(name, args...)
-				cmd.Env = append(cmd.Env, mode+"=1")
-				return cmd
-			}
-			ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
-			defer cancel()
-			if s, err := m.start(ctx, ssmProfile()); err == nil || s != nil {
-				t.Fatalf("unready tunnel returned: %v, %v", s, err)
-			}
-			if cmd.ProcessState == nil {
-				t.Fatal("timed-out startup did not wait for child exit")
-			}
-		})
+func TestStartupRequiresPluginReadiness(t *testing.T) {
+	m := helperManager(t)
+	factory := m.command
+	var cmd *exec.Cmd
+	m.command = func(name string, args ...string) *exec.Cmd {
+		cmd = factory(name, args...)
+		cmd.Env = append(cmd.Env, "REBASE_SSM_HELPER_NO_READY=1")
+		return cmd
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	if s, err := m.start(ctx, ssmProfile()); err == nil || s != nil {
+		t.Fatalf("unready tunnel returned: %v, %v", s, err)
+	}
+	if cmd.ProcessState == nil {
+		t.Fatal("timed-out startup did not wait for child exit")
 	}
 }
 
@@ -266,6 +366,8 @@ func TestCancelledWaiterDoesNotCancelSharedStartup(t *testing.T) {
 
 func TestProfileIsolationAndStartupRetry(t *testing.T) {
 	m := helperManager(t)
+	now := time.Now()
+	m.now = func() time.Time { return now }
 	factory := m.command
 	m.command = func(name string, args ...string) *exec.Cmd {
 		cmd := factory(name, args...)
@@ -275,6 +377,7 @@ func TestProfileIsolationAndStartupRetry(t *testing.T) {
 	if _, err := m.ResolveEndpoint(context.Background(), ssmProfile()); err == nil {
 		t.Fatal("failed startup must surface an error")
 	}
+	now = now.Add(2 * time.Second)
 	m.command = factory
 	first, err := m.ResolveEndpoint(context.Background(), ssmProfile())
 	if err != nil {

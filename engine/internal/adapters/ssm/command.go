@@ -9,6 +9,8 @@ import (
 	"github.com/smlee/database-local-engine/engine/internal/domain"
 )
 
+const defaultDocumentName = "AWS-StartPortForwardingSessionToRemoteHost"
+
 func startSessionArgs(p domain.ConnectionProfile, localPort int) ([]string, error) {
 	if p.ConnectionMode != "ssm" {
 		return nil, errors.New("SSM connection mode is required")
@@ -30,7 +32,7 @@ func startSessionArgs(p domain.ConnectionProfile, localPort int) ([]string, erro
 	}
 	document := p.SSM.DocumentName
 	if document == "" {
-		document = "AWS-StartPortForwardingSessionToRemoteHost"
+		document = defaultDocumentName
 	}
 	args := []string{"ssm", "start-session", "--target", p.SSM.InstanceID, "--document-name", document, "--region", p.SSM.Region, "--parameters", string(parameters)}
 	if p.SSM.Profile != "" {
