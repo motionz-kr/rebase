@@ -68,6 +68,14 @@ func (c *PostgreSQLConnector) connect(ctx context.Context, p domain.ConnectionPr
 	dsn := fmt.Sprintf("host=%s port=%d user=%s password='%s' dbname=%s sslmode=%s connect_timeout=5",
 		p.Host, p.Port, p.Username, escapedPassword, database, sslMode)
 
+	if p.ConnectionMode == "ssm" {
+		connector, err := pqDriver.NewConnector(dsn)
+		if err != nil {
+			return nil, c.normalizeError(err)
+		}
+		connector.Dialer(adapters.SSMDialer{})
+		return sql.OpenDB(connector), nil
+	}
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		return nil, c.normalizeError(err)

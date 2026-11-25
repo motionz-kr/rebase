@@ -61,16 +61,28 @@ console.log('\nStarting session with SessionId: ' + sessionId);
 if (profile === 'startup-failure') { console.error('failed to establish data channel secret-e2e-token'); process.exit(1); }
 const sockets = new Set();
 const server = net.createServer((client) => {
+  if (profile === 'blocked') {
+    fs.appendFileSync(process.env.REBASE_E2E_SSM_LOG + '.connections', sessionId + '\n');
+    const payload = Buffer.from([0xff, 0x69, 0x04, ...Buffer.from("#HY000Host '192.0.2.10' is blocked")]);
+    client.end(Buffer.concat([Buffer.from([payload.length, 0, 0, 0]), payload]));
+    return;
+  }
   const upstream = net.connect(remotePort, '127.0.0.1');
   sockets.add(client); sockets.add(upstream);
   client.pipe(upstream); upstream.pipe(client);
   const close = () => { client.destroy(); upstream.destroy(); sockets.delete(client); sockets.delete(upstream); };
   client.on('error', close); upstream.on('error', close); client.on('close', close); upstream.on('close', close);
 });
-server.listen(port, '127.0.0.1', () => {
+const listen = () => server.listen(port, '127.0.0.1', () => {
   console.log('Port ' + port + ' opened for sessionId ' + sessionId + '.');
   console.log('Waiting for connections...');
 });
+if (profile === 'blocked') {
+  console.log('Waiting for connections...');
+  setTimeout(listen, 100);
+} else {
+  listen();
+}
 process.on('SIGTERM', () => { for (const socket of sockets) socket.destroy(); server.close(() => process.exit(0)); });
 `);
     fs.chmodSync(path.join(dir, 'aws'), 0o755);
@@ -158,17 +170,30 @@ test('SSM settings and actionable connection errors in the real app', async ({ f
   await expect(win.locator('.ssm-settings')).toHaveCount(0);
 });
 
-test('failed SSM startups terminate remote sessions on every connection test', async ({ firstWindow: win, fakeSSM }) => {
+test('failed SSM startup terminates its remote session and backs off', async ({ firstWindow: win, fakeSSM }) => {
   const form = await fillSSM(win, 'startup-failure');
-  for (let i = 1; i <= 3; i++) {
-    await form.getByRole('button', { name: 'Test', exact: true }).click();
-    await expect(form.locator('.alert.error')).toContainText('AWS SSM');
-    await expect(form.locator('.alert.error')).not.toContainText('secret-e2e-token');
-    await expect.poll(() => fakeSSM.records().length).toBe(i);
-    await expect.poll(() => fakeSSM.terminations().length).toBe(i);
-    expect(fakeSSM.activeSessions()).toEqual([]);
-  }
+  const testButton = form.getByRole('button', { name: 'Test', exact: true });
+  await testButton.click();
+  await expect(form.locator('.alert.error')).toContainText('AWS SSM');
+  await expect(form.locator('.alert.error')).not.toContainText('secret-e2e-token');
+  await expect.poll(() => fakeSSM.terminations().length).toBe(1);
+  await testButton.click();
+  await expect(form.locator('.alert.error')).toContainText('후 다시 시도');
+  expect(fakeSSM.records()).toHaveLength(1);
+  expect(fakeSSM.activeSessions()).toEqual([]);
   await win.screenshot({ path: test.info().outputPath('ssm-failed-startup-cleanup.png') });
+});
+
+test('MySQL 1129 displays recovery guidance and prevents another SSM connection', async ({ firstWindow: win, fakeSSM }) => {
+  const form = await fillSSM(win, 'blocked');
+  const testButton = form.getByRole('button', { name: 'Test', exact: true });
+  await testButton.click();
+  await expect(form.locator('.alert.error')).toContainText('관리자에게 host_cache 초기화를 요청');
+  await testButton.click();
+  await expect(form.locator('.alert.error')).toContainText('관리자에게 host_cache 초기화를 요청');
+  expect(fakeSSM.records()).toHaveLength(1);
+  expect(fs.readFileSync(fakeSSM.log + '.connections', 'utf8').trim().split('\n')).toHaveLength(1);
+  expect(fakeSSM.activeSessions()).toEqual([]);
 });
 
 for (const db of [
